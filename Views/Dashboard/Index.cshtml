@@ -1,0 +1,751 @@
+@model DashboardVM
+@{
+    ViewData["Title"] = "Dashboard";
+    ViewData["NavPage"] = "dashboard";
+    string Sc(string s) => s switch { "Approved"=>"badge-green","Rejected"=>"badge-red","Pending Approval"=>"badge-amber","Clarification Needed"=>"badge-purple","Draft"=>"badge-gray",_=>"badge-gray" };
+    string Pc(string p) => p switch { "Critical"=>"badge-red","High"=>"badge-amber","Medium"=>"badge-blue",_=>"badge-gray" };
+    string Sl(string s) => s switch { "Approved"=>"✅","Rejected"=>"❌","Pending Approval"=>"⏳","Clarification Needed"=>"💬","Draft"=>"📝",_=>"📌" };
+    string ShortStatus(string s) => s switch { "Pending Approval"=>"Pending","Clarification Needed"=>"Clarify",_=>s };
+    bool isAdmin = ViewBag.IsAdmin == true;
+    bool isApprover = ViewBag.IsApprover == true;
+    bool isViewOnly = ((string)(ViewBag.UserRole ?? "") == "View Only");
+    var displayedRecent = isAdmin ? Model.RecentRequests : Model.MyRecentRequests;
+    string defaultTab = "requests";
+}
+
+<style>
+  .dash-grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px; }
+  .dash-grid-3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px; margin-bottom:16px; }
+  .dash-grid-main { display:grid; grid-template-columns:3fr 2fr; gap:16px; margin-bottom:16px; }
+  .metric-row { display:grid; grid-template-columns:repeat(6,1fr); gap:12px; margin-bottom:16px; }
+  .my-metric-row { display:grid; grid-template-columns:repeat(5,1fr); gap:10px; margin-bottom:16px; }
+  @@media(max-width:1100px) {
+    .dash-grid-2 { grid-template-columns:1fr; }
+    .dash-grid-3 { grid-template-columns:1fr 1fr; }
+    .dash-grid-main { grid-template-columns:1fr; }
+    .metric-row { grid-template-columns:repeat(3,1fr); }
+    .my-metric-row { grid-template-columns:repeat(3,1fr); }
+  }
+  .pbar { height:6px; background:var(--bg2,#f1f5f9); border-radius:4px; overflow:hidden; }
+  .pbar-fill { height:100%; background:var(--pri,#2563eb); border-radius:4px; transition:width .5s; }
+  .trend-bar-wrap { flex:1; height:14px; background:var(--bg2,#f1f5f9); border-radius:4px; overflow:hidden; }
+  .trend-bar-fill { height:100%; background:var(--pri,#2563eb); border-radius:4px; transition:width .5s; }
+  .activity-item { display:flex; gap:10px; padding:9px 14px; border-bottom:1px solid var(--bg,#f8fafc); align-items:flex-start; }
+  .activity-item:last-child { border-bottom:none; }
+  .req-item { display:flex; align-items:center; gap:10px; padding:9px 14px; border-bottom:1px solid var(--bg,#f8fafc); text-decoration:none; color:inherit; transition:background .15s; }
+  .req-item:hover { background:var(--bg,#f8fafc); }
+  .req-item:last-child { border-bottom:none; }
+
+  /* ── Tab bar ── */
+  .dash-tab-bar { display:flex; gap:0; border-bottom:2px solid var(--bg2,#f1f5f9); margin-bottom:18px; }
+  .dash-tab { padding:9px 20px; font-size:13px; font-weight:600; cursor:pointer; border:none; background:none;
+              border-bottom:2px solid transparent; margin-bottom:-2px; color:var(--txt3);
+              transition:color .15s, border-color .15s; display:flex; align-items:center; gap:6px; }
+  .dash-tab:hover { color:var(--txt1); }
+  .dash-tab.active { color:var(--pri,#2563eb); border-bottom-color:var(--pri,#2563eb); }
+  .dash-tab-badge { display:inline-flex; align-items:center; justify-content:center;
+                    background:#ef4444; color:#fff; border-radius:10px; padding:1px 7px;
+                    font-size:10px; font-weight:700; min-width:18px; }
+  .dash-tab-panel { display:none; }
+  .dash-tab-panel.active { display:block; }
+  .tab-loading { padding:60px; text-align:center; color:var(--txt3); font-size:13px; }
+</style>
+
+<div class="pg-hdr">
+  <div>
+    <div class="pg-title">Dashboard</div>
+    <div class="pg-sub" style="font-size:12px;color:var(--txt3);margin-top:2px">@DateTime.Now.ToString("dddd, dd MMMM yyyy") · India Standard Time</div>
+  </div>
+  <div class="pg-actions">
+    <a asp-controller="Requests" asp-action="Create" class="btn btn-acc">
+      <svg viewBox="0 0 24 24" style="width:15px;height:15px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      New Request
+    </a>
+  </div>
+</div>
+
+@* ── Alert banners ── *@
+@if (Model.MyPendingApprovals > 0)
+{
+  <div class="alert alert-wa" style="margin-bottom:10px">
+    <svg viewBox="0 0 24 24" style="width:16px;height:16px;flex-shrink:0"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+    You have <strong>@Model.MyPendingApprovals</strong> request@(Model.MyPendingApprovals > 1 ? "s" : "") awaiting your approval.
+    <a href="#" onclick="switchTab('approvals');return false;" style="margin-left:10px;font-weight:600">Review now ↓</a>
+  </div>
+}
+@if (Model.ClarificationItems.Any())
+{
+  <div class="alert" style="background:#f3e8ff;color:#7c3aed;border:1px solid #c4b5fd;border-radius:8px;padding:10px 14px;display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:13px">
+    <svg viewBox="0 0 24 24" style="width:16px;height:16px;flex-shrink:0"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+    <strong>@Model.ClarificationItemsTotal</strong> request@(Model.ClarificationItemsTotal > 1 ? "s need" : " needs") clarification.
+    <a href="#" onclick="switchTab('requests');return false;" style="margin-left:8px;font-weight:600;color:#7c3aed">View below ↓</a>
+  </div>
+}
+
+@* ── Tab Bar ── *@
+<div class="dash-tab-bar">
+  <button class="dash-tab" id="tab-btn-requests" onclick="switchTab('requests')">
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/>
+      <line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10,9 9,9 8,9"/>
+    </svg>
+    My Requests
+  </button>
+  <button class="dash-tab" id="tab-btn-approvals" onclick="switchTab('approvals')">
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="#d97706" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22,4 12,14.01 9,11.01"/>
+    </svg>
+    My Approvals
+    @if (Model.MyPendingApprovals > 0) { <span class="dash-tab-badge">@Model.MyPendingApprovals</span> }
+  </button>
+  @if (!isViewOnly)
+  {
+    <button class="dash-tab" id="tab-btn-territory" onclick="switchTab('territory')">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="#16a34a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/>
+      </svg>
+      My Territory
+    </button>
+  }
+  @if (isAdmin)
+  {
+    <button class="dash-tab" id="tab-btn-admin" onclick="switchTab('admin')" style="margin-left:auto">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="#7c3aed" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+        <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
+      </svg>
+      Admin Overview
+    </button>
+  }
+</div>
+
+@* ── Tab Panels ── *@
+
+<div class="dash-tab-panel" id="tab-requests">
+  <div class="tab-loading">Loading…</div>
+</div>
+
+<div class="dash-tab-panel" id="tab-approvals">
+  <div class="tab-loading">Loading…</div>
+</div>
+
+@if (!isViewOnly)
+{
+  <div class="dash-tab-panel" id="tab-territory">
+    <div class="tab-loading">Loading…</div>
+  </div>
+}
+
+@* Admin Overview Tab *@
+@if (isAdmin)
+{
+<div class="dash-tab-panel" id="tab-admin">
+
+  @* ── TOP METRIC CARDS ── *@
+  @if (isApprover)
+  {
+  <div class="metric-row" style="grid-template-columns:repeat(5,1fr)">
+    <a asp-controller="Requests" asp-action="MyApprovals" class="metric-card" style="--mc:#0f172a">
+      <div class="metric-num">@Model.AssignedToMeTotal</div>
+      <div class="metric-lbl">Total Assigned to Me</div>
+      <div class="metric-hint">All assigned</div>
+    </a>
+    <a asp-controller="Requests" asp-action="MyApprovals" class="metric-card" style="--mc:#d97706">
+      <div class="metric-num">@Model.AssignedToMePending</div>
+      <div class="metric-lbl">Pending Approvals</div>
+      <div class="metric-hint">Awaiting my action</div>
+    </a>
+    <a asp-controller="Requests" asp-action="Index" asp-route-FilterStatus="Approved" class="metric-card" style="--mc:#16a34a">
+      <div class="metric-num">@Model.ApprovedByMe</div>
+      <div class="metric-lbl">Approved by Me</div>
+      <div class="metric-hint">&nbsp;</div>
+    </a>
+    <a asp-controller="Requests" asp-action="Index" asp-route-FilterStatus="Rejected" class="metric-card" style="--mc:#dc2626">
+      <div class="metric-num">@Model.RejectedByMe</div>
+      <div class="metric-lbl">Rejected by Me</div>
+      <div class="metric-hint">&nbsp;</div>
+    </a>
+    <a asp-controller="Requests" asp-action="Index" asp-route-FilterStatus="Clarification Needed" class="metric-card" style="--mc:#7c3aed">
+      <div class="metric-num">@Model.ClarificationByMe</div>
+      <div class="metric-lbl">Clarification</div>
+      <div class="metric-hint">&nbsp;</div>
+    </a>
+  </div>
+  }
+  else if (isAdmin)
+  {
+  <div class="metric-row">
+    <a asp-controller="Requests" asp-action="Index" class="metric-card" style="--mc:#0f172a">
+      <div class="metric-num">@Model.Total</div>
+      <div class="metric-lbl">Total Requests</div>
+      <div class="metric-hint">All time</div>
+    </a>
+    <a asp-controller="Requests" asp-action="Index" asp-route-FilterStatus="Pending Approval" class="metric-card" style="--mc:#d97706">
+      <div class="metric-num">@Model.PendingApproval</div>
+      <div class="metric-lbl">Pending Approval</div>
+      <div class="metric-hint">₹@Model.TotalAmountPending.ToString("N0") value</div>
+    </a>
+    <a asp-controller="Requests" asp-action="Index" asp-route-FilterStatus="Approved" class="metric-card" style="--mc:#16a34a">
+      <div class="metric-num">@Model.Approved</div>
+      <div class="metric-lbl">Approved</div>
+      <div class="metric-hint">₹@Model.TotalAmountApproved.ToString("N0") value</div>
+    </a>
+    <a asp-controller="Requests" asp-action="Index" asp-route-FilterStatus="Rejected" class="metric-card" style="--mc:#dc2626">
+      <div class="metric-num">@Model.Rejected</div>
+      <div class="metric-lbl">Rejected</div>
+      <div class="metric-hint">&nbsp;</div>
+    </a>
+    <a asp-controller="Requests" asp-action="Index" asp-route-FilterStatus="Draft" class="metric-card" style="--mc:#475569">
+      <div class="metric-num">@Model.Draft</div>
+      <div class="metric-lbl">Draft</div>
+      <div class="metric-hint">&nbsp;</div>
+    </a>
+    <a asp-controller="Requests" asp-action="Index" asp-route-FilterStatus="Clarification Needed" class="metric-card" style="--mc:#7c3aed">
+      <div class="metric-num">@Model.ClarificationNeeded</div>
+      <div class="metric-lbl">Clarification</div>
+      <div class="metric-hint">&nbsp;</div>
+    </a>
+  </div>
+  }
+  else
+  {
+  <div class="metric-row" style="grid-template-columns:repeat(5,1fr)">
+    <a asp-controller="Requests" asp-action="Index" class="metric-card" style="--mc:#0f172a">
+      <div class="metric-num">@Model.MyTotal</div>
+      <div class="metric-lbl">My Total Requests</div>
+      <div class="metric-hint">&nbsp;</div>
+    </a>
+    <a asp-controller="Requests" asp-action="Index" asp-route-FilterStatus="Pending Approval" class="metric-card" style="--mc:#d97706">
+      <div class="metric-num">@Model.MyPending</div>
+      <div class="metric-lbl">My Pending Requests</div>
+      <div class="metric-hint">&nbsp;</div>
+    </a>
+    <a asp-controller="Requests" asp-action="Index" asp-route-FilterStatus="Approved" class="metric-card" style="--mc:#16a34a">
+      <div class="metric-num">@Model.MyApproved</div>
+      <div class="metric-lbl">My Approved Requests</div>
+      <div class="metric-hint">&nbsp;</div>
+    </a>
+    <a asp-controller="Requests" asp-action="Index" asp-route-FilterStatus="Rejected" class="metric-card" style="--mc:#dc2626">
+      <div class="metric-num">@Model.MyRejected</div>
+      <div class="metric-lbl">My Rejected Requests</div>
+      <div class="metric-hint">&nbsp;</div>
+    </a>
+    <a asp-controller="Requests" asp-action="Index" asp-route-FilterStatus="Clarification Needed" class="metric-card" style="--mc:#7c3aed">
+      <div class="metric-num">@Model.MyClarification</div>
+      <div class="metric-lbl">My Clarification</div>
+      <div class="metric-hint">&nbsp;</div>
+    </a>
+  </div>
+  }
+
+  @* ── ROW 1: My Pending Approvals + Activity Feed ── *@
+  <div class="dash-grid-main" id="pendingApprovals">
+    <div class="card">
+      <div class="card-hdr">
+        <svg viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22,4 12,14.01 9,11.01"/></svg>
+        My Pending Approvals
+        @if (Model.MyPendingApprovals > 0) { <span class="badge badge-amber">@Model.MyPendingApprovals</span> }
+        <div class="card-hdr-right"><a asp-controller="Requests" asp-action="MyApprovals" class="btn btn-ghost btn-sm">View all →</a></div>
+      </div>
+      @if (Model.MyPendingApprovalRequests.Any())
+      {
+        <div class="tbl-wrap">
+          <table class="tbl">
+            <thead>
+              <tr><th>Req #</th><th>Title</th><th>Requestor</th><th>Priority</th><th>Step</th><th>Age</th><th></th></tr>
+            </thead>
+            <tbody>
+              @foreach (var item in Model.MyPendingApprovalRequests)
+              {
+                var age = (int)(DateTimeOffset.UtcNow - (item.SubmittedAt ?? item.UpdatedAt)).TotalDays;
+                <tr>
+                  <td style="font-family:monospace;font-size:11px;font-weight:600">@item.RequestNumber</td>
+                  <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">@item.Title</td>
+                  <td style="color:var(--txt2);font-size:12px">@item.RequestorName</td>
+                  <td><span class="badge @Pc(item.Priority)">@item.Priority</span></td>
+                  <td style="text-align:center;font-weight:700;font-size:12px">L@(item.StepLevel)</td>
+                  <td style="font-size:11px;color:@(age>5?"var(--ng)":"var(--txt3)")">@age d</td>
+                  <td><a asp-controller="Requests" asp-action="Detail" asp-route-id="@item.RequestId" class="btn btn-acc btn-sm">Review →</a></td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+      else
+      {
+        <div class="tbl-empty" style="padding:30px;text-align:center;color:var(--txt3)">🎉 No pending approvals</div>
+      }
+    </div>
+
+    <div class="card">
+      <div class="card-hdr">
+        <svg viewBox="0 0 24 24" style="width:15px;height:15px"><polyline points="22,12 18,12 15,21 9,3 6,12 2,12"/></svg>
+        @(isAdmin ? "Recent Activity" : "My Recent Activity")
+        <div class="card-hdr-right"><a asp-controller="Requests" asp-action="Index" class="btn btn-ghost btn-sm">View all</a></div>
+      </div>
+      <div style="max-height:340px;overflow-y:auto">
+        @foreach (var log in Model.ActivityFeed)
+        {
+          <div class="activity-item">
+            <div style="font-size:16px;flex-shrink:0;margin-top:1px">@log.ActionIcon</div>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+                <a asp-controller="Requests" asp-action="Detail" asp-route-id="@log.RequestId" style="color:inherit;text-decoration:none">@log.Title</a>
+              </div>
+              <div style="font-size:11px;color:var(--txt3)">
+                <strong style="color:var(--txt2)">@log.ActorName</strong> · @log.ActionLabel
+                @if (!string.IsNullOrEmpty(log.Comment)) { <span style="color:var(--txt3)"> — "@log.Comment"</span> }
+              </div>
+            </div>
+            <div style="font-size:10px;color:var(--txt3);white-space:nowrap;flex-shrink:0;text-align:right">
+              @log.CreatedAt.ToString("dd MMM")<br/>@log.CreatedAt.ToString("hh:mm tt")
+            </div>
+          </div>
+        }
+        @if (!Model.ActivityFeed.Any())
+        { <div class="tbl-empty" style="padding:30px;text-align:center">No activity yet</div> }
+      </div>
+    </div>
+  </div>
+
+  @* ── ROW 2: My Recent Requests + Urgent Pending ── *@
+  <div class="dash-grid-2">
+    <div class="card">
+      <div class="card-hdr">
+        <svg viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>
+        My Recent Requests
+        <div class="card-hdr-right"><a asp-controller="Requests" asp-action="Index" class="btn btn-ghost btn-sm">View all</a></div>
+      </div>
+      @foreach (var r in Model.MyRecentRequests)
+      {
+        <a asp-controller="Requests" asp-action="Detail" asp-route-id="@r.RequestId" class="req-item">
+          <span style="font-size:15px">@Sl(r.Status)</span>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">@r.Title</div>
+            <div style="font-size:11px;color:var(--txt3)">@r.RequestTypeName · @r.UpdatedAt.ToString("dd MMM, hh:mm tt")</div>
+          </div>
+          <span class="badge @Sc(r.Status)" style="flex-shrink:0">@ShortStatus(r.Status)</span>
+        </a>
+      }
+      @if (!Model.MyRecentRequests.Any())
+      { <div class="tbl-empty" style="padding:30px;text-align:center;color:var(--txt3)">No requests yet. <a asp-controller="Requests" asp-action="Create">Create one →</a></div> }
+    </div>
+
+    <div class="card">
+      <div class="card-hdr">
+        <svg viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        @(isAdmin ? "Urgent Pending" : "My Urgent Pending")
+        @if (Model.UrgentPending.Any()) { <span class="badge badge-red" style="margin-left:auto">@Model.UrgentPending.Count</span> }
+      </div>
+      @foreach (var r in Model.UrgentPending)
+      {
+        <a asp-controller="Requests" asp-action="Detail" asp-route-id="@r.RequestId" class="req-item">
+          <span class="badge @Pc(r.Priority)" style="flex-shrink:0">@r.Priority</span>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">@r.Title</div>
+            <div style="font-size:11px;color:var(--txt3)">@r.RequestorName · @r.LocationName</div>
+          </div>
+          <span style="font-size:11px;color:var(--txt3);white-space:nowrap">@r.UpdatedAt.ToString("dd MMM")</span>
+        </a>
+      }
+      @if (!Model.UrgentPending.Any())
+      { <div class="tbl-empty" style="padding:30px;text-align:center">🎉 No urgent items!</div> }
+    </div>
+  </div>
+
+  @* ── ROW 3: Clarification Needed ── *@
+  @if (Model.ClarificationItems.Any())
+  {
+    <div class="card" style="margin-bottom:16px" id="clarification">
+      <div class="card-hdr" style="color:#7c3aed">
+        <svg viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+        Needs Clarification@(isAdmin ? "" : " (Mine)")
+        <span class="badge" style="background:#f3e8ff;color:#7c3aed;margin-left:auto">@Model.ClarificationItemsTotal</span>
+      </div>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Req #</th><th>Title</th><th>Requestor</th><th>Type</th><th>Updated</th><th></th></tr></thead>
+          <tbody>
+            @foreach (var r in Model.ClarificationItems)
+            {
+              <tr>
+                <td style="font-family:monospace;font-size:11px;font-weight:600">@r.RequestNumber</td>
+                <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">@r.Title</td>
+                <td style="font-size:12px;color:var(--txt2)">@r.RequestorName</td>
+                <td style="font-size:12px">@r.RequestTypeName</td>
+                <td style="font-size:11px;color:var(--txt3)">@r.UpdatedAt.ToString("dd MMM, hh:mm tt")</td>
+                <td><a asp-controller="Requests" asp-action="Detail" asp-route-id="@r.RequestId" class="btn btn-ghost btn-sm">Open →</a></td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  }
+
+  @* ── ROW 4: By Type + By Priority + Monthly Trend (Admin only) ── *@
+  @if (isAdmin)
+  {
+  <div class="dash-grid-3">
+    <div class="card">
+      <div class="card-hdr">
+        <svg viewBox="0 0 24 24" style="width:15px;height:15px"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        By Request Type
+      </div>
+      <div class="card-body">
+        @foreach (var kv in Model.ByType.OrderByDescending(x => x.Value))
+        {
+          var pct = Model.Total > 0 ? kv.Value * 100.0 / Model.Total : 0;
+          <div style="margin-bottom:10px">
+            <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
+              <span style="color:var(--txt2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:130px">@kv.Key</span>
+              <span style="font-weight:600;white-space:nowrap">@kv.Value <span style="font-weight:400;color:var(--txt3)">(@pct.ToString("F0")%)</span></span>
+            </div>
+            <div class="pbar"><div class="pbar-fill" style="width:@pct%"></div></div>
+          </div>
+        }
+        @if (!Model.ByType.Any()) { <div style="color:var(--txt3);font-size:12px;text-align:center;padding:20px">No data yet</div> }
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-hdr">
+        <svg viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+        Pending by Priority
+      </div>
+      <div class="card-body">
+        @{
+          var priColors = new Dictionary<string,string>{ {"Critical","#dc2626"},{"High","#d97706"},{"Medium","#2563eb"},{"Low","#475569"} };
+          int priTotal = Model.ByPriority.Values.Sum();
+        }
+        @foreach (var kv in new[]{"Critical","High","Medium","Low"})
+        {
+          var cnt = Model.ByPriority.GetValueOrDefault(kv, 0);
+          var pct = priTotal > 0 ? cnt * 100.0 / priTotal : 0;
+          var col = priColors.GetValueOrDefault(kv, "#475569");
+          <div style="margin-bottom:10px">
+            <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
+              <span style="color:var(--txt2)">@kv</span>
+              <span style="font-weight:600;color:@col">@cnt</span>
+            </div>
+            <div style="height:6px;background:var(--bg2,#f1f5f9);border-radius:4px;overflow:hidden">
+              <div style="height:100%;width:@pct%;background:@col;border-radius:4px;transition:width .5s"></div>
+            </div>
+          </div>
+        }
+        @if (priTotal == 0) { <div style="color:var(--txt3);font-size:12px;text-align:center;padding:20px">No pending requests</div> }
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-hdr">
+        <svg viewBox="0 0 24 24" style="width:15px;height:15px"><polyline points="23,6 13.5,15.5 8.5,10.5 1,18"/><polyline points="17,6 23,6 23,12"/></svg>
+        Monthly Trend (6 months)
+      </div>
+      <div class="card-body">
+        @if (Model.MonthlyTrend.Any())
+        {
+          var maxVal = Model.MonthlyTrend.Values.Max();
+          @foreach (var kv in Model.MonthlyTrend)
+          {
+            var parts = kv.Key.Split('-');
+            var label = new DateTime(int.Parse(parts[0]), int.Parse(parts[1]), 1).ToString("MMM yy");
+            var pct   = maxVal > 0 ? kv.Value * 100.0 / maxVal : 0;
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:12px">
+              <span style="width:48px;flex-shrink:0;color:var(--txt3)">@label</span>
+              <div class="trend-bar-wrap"><div class="trend-bar-fill" style="width:@pct%"></div></div>
+              <span style="width:24px;text-align:right;font-weight:600">@kv.Value</span>
+            </div>
+          }
+        }
+        else { <div style="color:var(--txt3);font-size:12px;text-align:center;padding:20px">No data yet</div> }
+      </div>
+    </div>
+  </div>
+  }
+
+  @* ── ROW 5: By Location + By Department (Admin only) ── *@
+  @if (isAdmin)
+  {
+  <div class="dash-grid-2">
+    <div class="card">
+      <div class="card-hdr">
+        <svg viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+        By Location
+      </div>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Location</th><th>Total</th><th>Pending</th><th>Approved</th><th>Rejected</th></tr></thead>
+          <tbody>
+            @foreach (var loc in Model.ByLocation.OrderByDescending(l => l.Total))
+            {
+              <tr>
+                <td style="font-weight:500;font-size:12px">@loc.LocationName</td>
+                <td style="font-weight:600">@loc.Total</td>
+                <td style="color:var(--wa);font-weight:600">@loc.Pending</td>
+                <td style="color:var(--ok);font-weight:600">@loc.Approved</td>
+                <td style="color:var(--ng);font-weight:600">@loc.Rejected</td>
+              </tr>
+            }
+            @if (!Model.ByLocation.Any()) { <tr><td colspan="5" class="tbl-empty">No data</td></tr> }
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-hdr">
+        <svg viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/></svg>
+        By Department
+      </div>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Department</th><th>Total</th><th>Pending</th><th>Approved</th><th>Rejected</th></tr></thead>
+          <tbody>
+            @foreach (var dept in Model.ByDepartment)
+            {
+              <tr>
+                <td style="font-weight:500;font-size:12px">@dept.DeptName</td>
+                <td style="font-weight:600">@dept.Total</td>
+                <td style="color:var(--wa);font-weight:600">@dept.Pending</td>
+                <td style="color:var(--ok);font-weight:600">@dept.Approved</td>
+                <td style="color:var(--ng);font-weight:600">@dept.Rejected</td>
+              </tr>
+            }
+            @if (!Model.ByDepartment.Any()) { <tr><td colspan="5" class="tbl-empty">No data</td></tr> }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  }
+
+  @* ── ROW 6: Recent Requests ── *@
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-hdr">
+      <svg viewBox="0 0 24 24" style="width:15px;height:15px"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>
+      @(isAdmin ? "All Recent Requests" : "My Recent Requests")
+      <div class="card-hdr-right"><a asp-controller="Requests" asp-action="Index" class="btn btn-ghost btn-sm">View all →</a></div>
+    </div>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <thead><tr><th>Req #</th><th>Title</th><th>Type</th><th>Requestor</th><th>Location</th><th>Priority</th><th>Status</th><th>Updated</th><th></th></tr></thead>
+        <tbody>
+          @foreach (var r in displayedRecent)
+          {
+            <tr>
+              <td style="font-family:monospace;font-size:11px;font-weight:600">@r.RequestNumber</td>
+              <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">@r.Title</td>
+              <td style="font-size:11px;color:var(--txt2)">@r.RequestTypeName</td>
+              <td style="font-size:12px">@r.RequestorName</td>
+              <td style="font-size:11px;color:var(--txt2)">@r.LocationName</td>
+              <td><span class="badge @Pc(r.Priority)">@r.Priority</span></td>
+              <td><span class="badge @Sc(r.Status)">@ShortStatus(r.Status)</span></td>
+              <td style="font-size:11px;color:var(--txt3)">@r.UpdatedAt.ToString("dd MMM, hh:mm tt")</td>
+              <td><a asp-controller="Requests" asp-action="Detail" asp-route-id="@r.RequestId" class="btn btn-ghost btn-sm">Open</a></td>
+            </tr>
+          }
+          @if (!displayedRecent.Any()) { <tr><td colspan="9" class="tbl-empty">No requests yet</td></tr> }
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+
+  @* ── ROW 7: Summary Tables (By Type / Priority / Location / Department) ── *@
+  @if (isAdmin)
+  {
+  <div style="margin-bottom:6px;display:flex;align-items:center;gap:8px">
+    <svg viewBox="0 0 24 24" style="width:15px;height:15px;flex-shrink:0;stroke:var(--pri,#2563eb);fill:none;stroke-width:2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="9" x2="9" y2="21"/></svg>
+    <span style="font-size:13px;font-weight:700;color:var(--txt1)">Status Summary</span>
+    <span style="font-size:11px;color:var(--txt3)">— Live breakdown by category and workflow status</span>
+  </div>
+
+  <div id="summary-tables-wrap">
+    <div class="dash-grid-2">
+      <div class="card" id="summary-card-type">
+        <div class="card-hdr">
+          <svg viewBox="0 0 24 24" style="width:15px;height:15px"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          By Request Type
+        </div>
+        <div id="summary-type-body" class="tbl-wrap"><div class="tab-loading">Loading…</div></div>
+      </div>
+      <div class="card" id="summary-card-priority">
+        <div class="card-hdr">
+          <svg viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+          By Priority
+        </div>
+        <div id="summary-priority-body" class="tbl-wrap"><div class="tab-loading">Loading…</div></div>
+      </div>
+    </div>
+    <div class="dash-grid-2">
+      <div class="card" id="summary-card-location">
+        <div class="card-hdr">
+          <svg viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+          By Location
+        </div>
+        <div id="summary-location-body" class="tbl-wrap"><div class="tab-loading">Loading…</div></div>
+      </div>
+      <div class="card" id="summary-card-dept">
+        <div class="card-hdr">
+          <svg viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/></svg>
+          By Department
+        </div>
+        <div id="summary-dept-body" class="tbl-wrap"><div class="tab-loading">Loading…</div></div>
+      </div>
+    </div>
+  </div>
+
+  <style>
+    .sum-tbl { width:100%; border-collapse:collapse; font-size:12px; }
+    .sum-tbl th { padding:7px 10px; text-align:left; font-weight:600; font-size:11px;
+                  color:var(--txt3); border-bottom:1px solid var(--bg2,#f1f5f9); white-space:nowrap; cursor:pointer; user-select:none; }
+    .sum-tbl th:hover { color:var(--txt1); }
+    .sum-tbl th .sort-arrow { display:inline-block; margin-left:3px; opacity:.4; font-size:9px; }
+    .sum-tbl th.sorted-asc .sort-arrow::after  { content:'▲'; opacity:1; }
+    .sum-tbl th.sorted-desc .sort-arrow::after { content:'▼'; opacity:1; }
+    .sum-tbl th:not(.sorted-asc):not(.sorted-desc) .sort-arrow::after { content:'⇅'; }
+    .sum-tbl td { padding:7px 10px; border-bottom:1px solid var(--bg,#f8fafc); vertical-align:middle; }
+    .sum-tbl tr:last-child td { border-bottom:none; }
+    .sum-tbl tr:hover td { background:var(--bg,#f8fafc); }
+    .sum-tbl .cat-cell { font-weight:500; color:var(--txt1); max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .sum-num-pending  { font-weight:700; color:#d97706; }
+    .sum-num-approved { font-weight:700; color:#16a34a; }
+    .sum-num-rejected { font-weight:700; color:#dc2626; }
+    .sum-num-clarif   { font-weight:700; color:#7c3aed; }
+    .sum-empty        { padding:28px; text-align:center; color:var(--txt3); font-size:12px; }
+  </style>
+
+  <script>
+  (function () {
+    function buildTable(rows, labelHeader) {
+      if (!rows || rows.length === 0)
+        return '<div class="sum-empty">No data available</div>';
+
+      var html = '<table class="sum-tbl" data-sort-col="0" data-sort-dir="asc">';
+      html += '<thead><tr>';
+      html += '<th class="sorted-asc" data-col="0">' + labelHeader + '<span class="sort-arrow"></span></th>';
+      html += '<th data-col="1">Pending<span class="sort-arrow"></span></th>';
+      html += '<th data-col="2">Approved<span class="sort-arrow"></span></th>';
+      html += '<th data-col="3">Rejected<span class="sort-arrow"></span></th>';
+      html += '<th data-col="4">Clarification<span class="sort-arrow"></span></th>';
+      html += '</tr></thead><tbody>';
+
+      rows.forEach(function (r) {
+        html += '<tr>';
+        html += '<td class="cat-cell" title="' + r.categoryName + '">' + r.categoryName + '</td>';
+        html += '<td class="sum-num-pending">'  + r.pendingCount       + '</td>';
+        html += '<td class="sum-num-approved">' + r.approvedCount      + '</td>';
+        html += '<td class="sum-num-rejected">' + r.rejectedCount      + '</td>';
+        html += '<td class="sum-num-clarif">'   + r.clarificationCount + '</td>';
+        html += '</tr>';
+      });
+      html += '</tbody></table>';
+      return html;
+    }
+
+    function attachSort(container) {
+      var tbl = container.querySelector('table.sum-tbl');
+      if (!tbl) return;
+      tbl.querySelectorAll('th[data-col]').forEach(function (th) {
+        th.addEventListener('click', function () {
+          var col = parseInt(th.getAttribute('data-col'));
+          var curCol = parseInt(tbl.getAttribute('data-sort-col'));
+          var curDir = tbl.getAttribute('data-sort-dir');
+          var newDir = (col === curCol && curDir === 'asc') ? 'desc' : 'asc';
+          tbl.setAttribute('data-sort-col', col);
+          tbl.setAttribute('data-sort-dir', newDir);
+          tbl.querySelectorAll('th').forEach(function (h) { h.classList.remove('sorted-asc', 'sorted-desc'); });
+          th.classList.add('sorted-' + newDir);
+
+          var tbody = tbl.querySelector('tbody');
+          var rows = Array.from(tbody.querySelectorAll('tr'));
+          rows.sort(function (a, b) {
+            var aVal = a.cells[col].textContent.trim();
+            var bVal = b.cells[col].textContent.trim();
+            var aNum = parseFloat(aVal);
+            var bNum = parseFloat(bVal);
+            var cmp = isNaN(aNum) ? aVal.localeCompare(bVal) : aNum - bNum;
+            return newDir === 'asc' ? cmp : -cmp;
+          });
+          rows.forEach(function (r) { tbody.appendChild(r); });
+        });
+      });
+    }
+
+    function setBody(id, html) {
+      var el = document.getElementById(id);
+      if (el) { el.innerHTML = html; attachSort(el); }
+    }
+
+    function errBody(id) {
+      var el = document.getElementById(id);
+      if (el) el.innerHTML = '<div class="sum-empty" style="color:var(--ng)">Failed to load. <a href="#" onclick="loadSummaries();return false">Retry</a></div>';
+    }
+
+    window.loadSummaries = function () {
+      fetch('/Dashboard/GetSummaries', { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          setBody('summary-type-body',     buildTable(d.byType,       'Request Type'));
+          setBody('summary-priority-body', buildTable(d.byPriority,   'Priority'));
+          setBody('summary-location-body', buildTable(d.byLocation,   'Location'));
+          setBody('summary-dept-body',     buildTable(d.byDepartment, 'Department'));
+        })
+        .catch(function () {
+          ['summary-type-body','summary-priority-body','summary-location-body','summary-dept-body']
+            .forEach(errBody);
+        });
+    };
+
+  })();
+  </script>
+  }
+
+</div>@* end tab-admin *@
+}
+
+@* ── Tab switching + lazy-load JS ── *@
+<script>
+(function () {
+  const loaded = new Set(@Html.Raw(isAdmin ? "['admin']" : "[]"));
+  const defaultTab = '@defaultTab';
+
+  function activateTab(tab) {
+    document.querySelectorAll('.dash-tab').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.dash-tab-panel').forEach(p => p.classList.remove('active'));
+    const btn = document.getElementById('tab-btn-' + tab);
+    const panel = document.getElementById('tab-' + tab);
+    if (btn) btn.classList.add('active');
+    if (panel) panel.classList.add('active');
+  }
+
+  window.switchTab = function (tab) {
+    if (loaded.has(tab)) {
+      activateTab(tab);
+    } else {
+      activateTab(tab);
+      fetch('/Dashboard/TabData?tab=' + tab, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then(function (r) { return r.text(); })
+        .then(function (html) {
+          const panel = document.getElementById('tab-' + tab);
+          if (panel) { panel.innerHTML = html; }
+          loaded.add(tab);
+        })
+        .catch(function () {
+          const panel = document.getElementById('tab-' + tab);
+          if (panel) panel.innerHTML = '<div class="tab-loading" style="color:var(--ng)">Failed to load. <a href="#" onclick="loaded.delete(\'' + tab + '\');switchTab(\'' + tab + '\');return false">Retry</a></div>';
+        });
+    }
+    // Trigger summary tables the first time Admin Overview tab opens
+    if (tab === 'admin' && typeof window.loadSummaries === 'function' && !window._summariesLoaded) {
+      window._summariesLoaded = true;
+      window.loadSummaries();
+    }
+  };
+
+  // Activate default tab on page load
+  switchTab(defaultTab);
+})();
+</script>

@@ -1,0 +1,101 @@
+@model MyTerritoryTabVM
+@{
+    string Sc(string s) => s switch { "Approved"=>"badge-green","Rejected"=>"badge-red","Open"=>"badge-blue","Partial Approved"=>"badge-sky","Clarification Needed"=>"badge-purple","Draft"=>"badge-gray","Deleted"=>"badge-dark",_=>"badge-gray" };
+    string ShortStatus(string s) => s switch { "Partial Approved"=>"Part. Approved","Clarification Needed"=>"Clarify",_=>s };
+    int stTotal = Model.ByStatus.Values.Sum();
+}
+
+@* ── KPI Cards ── *@
+<div class="metric-row" style="grid-template-columns:repeat(5,1fr)">
+  <a asp-controller="Requests" asp-action="Index" class="metric-card" style="--mc:#7c3aed">
+    <div class="metric-num">@Model.TotalInTerritory</div>
+    <div class="metric-lbl">Total Request</div>
+    <div class="metric-hint">Dept &amp; Location</div>
+  </a>
+  <a asp-controller="Requests" asp-action="Index" asp-route-FilterStatus="Open" class="metric-card" style="--mc:#d97706">
+    <div class="metric-num">@Model.Pending</div>
+    <div class="metric-lbl">Pending Request</div>
+    <div class="metric-hint">&nbsp;</div>
+  </a>
+  <a asp-controller="Requests" asp-action="Index" asp-route-FilterStatus="Approved" class="metric-card" style="--mc:#16a34a">
+    <div class="metric-num">@Model.Approved</div>
+    <div class="metric-lbl">Approved</div>
+    <div class="metric-hint">&nbsp;</div>
+  </a>
+  <a asp-controller="Requests" asp-action="Index" asp-route-FilterStatus="Rejected" class="metric-card" style="--mc:#dc2626">
+    <div class="metric-num">@Model.Rejected</div>
+    <div class="metric-lbl">Rejected</div>
+    <div class="metric-hint">&nbsp;</div>
+  </a>
+  <a asp-controller="Requests" asp-action="Index" asp-route-FilterStatus="Clarification Needed" class="metric-card" style="--mc:#7c3aed">
+    <div class="metric-num">@Model.Clarification</div>
+    <div class="metric-lbl">Clarification</div>
+    <div class="metric-hint">&nbsp;</div>
+  </a>
+  <a asp-controller="Requests" asp-action="Index" asp-route-FilterStatus="Partial Approved" class="metric-card" style="--mc:#0369a1">
+    <div class="metric-num">@(Model.ByStatus.GetValueOrDefault("Partial Approved"))</div>
+    <div class="metric-lbl">Partial Approved</div>
+    <div class="metric-hint">&nbsp;</div>
+  </a>
+</div>
+
+@if (Model.TotalInTerritory == 0)
+{
+  <div class="card" style="padding:40px;text-align:center;color:var(--txt3)">
+    <div style="font-size:32px;margin-bottom:8px">🗺️</div>
+    <div style="font-size:14px;font-weight:600;margin-bottom:4px">No territory data</div>
+    <div style="font-size:12px">You have no departments or locations assigned. Contact your administrator.</div>
+  </div>
+}
+else
+{
+@* ── Summary Tables ── *@
+<div class="dash-grid-2" style="margin-bottom:16px">
+  @await Html.PartialAsync("_SummaryTable", new SummaryTableVM {
+      Title = "By Request Type", LabelHeader = "Request Type",
+      Icon  = "<svg viewBox='0 0 24 24' style='width:15px;height:15px' fill='none' stroke='currentColor' stroke-width='2'><rect x='3' y='3' width='7' height='7'/><rect x='14' y='3' width='7' height='7'/><rect x='14' y='14' width='7' height='7'/><rect x='3' y='14' width='7' height='7'/></svg>",
+      Rows  = Model.ByTypeSummary })
+  @await Html.PartialAsync("_SummaryTable", new SummaryTableVM {
+      Title = "By Priority", LabelHeader = "Priority",
+      Icon  = "<svg viewBox='0 0 24 24' style='width:15px;height:15px' fill='none' stroke='currentColor' stroke-width='2'><path d='M22 12h-4l-3 9L9 3l-3 9H2'/></svg>",
+      Rows  = Model.ByPrioritySummary })
+</div>
+<div class="dash-grid-2" style="margin-bottom:16px">
+  @await Html.PartialAsync("_SummaryTable", new SummaryTableVM {
+      Title = "By Location", LabelHeader = "Location",
+      Icon  = "<svg viewBox='0 0 24 24' style='width:15px;height:15px' fill='none' stroke='currentColor' stroke-width='2'><path d='M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z'/><circle cx='12' cy='10' r='3'/></svg>",
+      Rows  = Model.ByLocationSummary })
+  @await Html.PartialAsync("_SummaryTable", new SummaryTableVM {
+      Title = "By Department", LabelHeader = "Department",
+      Icon  = "<svg viewBox='0 0 24 24' style='width:15px;height:15px' fill='none' stroke='currentColor' stroke-width='2'><path d='M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z'/><polyline points='9,22 9,12 15,12 15,22'/></svg>",
+      Rows  = Model.ByDepartmentSummary })
+</div>
+
+@* ── By Status (kept) ── *@
+<div class="dash-grid-2" style="margin-bottom:16px">
+  <div class="card">
+    <div class="card-hdr">
+      <svg viewBox="0 0 24 24" style="width:15px;height:15px"><polyline points="22,12 18,12 15,21 9,3 6,12 2,12"/></svg>
+      By Status
+    </div>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <thead><tr><th>Status</th><th>Count</th><th>%</th></tr></thead>
+        <tbody>
+          @foreach (var kv in Model.ByStatus.OrderByDescending(x => x.Value))
+          {
+            var pct = stTotal > 0 ? kv.Value * 100.0 / stTotal : 0;
+            <tr>
+              <td><span class="badge @Sc(kv.Key)">@ShortStatus(kv.Key)</span></td>
+              <td style="font-weight:600">@kv.Value</td>
+              <td style="font-size:11px;color:var(--txt3)">@pct.ToString("F0")%</td>
+            </tr>
+          }
+          @if (!Model.ByStatus.Any()) { <tr><td colspan="3" class="tbl-empty">No data</td></tr> }
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div></div>
+</div>
+}

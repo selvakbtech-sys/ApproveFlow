@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir /s /b)",
+      "Bash(cd \"/c/Source/Final Source/ApproveFlow.MVC\" && ls -la)",
+      "Bash(cd /c/Source/\"Final Source\"/ApproveFlow.MVC && grep -r \"class RequestFormVM\\\\|class UserFormVM\" --include=\"*.cs\" .)"
+    ]
+  }
+}

@@ -1,0 +1,166 @@
+@model AgingReportVM
+@{
+    ViewData["Title"] = "Aging Report";
+    ViewData["NavPage"] = "aging";
+    string Pc(string p) => p switch{"Critical"=>"badge-red","High"=>"badge-amber","Medium"=>"badge-blue",_=>"badge-gray"};
+    string AgeCls(int d) => d<=3?"age-0":d<=7?"age-4":d<=14?"age-8":d<=30?"age-15":"age-30";
+}
+
+<div class="pg-hdr">
+  <div><div class="pg-title">Aging Report</div><div class="pg-sub">Open requests pending approval — IST</div></div>
+</div>
+
+<div class="metric-grid">
+  <div class="metric-card" style="--mc:#0f172a;cursor:default">
+    <div class="metric-num">@Model.TotalOpen</div>
+    <div class="metric-lbl">Open Requests</div>
+  </div>
+  <div class="metric-card" style="--mc:@(Model.AvgAge>7?"#d97706":"#16a34a");cursor:default">
+    <div class="metric-num">@Model.AvgAge<span style="font-size:18px;font-weight:600">d</span></div>
+    <div class="metric-lbl">Avg Age</div>
+  </div>
+  <div class="metric-card" style="--mc:@(Model.MaxAge>14?"#dc2626":"#d97706");cursor:default">
+    <div class="metric-num">@Model.MaxAge<span style="font-size:18px;font-weight:600">d</span></div>
+    <div class="metric-lbl">Oldest</div>
+  </div>
+  <div class="metric-card" style="--mc:#0f172a;cursor:default">
+    <div class="metric-num" style="font-size:22px">₹@Model.TotalValue.ToString("N0")</div>
+    <div class="metric-lbl">Total Value</div>
+  </div>
+</div>
+
+<form method="get" asp-action="Aging">
+  <div class="filter-bar">
+    <div class="f-group">
+      <label class="f-lbl">Status</label>
+      <select name="FilterStatus" class="f-ctrl">
+        <option value="">All Open</option>
+        @foreach (var s in new[]{"Open","Partial Approved","Clarification Needed"})
+        { <option value="@s" selected="@(Model.FilterStatus==s)">@s</option> }
+      </select>
+    </div>
+    <div class="f-group">
+      <label class="f-lbl">Location</label>
+      <select name="FilterLocationId" class="f-ctrl">
+        <option value="">All</option>
+                @foreach (var l in Model.Locations)
+                {
+                    if (Model.FilterLocationId == l.LocationId)
+                    {
+                        <option value="@l.LocationId" selected>
+                            @l.LocationName
+                        </option>
+                    }
+                    else
+                    {
+                        <option value="@l.LocationId">
+                            @l.LocationName
+                        </option>
+                    }
+                }
+       @*  @foreach (var l in Model.Locations) { <option value="@l.LocationId" @(Model.FilterLocationId==l.LocationId?"selected":"")>@l.LocationName</option> } *@
+      </select>
+    </div>
+    <div class="f-group">
+      <label class="f-lbl">Department</label>
+      <select name="FilterDeptId" class="f-ctrl">
+        <option value="">All</option>
+                @foreach (var l in Model.Departments)
+                {
+                    if (Model.FilterDeptId == l.DepartmentId)
+                    {
+                        <option value="@l.DepartmentId" selected>
+                            @l.DeptName
+                        </option>
+                    }
+                    else
+                    {
+                        <option value="@l.DepartmentId">
+                            @l.DeptName
+                        </option>
+                    }
+                }
+        @* @foreach (var d in Model.Departments) { <option value="@d.DepartmentId" @(Model.FilterDeptId==d.DepartmentId?"selected":"")>@d.DeptName</option> } *@
+      </select>
+    </div>
+    <div class="f-group">
+      <label class="f-lbl">Request Type</label>
+      <select name="FilterTypeId" class="f-ctrl">
+        <option value="">All</option>
+                @foreach (var l in Model.RequestTypes)
+                {
+                    if (Model.FilterTypeId == l.RequestTypeId)
+                    {
+                        <option value="@l.RequestTypeId" selected>
+                            @l.TypeName
+                        </option>
+                    }
+                    else
+                    {
+                        <option value="@l.RequestTypeId">
+                            @l.TypeName
+
+                        </option>
+                    }
+                }
+        @* @foreach (var t in Model.RequestTypes) { <option value="@t.RequestTypeId" @(Model.FilterTypeId==t.RequestTypeId?"selected":"")>@t.TypeName</option> } *@
+      </select>
+    </div>
+    <div class="f-group">
+      <label class="f-lbl">Priority</label>
+      <select name="FilterPriority" class="f-ctrl">
+                 @foreach (var p in new[]{"Low","Medium","High","Critical"}) { <option value="@p" >@p</option> } 
+        @* @foreach (var p in new[]{"Low","Medium","High","Critical"}) { <option value="@p" @(Model.FilterPriority==p?"selected":"")>@p</option> } *@
+      </select>
+    </div>
+    <div class="f-group">
+      <label class="f-lbl">Sort By</label>
+      <select name="SortBy" class="f-ctrl">
+          <option value="age">Age ↓</option>
+        <option value="priority" >Priority</option>
+        <option value="amount" >Amount ↓</option> 
+       @*  <option value="age" @(Model.SortBy=="age"?"selected":"")>Age ↓</option>
+        <option value="priority" @(Model.SortBy=="priority"?"selected":"")>Priority</option>
+        <option value="amount" @(Model.SortBy=="amount"?"selected":"")>Amount ↓</option> *@
+      </select>
+    </div>
+    <div style="display:flex;gap:6px;align-items:flex-end">
+      <button type="submit" class="btn btn-pri btn-sm">Filter</button>
+      <a asp-action="Aging" class="btn btn-sec btn-sm">Clear</a>
+    </div>
+  </div>
+</form>
+
+<div class="card">
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <thead>
+        <tr><th>Request #</th><th>Title</th><th>Requestor</th><th>Type</th><th>Amount</th><th>Priority</th><th>Status</th><th>Created</th><th>Age</th><th class="r">Actions</th></tr>
+      </thead>
+      <tbody>
+        @if (!Model.Items.Any())
+        {
+          <tr><td colspan="10" class="tbl-empty">@(Model.TotalOpen==0?"🎉 No open requests!":"No results match the filters.")</td></tr>
+        }
+        @foreach (var r in Model.Items)
+        {
+          <tr>
+            <td><span class="mono" style="background:var(--bg);padding:2px 6px;border-radius:4px">@r.RequestNumber</span></td>
+            <td style="max-width:180px">
+              <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">@r.Title</div>
+              <div style="font-size:11px;color:var(--txt3)">@r.DeptName</div>
+            </td>
+            <td style="font-size:12px">@r.RequestorName</td>
+            <td style="font-size:12px">@r.RequestTypeName</td>
+            <td style="font-weight:600">@(r.Amount.HasValue?"₹"+r.Amount.Value.ToString("N0"):"—")</td>
+            <td><span class="badge @Pc(r.Priority)">@r.Priority</span></td>
+            <td><span class="badge badge-amber">@r.Status</span></td>
+            <td style="font-size:11px;color:var(--txt3)">@r.CreatedAt.ToString("dd MMM")</td>
+            <td><span class="@AgeCls(r.AgeDays)">@r.AgeDays d</span></td>
+            <td class="r"><a asp-controller="Requests" asp-action="Detail" asp-route-id="@r.RequestId" class="btn btn-sec btn-sm">View →</a></td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+</div>

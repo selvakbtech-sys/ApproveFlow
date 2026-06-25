@@ -1,0 +1,338 @@
+@model RequestFormVM
+@{
+    ViewData["Title"] = "Request Details";
+    ViewData["NavPage"] = "requests";
+    string Sc(string s) => s switch{"Approved"=>"badge-green","Rejected"=>"badge-red","Open"=>"badge-blue","Partial Approved"=>"badge-sky","Clarification Needed"=>"badge-amber","Draft"=>"badge-gray","Deleted"=>"badge-dark",_=>"badge-gray"};
+    string Pc(string p) => p switch{"Critical"=>"badge-red","High"=>"badge-amber","Medium"=>"badge-blue",_=>"badge-gray"};
+    string SCls(string s) => s switch{"approved"=>"sn-ok","rejected"=>"sn-ng","pending"=>"sn-wa","clarification"=>"sn-cl",_=>"sn-wait"};
+    string TlCls(string a) => a switch{"approved"=>"tl-approved","rejected"=>"tl-rejected","clarification"=>"tl-clarification","submitted"=>"tl-submitted",_=>"tl-saved_draft"};
+    string TlIco(string a) => a switch{"approved"=>"✓","rejected"=>"✕","clarification"=>"?","submitted"=>"↑",_=>"·"};
+    string TlLbl(string a) => a switch{"approved"=>"approved the request","rejected"=>"rejected the request","clarification"=>"requested clarification","submitted"=>"submitted for approval","saved_draft"=>"saved as draft","deleted"=>"deleted the request",_=>a};
+    var tab = Model.ActiveTab ?? "details";
+}
+
+<div class="pg-hdr">
+  <div>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <div class="pg-title">@Model.RequestNumber</div>
+      <span class="badge @Sc(Model.Status)">@Model.Status</span>
+      <span class="badge @Pc(Model.Priority)">@Model.Priority</span>
+    </div>
+    <div class="pg-sub" style="font-size:20px;font-weight:700;color:var(--txt1)">@Model.Title</div>
+  </div>
+  <div class="pg-actions">
+    <a asp-action="Index" class="btn btn-sec btn-sm">← Back</a>
+    @if (Model.Status == "Draft" || Model.Status == "Clarification Needed")
+    {
+      <a asp-action="Edit" asp-route-id="@Model.RequestId" class="btn btn-sec btn-sm">Edit</a>
+      <form asp-action="Submit" asp-route-id="@Model.RequestId" method="post" style="display:inline">
+        @Html.AntiForgeryToken()
+        <button type="submit" class="btn btn-acc btn-sm"
+          onclick="return confirm('Submit for approval?')">
+          <svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22,2 15,22 11,13 2,9 22,2"/></svg>
+          Submit
+        </button>
+      </form>
+    }
+    @if (ViewBag.CanDelete == true)
+    {
+      @if (Model.Status == "Open")
+      {
+        <form asp-action="Delete" asp-route-id="@Model.RequestId" method="post" style="display:inline">
+          @Html.AntiForgeryToken()
+          <button type="submit" class="btn btn-ng btn-sm"
+            onclick="return confirm('Delete request @Model.RequestNumber? This cannot be undone.')">
+            Delete
+          </button>
+        </form>
+      }
+      else
+      {
+        <button type="button" class="btn btn-ng btn-sm"
+          onclick="alert('Only requests with OPEN status can be deleted.')">
+          Delete
+        </button>
+      }
+    }
+  </div>
+</div>
+
+<div class="tabs">
+  <a asp-action="Detail" asp-route-id="@Model.RequestId" asp-route-tab="details"   class="tab @(tab=="details"?"active":"")">Details</a>
+  <a asp-action="Detail" asp-route-id="@Model.RequestId" asp-route-tab="approval"  class="tab @(tab=="approval"?"active":"")">Approval Chain <span class="tab-cnt">@Model.ApprovalChain.Count</span></a>
+  <a asp-action="Detail" asp-route-id="@Model.RequestId" asp-route-tab="history"   class="tab @(tab=="history"?"active":"")">History <span class="tab-cnt">@Model.ActionLog.Count</span></a>
+  <a asp-action="Detail" asp-route-id="@Model.RequestId" asp-route-tab="documents" class="tab @(tab=="documents"?"active":"")">Documents <span class="tab-cnt">@Model.TotalDocumentCount</span></a>
+</div>
+
+@if (tab == "details")
+{
+  <div style="display:grid;grid-template-columns:1fr 320px;gap:16px;align-items:start">
+    <div class="card">
+      <div style="padding:16px 18px;border-bottom:1px solid var(--bdr)">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--txt3);margin-bottom:14px">Request Information</div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:16px">
+          <div><div class="info-lbl">Amount</div><div class="info-val" style="font-size:15px;font-weight:700">@(Model.Amount.HasValue?"₹"+Model.Amount.Value.ToString("N2"):"—")</div></div>
+          <div><div class="info-lbl">Request Type</div><div class="info-val">@Model.RequestTypeName</div></div>
+          <div><div class="info-lbl">Department</div><div class="info-val">@Model.DeptName</div></div>
+          <div><div class="info-lbl">Location</div><div class="info-val">@Model.LocationName</div></div>
+        </div>
+        <div style="border-top:1px solid var(--bg2);padding-top:14px;display:grid;grid-template-columns:repeat(4,1fr);gap:16px">
+          <div><div class="info-lbl">Requestor</div><div class="info-val">@Model.RequestorName</div></div>
+          <div><div class="info-lbl">Requested On</div><div class="info-val">@Model.CreatedAt.ToString("dd MMM yyyy hh:mm tt")</div></div>
+        </div>
+      </div>
+      @if (!string.IsNullOrEmpty(Model.Description))
+      {
+        <div style="padding:14px 18px;border-bottom:1px solid var(--bdr)">
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--txt3);margin-bottom:8px">Description</div>
+          <div style="font-size:13px;color:var(--txt2);line-height:1.7;background:var(--bg);border:1px solid var(--bdr);border-radius:var(--r);padding:10px 13px">@Model.Description</div>
+        </div>
+      }
+      @if (!string.IsNullOrEmpty(Model.Notes))
+      {
+        <div style="padding:14px 18px">
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--txt3);margin-bottom:8px">Notes</div>
+          <div style="font-size:13px;color:var(--txt2);line-height:1.7">@Model.Notes</div>
+        </div>
+      }
+    </div>
+
+    <div>
+      @if (Model.CanAct)
+      {
+        <div class="card" style="border:2px solid var(--wa);margin-bottom:14px">
+          <div class="card-hdr" style="background:var(--wa-bg);border-bottom-color:var(--wa-bdr)">
+            <svg viewBox="0 0 24 24" style="stroke:var(--wa)"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" stroke-width="2"/><line x1="12" y1="9" x2="12" y2="13" stroke-width="2"/><line x1="12" y1="17" x2="12.01" y2="17" stroke-width="2"/></svg>
+            <span style="color:var(--wa)">
+              Your Action Required — Level @Model.CurrentActingStep
+              @{ var actingStepInfo = Model.ApprovalChain.FirstOrDefault(s => s.StepLevel == Model.CurrentActingStep); }
+              @if (actingStepInfo != null)
+              { <span style="font-weight:400;font-size:12px"> · @actingStepInfo.ApproverRole</span> }
+            </span>
+          </div>
+          <div class="card-body">
+            <form asp-action="Action" asp-route-id="@Model.RequestId" method="post" enctype="multipart/form-data">
+              @Html.AntiForgeryToken()
+              <div class="form-group" style="margin-bottom:12px">
+                <label class="lbl">Comment</label>
+                <textarea name="comment" class="inp" rows="3" placeholder="Required for rejection/clarification…"></textarea>
+              </div>
+              <div class="form-group" style="margin-bottom:12px">
+                <label class="lbl">Attachment <span style="font-weight:400;color:var(--txt3)">(Optional)</span></label>
+                <input type="file" name="approvalFile" class="inp" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png" />
+                <div class="hint">PDF, Word, Excel, JPG/PNG — max 20 MB</div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:8px">
+                <button type="submit" name="action" value="approved" class="btn btn-ok" style="justify-content:center">
+                  <svg viewBox="0 0 24 24"><polyline points="20,6 9,17 4,12" stroke-width="2.5"/></svg>Approve
+                </button>
+                <button type="submit" name="action" value="clarification" class="btn btn-wa" style="justify-content:center">
+                  <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>Request Clarification
+                </button>
+                <button type="submit" name="action" value="rejected" class="btn btn-ng" style="justify-content:center"
+                  onclick="return confirm('Reject this request?')">
+                  <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" stroke-width="2.5"/><line x1="6" y1="6" x2="18" y2="18" stroke-width="2.5"/></svg>Reject
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      }
+
+      <div class="card">
+        <div class="card-hdr">
+          <svg viewBox="0 0 24 24"><polyline points="22,12 18,12 15,21 9,3 6,12 2,12"/></svg>
+          Approval Progress
+        </div>
+        <div class="card-body">
+          @if (!Model.ApprovalChain.Any())
+          { <div style="font-size:12px;color:var(--txt3);text-align:center">Not yet submitted</div> }
+          <div class="chain">
+            @foreach (var step in Model.ApprovalChain)
+            {
+              <div class="chain-step @(step.Status=="waiting"?"waiting":"")">
+                <div class="snum @SCls(step.Status)">@step.StepLevel</div>
+                <div style="flex:1;min-width:0">
+                  <div class="step-name">@step.ApproverRole</div>
+                  <div style="font-size:10px;color:var(--txt3);margin-bottom:3px">Level @step.StepLevel</div>
+                  @if (!string.IsNullOrEmpty(step.Comment))
+                  { <div class="step-cmt">"@step.Comment"</div> }
+                </div>
+                <span class="badge @(step.Status switch{"approved"=>"badge-green","rejected"=>"badge-red","pending"=>"badge-amber","clarification"=>"badge-amber",_=>"badge-gray"})">
+                  @(step.Status switch{"approved"=>"Approved","rejected"=>"Rejected","pending"=>"Pending","clarification"=>"Clarify",_=>"Waiting"})
+                </span>
+              </div>
+            }
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+}
+
+@if (tab == "approval")
+{
+  <div style="max-width:640px">
+    <div class="card">
+      <div class="card-body">
+        @if (!Model.ApprovalChain.Any())
+        { <div class="tbl-empty">Approval chain appears after submission.</div> }
+        <div class="chain">
+          @foreach (var step in Model.ApprovalChain)
+          {
+            <div class="chain-step @(step.Status=="waiting"?"waiting":"")">
+              <div class="snum @SCls(step.Status)">@step.StepLevel</div>
+              <div style="flex:1;min-width:0">
+                <div class="step-name">@step.ApproverRole</div>
+                <div style="font-size:10px;color:var(--txt3);margin-bottom:2px">Level @step.StepLevel</div>
+                @if (step.ActionAt.HasValue)
+                { <div style="font-size:11px;color:var(--txt3)">@step.ActionAt.Value.ToString("dd MMM yyyy, hh:mm tt") IST</div> }
+                @if (!string.IsNullOrEmpty(step.Comment))
+                { <div class="step-cmt">"@step.Comment"</div> }
+              </div>
+              <span class="badge @(step.Status switch{"approved"=>"badge-green","rejected"=>"badge-red","pending"=>"badge-amber","clarification"=>"badge-amber",_=>"badge-gray"})">
+                @(step.Status switch{"approved"=>"Approved","rejected"=>"Rejected","pending"=>"Pending","clarification"=>"Clarify",_=>"Waiting"})
+              </span>
+            </div>
+          }
+        </div>
+      </div>
+    </div>
+  </div>
+}
+
+@if (tab == "history")
+{
+  <div style="max-width:640px">
+    <div class="card">
+      <div class="card-body">
+        @if (!Model.ActionLog.Any()) { <div class="tbl-empty">No history yet.</div> }
+        <div class="timeline">
+          @foreach (var log in Model.ActionLog)
+          {
+            <div class="tl-item">
+              <div class="tl-icon @TlCls(log.Action)">@TlIco(log.Action)</div>
+              <div class="tl-content">
+                <div class="tl-actor">@log.ActorName</div>
+                <div class="tl-meta">
+                  @TlLbl(log.Action)
+                  @if (log.StepLevel.HasValue) { <span> · Step @log.StepLevel</span> }
+                  · @log.CreatedAt.ToString("dd MMM yyyy, hh:mm tt") IST
+                </div>
+                @if (!string.IsNullOrEmpty(log.Comment))
+                { <div class="tl-comment">@log.Comment</div> }
+                @if (log.Attachments.Any())
+                {
+                  <div style="margin-top:6px">
+                    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--txt3);margin-bottom:5px">Attachments</div>
+                    @foreach (var att in log.Attachments)
+                    {
+                      <div style="display:flex;align-items:center;gap:7px;margin-bottom:4px">
+                        <svg viewBox="0 0 24 24" style="width:13px;height:13px;stroke:var(--in);fill:none;flex-shrink:0" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+                        <span style="font-size:12px;color:var(--txt1)">@att.FileName</span>
+                        @if (att.AttachmentType == "Requestor")
+                        {
+                          <a asp-action="Download" asp-route-id="@Model.RequestId" asp-route-docId="@att.Id" class="btn btn-sec btn-sm" style="padding:2px 8px;font-size:11px">Download</a>
+                        }
+                        else
+                        {
+                          <a asp-action="DownloadApproval" asp-route-id="@Model.RequestId" asp-route-attachmentId="@att.Id" class="btn btn-sec btn-sm" style="padding:2px 8px;font-size:11px">Download</a>
+                        }
+                      </div>
+                    }
+                  </div>
+                }
+              </div>
+            </div>
+          }
+        </div>
+      </div>
+    </div>
+  </div>
+}
+
+@if (tab == "documents")
+{
+  <div style="max-width:640px;display:flex;flex-direction:column;gap:14px">
+    @if (Model.Status == "Draft" || Model.Status == "Clarification Needed")
+    {
+      <div class="card">
+        <div class="card-hdr">
+          <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17,8 12,3 7,8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          Upload Document
+        </div>
+        <div class="card-body">
+          <form asp-action="Upload" asp-route-id="@Model.RequestId" method="post" enctype="multipart/form-data">
+            @Html.AntiForgeryToken()
+            <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+              <div class="form-group" style="flex:1">
+                <label class="lbl">File</label>
+                <input type="file" name="file" class="inp" accept=".pdf,.docx,.xlsx,.csv,.png,.jpg,.jpeg"/>
+              </div>
+              <button type="submit" class="btn btn-pri">Upload</button>
+            </div>
+            <div class="hint">PDF, Word, Excel, CSV, PNG/JPG — max 20 MB</div>
+          </form>
+        </div>
+      </div>
+    }
+    <div class="card">
+      <div class="card-hdr">
+        <svg viewBox="0 0 24 24"><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13,2 13,9 20,9"/></svg>
+        Requestor Attachments
+        <span class="tab-cnt" style="margin-left:auto">@Model.Documents.Count</span>
+      </div>
+      <div>
+        @if (!Model.Documents.Any()) { <div class="tbl-empty">No documents attached.</div> }
+        @foreach (var doc in Model.Documents)
+        {
+          <div style="display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--bg)">
+            <svg viewBox="0 0 24 24" style="width:18px;height:18px;stroke:var(--in);fill:none;flex-shrink:0"><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13,2 13,9 20,9"/></svg>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:12px;font-weight:600">@doc.FileName</div>
+              <div style="font-size:11px;color:var(--txt3)">@doc.FormattedSize · @doc.UploadedAt.ToString("dd MMM yyyy") · @doc.UploadedByName</div>
+            </div>
+            <div style="display:flex;gap:6px">
+              <a asp-action="Download" asp-route-id="@Model.RequestId" asp-route-docId="@doc.DocumentId" class="btn btn-sec btn-sm">Download</a>
+              @if (Model.Status == "Draft" || Model.Status == "Clarification Needed")
+              {
+                <form asp-action="DeleteDoc" asp-route-id="@Model.RequestId" asp-route-docId="@doc.DocumentId" method="post" style="display:inline">
+                  @Html.AntiForgeryToken()
+                  <button type="submit" class="btn btn-ng btn-sm" onclick="return confirm('Remove document?')">Remove</button>
+                </form>
+              }
+            </div>
+          </div>
+        }
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-hdr">
+        <svg viewBox="0 0 24 24"><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13,2 13,9 20,9"/></svg>
+        Approval Attachments
+        <span class="tab-cnt" style="margin-left:auto">@Model.ApprovalAttachments.Count</span>
+      </div>
+      <div>
+        @if (!Model.ApprovalAttachments.Any()) { <div class="tbl-empty">No approval attachments uploaded.</div> }
+        @foreach (var att in Model.ApprovalAttachments)
+        {
+          <div style="display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--bg)">
+            <svg viewBox="0 0 24 24" style="width:18px;height:18px;stroke:var(--ok);fill:none;flex-shrink:0"><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13,2 13,9 20,9"/></svg>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:12px;font-weight:600">@att.FileName</div>
+              <div style="font-size:11px;color:var(--txt3)">
+                Level @att.StepLevel ·
+                <span class="badge @(att.ActionType switch{"approved"=>"badge-green","rejected"=>"badge-red",_=>"badge-amber"})" style="font-size:10px;padding:1px 6px">
+                  @(att.ActionType switch{"approved"=>"Approved","rejected"=>"Rejected","clarification"=>"Clarification",_=>att.ActionType})
+                </span>
+                · @att.FormattedSize · @att.UploadedAt.ToString("dd MMM yyyy") · @att.UploadedByName
+              </div>
+            </div>
+            <a asp-action="DownloadApproval" asp-route-id="@Model.RequestId" asp-route-attachmentId="@att.AttachmentId" class="btn btn-sec btn-sm">Download</a>
+          </div>
+        }
+      </div>
+    </div>
+  </div>
+}

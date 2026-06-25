@@ -1,0 +1,55 @@
+@model NotifListVM
+@{ ViewData["Title"] = "Notifications"; ViewData["NavPage"] = ""; }
+
+<div class="pg-hdr">
+  <div><div class="pg-title">Notifications</div><div class="pg-sub">@Model.UnreadCount unread</div></div>
+  <div class="pg-actions">
+    @if (Model.UnreadCount > 0)
+    {
+      <form asp-action="MarkAll" method="post" style="display:inline">
+        @Html.AntiForgeryToken()
+        <button type="submit" class="btn btn-sec btn-sm">Mark all read</button>
+      </form>
+    }
+  </div>
+</div>
+
+<div class="tabs">
+  <a asp-action="Index" asp-route-tab="all"     class="tab @(Model.Tab=="all"?"active":"")">All <span class="tab-cnt">@Model.AllCount</span></a>
+  <a asp-action="Index" asp-route-tab="unread"  class="tab @(Model.Tab=="unread"?"active":"")">Unread <span class="tab-cnt">@Model.UnreadCount</span></a>
+  <a asp-action="Index" asp-route-tab="pending" class="tab @(Model.Tab=="pending"?"active":"")">Action Required</a>
+</div>
+
+<div class="card">
+  @if (!Model.Items.Any())
+  { <div class="tbl-empty" style="padding:48px">🔔 No notifications here.</div> }
+  @foreach (NotifItemVM n in Model.Items)
+  {
+    <div class="notif-item @(!n.IsRead?"unread":"")">
+      <div style="font-size:18px;flex-shrink:0">
+        @(n.NotificationType switch { "action_required"=>"⚡","approved"=>"✅","rejected"=>"❌","clarification"=>"💬",_=>"📢" })
+      </div>
+      <div style="flex:1;min-width:0">
+        <div class="notif-msg">@n.Message</div>
+        <div class="notif-meta">
+          @n.CreatedAt.ToString("dd MMM yyyy, hh:mm tt") IST
+          @if (!string.IsNullOrEmpty(n.RequestNumber) && n.RequestId.HasValue)
+          {
+            <span> · </span>
+            <a asp-controller="Requests" asp-action="Detail" asp-route-id="@n.RequestId">@n.RequestNumber →</a>
+          }
+        </div>
+      </div>
+      @if (!n.IsRead)
+      {
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px">
+          <div class="unread-dot"></div>
+          <form asp-action="MarkRead" asp-route-id="@n.NotificationId" method="post">
+            @Html.AntiForgeryToken()
+            <button type="submit" class="btn btn-ghost btn-sm" style="font-size:10px">Mark read</button>
+          </form>
+        </div>
+      }
+    </div>
+  }
+</div>

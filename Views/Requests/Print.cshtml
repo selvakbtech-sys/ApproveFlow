@@ -1,0 +1,290 @@
+@model RequestFormVM
+@{
+    Layout = null;
+    string Sc(string s) => s switch{"Approved"=>"#16a34a","Rejected"=>"#dc2626","Pending Approval"=>"#d97706","Clarification Needed"=>"#d97706","Draft"=>"#6b7280",_=>"#6b7280"};
+    string Pc(string p) => p switch{"Critical"=>"#dc2626","High"=>"#d97706","Medium"=>"#2563eb",_=>"#6b7280"};
+}
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8"/>
+    <title>@Model.RequestNumber — Print</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; color: #1a1a1a; background: #fff; padding: 15px; }
+        
+        .print-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 2px solid #1e40af; }
+        .company-name { font-size: 15px; font-weight: 700; color: #1e40af; }
+        .doc-title { font-size: 11px; color: #6b7280; margin-top: 2px; }
+        .request-id { font-size: 16px; font-weight: 700; color: #1e40af; text-align: right; }
+        .print-date { font-size: 10px; color: #6b7280; text-align: right; margin-top: 2px; }
+
+        .status-bar { display: flex; gap: 8px; margin-bottom: 8px; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 10px; font-weight: 600; color: #fff; }
+
+        .section { margin-bottom: 8px; }
+        .section-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: #6b7280; margin-bottom: 5px; padding-bottom: 3px; border-bottom: 1px solid #e5e7eb; }
+
+        .info-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+        .info-item { }
+        .info-lbl { font-size: 9px; color: #6b7280; margin-bottom: 1px; }
+        .info-val { font-size: 11px; font-weight: 500; color: #111; }
+        .info-val.amount { font-size: 13px; font-weight: 700; color: #1e40af; }
+
+        .text-box { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 4px; padding: 5px 8px; font-size: 11px; color: #374151; line-height: 1.4; }
+
+        .approval-table { width: 100%; border-collapse: collapse; }
+        .approval-table th { background: #f3f4f6; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: #6b7280; padding: 4px 8px; text-align: left; border: 1px solid #e5e7eb; }
+        .approval-table td { padding: 4px 8px; border: 1px solid #e5e7eb; font-size: 11px; vertical-align: middle; }
+        .approval-table tr:nth-child(even) td { background: #f9fafb; }
+
+        .history-table { width: 100%; border-collapse: collapse; }
+        .history-table th { background: #f3f4f6; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: #6b7280; padding: 4px 8px; text-align: left; border: 1px solid #e5e7eb; }
+        .history-table td { padding: 4px 8px; border: 1px solid #e5e7eb; font-size: 10px; }
+
+        .doc-table { width: 100%; border-collapse: collapse; }
+        .doc-table th { background: #f3f4f6; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: #6b7280; padding: 4px 8px; text-align: left; border: 1px solid #e5e7eb; }
+        .doc-table td { padding: 4px 8px; border: 1px solid #e5e7eb; font-size: 10px; }
+
+        .footer { margin-top: 8px; padding-top: 6px; border-top: 1px solid #e5e7eb; display: flex; justify-content: space-between; font-size: 9px; color: #9ca3af; }
+
+        .signature-section { margin-top: 10px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; }
+        .signature-box { border-top: 1px solid #374151; padding-top: 4px; }
+        .signature-lbl { font-size: 9px; color: #6b7280; }
+        .signature-name { font-size: 11px; font-weight: 600; margin-top: 2px; }
+
+        @@media print {
+            body { padding: 8px; }
+            .no-print { display: none !important; }
+            @@page { margin: 0.5cm; size: A4 portrait; }
+            html, body { height: 100%; }
+        }
+    </style>
+</head>
+<body>
+
+    @* Print buttons *@
+    <div class="no-print" style="margin-bottom:20px;display:flex;gap:10px">
+        <button onclick="window.print()" style="padding:8px 20px;background:#1e40af;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600">
+            🖨️ Print
+        </button>
+        <button onclick="window.close()" style="padding:8px 20px;background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;border-radius:6px;cursor:pointer;font-size:13px">
+            ✕ Close
+        </button>
+    </div>
+
+    @* Header *@
+    <div class="print-header">
+        <div>
+            <div class="company-name">ApproveFlow</div>
+            <div class="doc-title">Approval Request Document</div>
+        </div>
+        <div>
+            <div class="request-id">@Model.RequestNumber</div>
+            <div class="print-date">Printed: @DateTime.Now.ToString("dd MMM yyyy hh:mm tt")</div>
+        </div>
+    </div>
+
+    @* Status Bar *@
+    <div class="status-bar">
+        <span class="badge" style="background:@Sc(Model.Status)">@Model.Status</span>
+        <span class="badge" style="background:@Pc(Model.Priority)">@Model.Priority</span>
+        @if (Model.Amount.HasValue)
+        {
+            <span class="badge" style="background:#1e40af">₹@Model.Amount.Value.ToString("N2")</span>
+        }
+    </div>
+
+    @* Title *@
+    <div style="font-size:14px;font-weight:700;margin-bottom:8px;color:#111">@Model.Title</div>
+
+    @* Request Information *@
+    <div class="section">
+        <div class="section-title">Request Information</div>
+        <div class="info-grid">
+            <div class="info-item">
+                <div class="info-lbl">Request ID</div>
+                <div class="info-val">@Model.RequestNumber</div>
+            </div>
+            <div class="info-item">
+                <div class="info-lbl">Status</div>
+                <div class="info-val">@Model.Status</div>
+            </div>
+            <div class="info-item">
+                <div class="info-lbl">Priority</div>
+                <div class="info-val">@Model.Priority</div>
+            </div>
+            <div class="info-item">
+                <div class="info-lbl">Amount</div>
+                <div class="info-val amount">@(Model.Amount.HasValue ? "₹"+Model.Amount.Value.ToString("N2") : "—")</div>
+            </div>
+            <div class="info-item">
+                <div class="info-lbl">Requestor</div>
+                <div class="info-val">@Model.RequestorName</div>
+            </div>
+            <div class="info-item">
+                <div class="info-lbl">Department</div>
+                <div class="info-val">@Model.DeptName</div>
+            </div>
+            <div class="info-item">
+                <div class="info-lbl">Location</div>
+                <div class="info-val">@Model.LocationName</div>
+            </div>
+            <div class="info-item">
+                <div class="info-lbl">Request Type</div>
+                <div class="info-val">@Model.RequestTypeName</div>
+            </div>
+            @if (!string.IsNullOrEmpty(Model.MatchedWorkflowName))
+            {
+                <div class="info-item">
+                    <div class="info-lbl">Workflow</div>
+                    <div class="info-val">@Model.MatchedWorkflowName</div>
+                </div>
+            }
+            <div class="info-item">
+                <div class="info-lbl">Submitted</div>
+                <div class="info-val">@(Model.SubmittedAt.HasValue ? Model.SubmittedAt.Value.ToString("dd MMM yyyy hh:mm tt") : "—")</div>
+            </div>
+        </div>
+    </div>
+
+    @* Description *@
+    @if (!string.IsNullOrEmpty(Model.Description))
+    {
+        <div class="section">
+            <div class="section-title">Description / Justification</div>
+            <div class="text-box">@Model.Description</div>
+        </div>
+    }
+
+    @* Notes *@
+    @if (!string.IsNullOrEmpty(Model.Notes))
+    {
+        <div class="section">
+            <div class="section-title">Notes</div>
+            <div class="text-box">@Model.Notes</div>
+        </div>
+    }
+
+    @* Approval Chain *@
+    @if (Model.ApprovalChain != null && Model.ApprovalChain.Any())
+    {
+        <div class="section">
+            <div class="section-title">Approval Chain</div>
+            <table class="approval-table">
+                <thead>
+                    <tr>
+                        <th>Level</th>
+                        <th>Approver</th>
+                        <th>Role</th>
+                        <th>Status</th>
+                        <th>Action Date</th>
+                        <th>Comments</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var step in Model.ApprovalChain.OrderBy(s => s.StepLevel))
+                    {
+                        <tr>
+                            <td style="font-weight:600;text-align:center">@step.StepLevel</td>
+                            <td>@step.ApproverName</td>
+                            <td style="font-size:11px;color:#6b7280">@step.ApproverRole</td>
+                            <td>
+                                <span style="color:@(step.Status=="approved"?"#16a34a":step.Status=="rejected"?"#dc2626":step.Status=="pending"?"#d97706":"#6b7280");font-weight:600;text-transform:capitalize">
+                                    @step.Status
+                                </span>
+                            </td>
+                            <td style="font-size:11px">@(step.ActionAt.HasValue ? step.ActionAt.Value.ToString("dd MMM yyyy hh:mm tt") : "—")</td>
+                            <td style="font-size:12px;color:#374151">@(string.IsNullOrEmpty(step.Comment) ? "—" : step.Comment)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+
+    @* Action History *@
+    @if (Model.ActionLog != null && Model.ActionLog.Any())
+    {
+        <div class="section">
+            <div class="section-title">Action History</div>
+            <table class="history-table">
+                <thead>
+                    <tr>
+                        <th>Date & Time</th>
+                        <th>Action By</th>
+                        <th>Action</th>
+                        <th>Comments</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var log in Model.ActionLog.OrderByDescending(l => l.CreatedAt))
+                    {
+                        <tr>
+                            <td style="white-space:nowrap">@log.CreatedAt.ToString("dd MMM yyyy hh:mm tt")</td>
+                            <td>@log.ActorName</td>
+                            <td style="text-transform:capitalize;font-weight:600">@log.Action</td>
+                            <td>@(string.IsNullOrEmpty(log.Comment) ? "—" : log.Comment)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+
+    @* Documents *@
+    @if (Model.Documents != null && Model.Documents.Any())
+    {
+        <div class="section">
+            <div class="section-title">Attachments</div>
+            <table class="doc-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>File Name</th>
+                        <th>Size</th>
+                        <th>Uploaded By</th>
+                        <th>Upload Date</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @{ int docIdx = 1; }
+                    @foreach (var doc in Model.Documents)
+                    {
+                        <tr>
+                            <td>@docIdx</td>
+                            <td>@doc.FileName</td>
+                            <td>@doc.FormattedSize</td>
+                            <td>@doc.UploadedByName</td>
+                            <td>@doc.UploadedAt.ToString("dd MMM yyyy")</td>
+                        </tr>
+                        docIdx++;
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+
+    @* Signature Section *@
+    <div class="signature-section">
+        <div class="signature-box">
+            <div class="signature-lbl">Prepared By</div>
+            <div class="signature-name">@Model.RequestorName</div>
+        </div>
+        @foreach (var step in (Model.ApprovalChain ?? new List<ApproverStepVM>()).OrderBy(s => s.StepLevel).Take(2))
+        {
+            <div class="signature-box">
+                <div class="signature-lbl">Level @step.StepLevel Approver</div>
+                <div class="signature-name">@step.ApproverName</div>
+            </div>
+        }
+    </div>
+
+    @* Footer *@
+    <div class="footer">
+        <span>ApproveFlow — Approval Management System</span>
+        <span>@Model.RequestNumber | Generated: @DateTime.Now.ToString("dd MMM yyyy hh:mm tt")</span>
+    </div>
+
+</body>
+</html>

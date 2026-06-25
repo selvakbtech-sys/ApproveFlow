@@ -1,0 +1,244 @@
+@model WorkflowFormVM
+@{
+    bool isEdit = Model.WorkflowId > 0;
+    ViewData["Title"] = isEdit ? "Edit Workflow" : "New Workflow";
+    ViewData["NavPage"] = "workflows";
+
+    // Build distinct role list from all active users — shows all roles including newly created ones
+    var distinctRoles = Model.Approvers
+        .Select(u => u.Role.RoleName)
+        .Distinct()
+        .OrderBy(r => r)
+        .ToList();
+}
+<div class="pg-hdr"><div><div class="pg-title">@ViewData["Title"]</div><div class="pg-sub">Define matching criteria and approval steps</div></div><a asp-action="Index" class="btn btn-sec">← Back</a></div>
+
+<form asp-action="Save" method="post" id="wfForm">
+  @Html.AntiForgeryToken()
+  <input type="hidden" asp-for="WorkflowId"/>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start">
+
+    <div class="card">
+      <div class="card-hdr"><svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22,4 12,14.01 9,11.01"/></svg>Matching Criteria</div>
+      <div class="card-body">
+        <div class="form-group" style="margin-bottom:12px">
+          <label class="lbl">Workflow Name <span class="req">*</span></label>
+          <input asp-for="WorkflowName" class="inp" placeholder="e.g. Finance High-Priority Budget Approval"/>
+          <span asp-validation-for="WorkflowName" class="field-validation-error"></span>
+        </div>
+        @* Show server-side validation errors including duplicate workflow alert *@
+        <div asp-validation-summary="ModelOnly" class="alert alert-err" style="margin-bottom:12px"></div>
+
+        <div class="alert alert-in" style="font-size:12px;margin-bottom:12px">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+          Leave any field as <strong>Any</strong> to match broadly. More specific workflows win when multiple match.
+        </div>
+        <div class="form-grid fg2">
+          <div class="form-group">
+            <label class="lbl">Location</label>
+            <select asp-for="LocationId" class="inp">
+              <option value="">Any Location</option>
+              @foreach (var l in Model.Locations)
+              {
+                if (Model.LocationId == l.LocationId)
+                { <option value="@l.LocationId" selected="selected">@l.LocationName</option> }
+                else
+                { <option value="@l.LocationId">@l.LocationName</option> }
+              }
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="lbl">Request Type</label>
+            <select asp-for="RequestTypeId" class="inp">
+              <option value="">Any Type</option>
+              @foreach (var t in Model.RequestTypes)
+              {
+                if (Model.RequestTypeId == t.RequestTypeId)
+                { <option value="@t.RequestTypeId" selected="selected">@t.TypeName</option> }
+                else
+                { <option value="@t.RequestTypeId">@t.TypeName</option> }
+              }
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="lbl">Priority</label>
+            <select asp-for="Priority" class="inp">
+              <option value="">Any Priority</option>
+              @foreach (var p in WorkflowFormVM.Priorities)
+              {
+                if (Model.Priority == p)
+                { <option value="@p" selected="selected">@p</option> }
+                else
+                { <option value="@p">@p</option> }
+              }
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="lbl">Department</label>
+            <select asp-for="DepartmentId" class="inp">
+              <option value="">Any Department</option>
+              @foreach (var d in Model.Departments)
+              {
+                if (Model.DepartmentId == d.DepartmentId)
+                { <option value="@d.DepartmentId" selected="selected">@d.DeptName</option> }
+                else
+                { <option value="@d.DepartmentId">@d.DeptName</option> }
+              }
+            </select>
+          </div>
+        </div>
+        <div class="toggle-wrap" style="margin-top:14px">
+          <div class="toggle-box">
+            <input asp-for="IsActive" type="checkbox" id="wfActive"/>
+            <label class="toggle-track" for="wfActive"><span class="toggle-thumb"></span></label>
+          </div>
+          <label class="lbl" for="wfActive" style="cursor:pointer">Active workflow</label>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-hdr"><svg viewBox="0 0 24 24"><polyline points="22,12 18,12 15,21 9,3 6,12 2,12"/></svg>Approval Steps <span style="margin-left:auto;font-size:11px;color:var(--txt3)">Max 3 levels</span></div>
+      <div class="card-body">
+        <div id="stepContainer">
+          @for (int i = 0; i < Model.Steps.Count; i++)
+          {
+            var step = Model.Steps[i];
+            <div class="card step-row" style="padding:13px 15px;margin-bottom:10px;border:1px solid var(--bdr)">
+              <div style="display:flex;align-items:flex-start;gap:12px">
+                <div style="display:flex;flex-direction:column;align-items:center;flex-shrink:0">
+                  <div class="wf-num step-num-lbl">@step.StepLevel</div>
+                  <div class="step-lvl-lbl" style="font-size:9px;color:var(--txt3);margin-top:2px;font-weight:600;text-transform:uppercase;letter-spacing:.4px">@(step.StepLevel==1?"L1":step.StepLevel==2?"L2":"L3")</div>
+                </div>
+                <div style="flex:1">
+                  <select name="Steps[@i].ApproverRole" data-approver="1" class="inp">
+                    <option value="">— Select role —</option>
+                    @foreach (var role in distinctRoles)
+                    {
+                      if (step.ApproverRole == role)
+                      { <option value="@role" selected="selected">@role</option> }
+                      else
+                      { <option value="@role">@role</option> }
+                    }
+                  </select>
+                  <input type="hidden" name="Steps[@i].StepLevel" value="@step.StepLevel" data-steplevel="1"/>
+                  <input type="hidden" name="Steps[@i].IsAutoAssignDeptManager" value="false"/>
+                </div>
+                <button type="button" onclick="removeStep(this)" class="btn btn-ghost btn-sm step-del-btn" style="color:var(--ng);margin-top:2px;@(i==0?"display:none":"")">
+                  <svg viewBox="0 0 24 24"><polyline points="3,6 5,6 21,6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
+                </button>
+              </div>
+            </div>
+          }
+        </div>
+        <button type="button" id="addStepBtn" class="btn btn-sec btn-sm">
+          <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add Level
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-top:16px;display:flex;gap:10px">
+    <button type="submit" class="btn btn-pri">@(isEdit?"Save Changes":"Create Workflow")</button>
+    <a asp-action="Index" class="btn btn-sec">Cancel</a>
+  </div>
+</form>
+
+@section Scripts {
+<script>
+// Role options built from ALL active users — includes any newly created roles
+const roleOptions = [
+  @foreach (var role in distinctRoles)
+  {
+    <text>{ value: '@role', label: '@role' },</text>
+  }
+];
+
+function buildRoleOptions(selectedRole) {
+  let html = '<option value="">— Select role —</option>';
+  roleOptions.forEach(r => {
+    const sel = selectedRole === r.value ? ' selected' : '';
+    html += `<option value="${r.value}"${sel}>${r.label}</option>`;
+  });
+  return html;
+}
+
+function getLevelLabel(lvl) {
+  return lvl === 1 ? 'L1' : lvl === 2 ? 'L2' : 'L3';
+}
+
+function renumberSteps() {
+  document.querySelectorAll('#stepContainer .step-row').forEach((row, i) => {
+    const lvl     = i + 1;
+    const numEl   = row.querySelector('.step-num-lbl');
+    const lblEl   = row.querySelector('.step-lvl-lbl');
+    const hiddenEl = row.querySelector('[data-steplevel]');
+    const selEl   = row.querySelector('[data-approver]');
+    if (numEl)    numEl.textContent = lvl;
+    if (lblEl)    lblEl.textContent = getLevelLabel(lvl);
+    if (hiddenEl) { hiddenEl.value = lvl; hiddenEl.name = `Steps[${i}].StepLevel`; }
+    if (selEl)    selEl.name = `Steps[${i}].ApproverRole`;
+    // keep hidden IsAutoAssignDeptManager in sync
+    const hidAutoEl = row.querySelector('[name$=".IsAutoAssignDeptManager"]');
+    if (hidAutoEl) hidAutoEl.name = `Steps[${i}].IsAutoAssignDeptManager`;
+    const delBtn = row.querySelector('.step-del-btn');
+    if (delBtn) delBtn.style.display = i > 0 ? '' : 'none';
+  });
+}
+
+function removeStep(btn) {
+  btn.closest('.step-row').remove();
+  renumberSteps();
+}
+
+document.getElementById('addStepBtn')?.addEventListener('click', () => {
+  const rows = document.querySelectorAll('#stepContainer .step-row');
+  if (rows.length >= 3) { alert('Maximum 3 approval levels.'); return; }
+  const idx = rows.length;
+  const lvl = idx + 1;
+  const div = document.createElement('div');
+  div.className = 'card step-row';
+  div.style.cssText = 'padding:13px 15px;margin-bottom:10px;border:1px solid var(--bdr)';
+  div.innerHTML = `
+    <div style="display:flex;align-items:flex-start;gap:12px">
+      <div style="display:flex;flex-direction:column;align-items:center;flex-shrink:0">
+        <div class="wf-num step-num-lbl">${lvl}</div>
+        <div class="step-lvl-lbl" style="font-size:9px;color:var(--txt3);margin-top:2px;font-weight:600;text-transform:uppercase;letter-spacing:.4px">${getLevelLabel(lvl)}</div>
+      </div>
+      <div style="flex:1">
+        <select name="Steps[${idx}].ApproverRole" data-approver="1" class="inp">
+          ${buildRoleOptions('')}
+        </select>
+        <input type="hidden" name="Steps[${idx}].StepLevel" value="${lvl}" data-steplevel="1"/>
+        <input type="hidden" name="Steps[${idx}].IsAutoAssignDeptManager" value="false"/>
+      </div>
+      <button type="button" class="btn btn-ghost btn-sm step-del-btn" onclick="removeStep(this)" style="color:var(--ng);margin-top:2px">
+        <svg viewBox="0 0 24 24"><polyline points="3,6 5,6 21,6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
+      </button>
+    </div>`;
+  document.getElementById('stepContainer').appendChild(div);
+});
+
+// Validate no duplicate roles across steps before submit
+document.querySelector('form').addEventListener('submit', function(e) {
+  const rows = document.querySelectorAll('#stepContainer .step-row');
+  const seen = {};
+  let duplicate = false;
+  rows.forEach((row, idx) => {
+    const sel = row.querySelector('[data-approver]');
+    if (!sel || !sel.value) return;
+    const lvl = idx + 1;
+    if (seen[sel.value] !== undefined) {
+      duplicate = true;
+      sel.style.outline = '2px solid red';
+      alert(`Level ${lvl} has the same role as Level ${seen[sel.value]}. Each level must have a different role.`);
+    } else {
+      seen[sel.value] = lvl;
+      sel.style.outline = '';
+    }
+  });
+  if (duplicate) e.preventDefault();
+});
+</script>
+}

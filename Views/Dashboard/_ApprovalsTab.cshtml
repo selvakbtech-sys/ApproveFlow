@@ -1,0 +1,105 @@
+@model MyApprovalsTabVM
+@{
+    string Sc(string s) => s switch { "approved"=>"badge-green","rejected"=>"badge-red","pending"=>"badge-blue","clarification"=>"badge-purple",_=>"badge-gray" };
+}
+
+@* ── KPI Cards ── *@
+<div class="metric-row" style="grid-template-columns:repeat(6,1fr)">
+  <a asp-controller="Requests" asp-action="MyApprovals" class="metric-card" style="--mc:#0f172a">
+    <div class="metric-num">@Model.AssignedTotal</div>
+    <div class="metric-lbl">Total Request</div>
+    <div class="metric-hint">All assigned</div>
+  </a>
+  <a asp-controller="Requests" asp-action="MyApprovals" class="metric-card" style="--mc:#d97706">
+    <div class="metric-num">@Model.PendingMyAction</div>
+    <div class="metric-lbl">Pending Request</div>
+    <div class="metric-hint">Awaiting action</div>
+  </a>
+  <a asp-controller="Requests" asp-action="Index" asp-route-FilterStatus="Approved" class="metric-card" style="--mc:#16a34a">
+    <div class="metric-num">@Model.ApprovedByMe</div>
+    <div class="metric-lbl">Approved</div>
+    <div class="metric-hint">&nbsp;</div>
+  </a>
+  <a asp-controller="Requests" asp-action="Index" asp-route-FilterStatus="Rejected" class="metric-card" style="--mc:#dc2626">
+    <div class="metric-num">@Model.RejectedByMe</div>
+    <div class="metric-lbl">Rejected</div>
+    <div class="metric-hint">&nbsp;</div>
+  </a>
+  <a asp-controller="Requests" asp-action="Index" asp-route-FilterStatus="Clarification Needed" class="metric-card" style="--mc:#7c3aed">
+    <div class="metric-num">@Model.ClarificationByMe</div>
+    <div class="metric-lbl">Clarification</div>
+    <div class="metric-hint">&nbsp;</div>
+  </a>
+ @*  <a asp-controller="Requests" asp-action="Index" class="metric-card" style="--mc:#ea580c">
+    <div class="metric-num">@Model.Escalated</div>
+    <div class="metric-lbl">Escalated</div>
+    <div class="metric-hint">&nbsp;</div>
+  </a> *@
+</div>
+
+@* ── Summary Tables ── *@
+<div class="dash-grid-2" style="margin-bottom:16px">
+  @await Html.PartialAsync("_SummaryTable", new SummaryTableVM {
+      Title = "By Request Type", LabelHeader = "Request Type",
+      Icon  = "<svg viewBox='0 0 24 24' style='width:15px;height:15px' fill='none' stroke='currentColor' stroke-width='2'><rect x='3' y='3' width='7' height='7'/><rect x='14' y='3' width='7' height='7'/><rect x='14' y='14' width='7' height='7'/><rect x='3' y='14' width='7' height='7'/></svg>",
+      Rows  = Model.ByTypeSummary })
+  @await Html.PartialAsync("_SummaryTable", new SummaryTableVM {
+      Title = "By Priority", LabelHeader = "Priority",
+      Icon  = "<svg viewBox='0 0 24 24' style='width:15px;height:15px' fill='none' stroke='currentColor' stroke-width='2'><path d='M22 12h-4l-3 9L9 3l-3 9H2'/></svg>",
+      Rows  = Model.ByPrioritySummary })
+</div>
+<div class="dash-grid-2" style="margin-bottom:16px">
+  @await Html.PartialAsync("_SummaryTable", new SummaryTableVM {
+      Title = "By Location", LabelHeader = "Location",
+      Icon  = "<svg viewBox='0 0 24 24' style='width:15px;height:15px' fill='none' stroke='currentColor' stroke-width='2'><path d='M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z'/><circle cx='12' cy='10' r='3'/></svg>",
+      Rows  = Model.ByLocationSummary })
+  @await Html.PartialAsync("_SummaryTable", new SummaryTableVM {
+      Title = "By Department", LabelHeader = "Department",
+      Icon  = "<svg viewBox='0 0 24 24' style='width:15px;height:15px' fill='none' stroke='currentColor' stroke-width='2'><path d='M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z'/><polyline points='9,22 9,12 15,12 15,22'/></svg>",
+      Rows  = Model.ByDepartmentSummary })
+</div>
+
+@* ── Approval Queue Grid ── *@
+ <div class="card" style="margin-bottom:16px">
+  <div class="card-hdr">
+    <svg viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22,4 12,14.01 9,11.01"/></svg>
+    Recent Approval Queue
+    @if (Model.PendingMyAction > 0) { <span class="badge badge-amber" style="margin-left:6px">@Model.PendingMyAction pending</span> }
+    <div class="card-hdr-right"><a asp-controller="Requests" asp-action="MyApprovals" class="btn btn-ghost btn-sm">View all →</a></div>
+  </div>
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>Req #</th>
+          <th>Request Type</th>
+          <th>Requestor</th>
+          <th>Submitted Date</th>
+          <th>Pending Since</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        @foreach (var q in Model.Queue)
+        {
+          <tr>
+            <td style="font-family:monospace;font-size:11px;font-weight:600">@q.RequestNumber</td>
+            <td style="font-size:12px;color:var(--txt2)">@q.RequestTypeName</td>
+            <td style="font-size:12px">@q.RequestorName</td>
+            <td style="font-size:11px;color:var(--txt3)">@(q.SubmittedAt?.ToString("dd MMM yyyy") ?? "—")</td>
+            <td style="font-size:12px;font-weight:600;color:@(q.PendingDays > 5 ? "var(--ng)" : q.PendingDays > 2 ? "var(--wa)" : "var(--txt2)")">
+              @q.PendingDays day@(q.PendingDays == 1 ? "" : "s")
+            </td>
+            <td><span class="badge @Sc(q.Status)">@q.Status</span></td>
+            <td><a asp-controller="Requests" asp-action="Detail" asp-route-id="@q.RequestId" class="btn btn-acc btn-sm">Review →</a></td>
+          </tr>
+        }
+        @if (!Model.Queue.Any())
+        {
+          <tr><td colspan="7" class="tbl-empty">🎉 No pending approvals</td></tr>
+        }
+      </tbody>
+    </table>
+  </div>
+</div>

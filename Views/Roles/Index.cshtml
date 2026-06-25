@@ -1,0 +1,73 @@
+@model RoleListVM
+@{ ViewData["Title"] = "Roles & Permissions"; ViewData["NavPage"] = "roles"; }
+
+<div class="pg-hdr">
+  <div><div class="pg-title">Roles & Permissions</div><div class="pg-sub">@Model.Items.Count roles</div></div>
+  <div class="pg-actions">
+    <a asp-action="Create" class="btn btn-acc">
+      <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      Add Role
+    </a>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px">
+  @foreach (RoleItemVM role in Model.Items)
+  {
+    <div class="card">
+      <div class="card-body">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:12px">
+          <div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+              <span class="badge @role.BadgeColor">@role.RoleName</span>
+              @if (!role.IsActive) { <span class="badge badge-gray">Inactive</span> }
+            </div>
+            @if (!string.IsNullOrEmpty(role.Description))
+            { <div style="font-size:12px;color:var(--txt3)">@role.Description</div> }
+            <div style="font-size:11px;color:var(--txt3);margin-top:4px">@role.UserCount user@(role.UserCount!=1?"s":"") assigned</div>
+          </div>
+          <div style="display:flex;gap:5px">
+            <a asp-action="Edit" asp-route-id="@role.RoleId" class="btn btn-sec btn-sm">Edit</a>
+            <form asp-action="Delete" asp-route-id="@role.RoleId" method="post" style="display:inline">
+              @Html.AntiForgeryToken()
+              <button type="submit" class="btn btn-ng btn-sm"
+                onclick="return confirm('Delete role @role.RoleName?')">
+                <svg viewBox="0 0 24 24"><polyline points="3,6 5,6 21,6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
+              </button>
+            </form>
+          </div>
+        </div>
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:11px">
+            <thead><tr style="background:var(--bg)">
+              <th style="padding:4px 8px;text-align:left;color:var(--txt2)">Screen</th>
+              @foreach (var a in new[]{"V","C","E","A","D"})
+              { <th style="padding:4px;text-align:center;color:var(--txt2)">@a</th> }
+            </tr></thead>
+            <tbody>
+              @foreach (var screen in RoleFormVM.AllScreens)
+              {
+                var p = role.Permissions.FirstOrDefault(x => x.ScreenName == screen);
+                bool isRpt = Array.IndexOf(RoleFormVM.ReportScreens, screen) >= 0;
+                bool?[] vals = p == null
+                  ? new bool?[]{false,false,false,false,false}
+                  : new bool?[]{p.CanView, isRpt?null:(bool?)p.CanCreate, isRpt?null:(bool?)p.CanEdit, isRpt?null:(bool?)p.CanApprove, isRpt?null:(bool?)p.CanDelete};
+                <tr style="border-top:1px solid var(--bg)">
+                  <td style="padding:4px 8px;font-weight:500;color:var(--txt2)">@screen</td>
+                  @foreach (var v in vals)
+                  {
+                    <td style="padding:4px;text-align:center">
+                      @if (v == null)        { <span style="color:var(--bdr)">—</span> }
+                      else if (v == true)    { <span style="color:var(--ok);font-weight:700">✓</span> }
+                      else                   { <span style="color:var(--bdr)">·</span> }
+                    </td>
+                  }
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  }
+</div>

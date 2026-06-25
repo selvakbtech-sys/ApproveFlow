@@ -1,0 +1,90 @@
+@model WorkflowListVM
+@{ ViewData["Title"] = "Workflows"; ViewData["NavPage"] = "workflows"; }
+
+<div class="pg-hdr">
+  <div><div class="pg-title">Workflow Definitions</div><div class="pg-sub">@Model.Items.Count workflows</div></div>
+  <div class="pg-actions">
+    <form method="get" style="display:inline">
+      <select name="active" class="f-ctrl" onchange="this.form.submit()">
+           <option value="all">All</option>
+        <option value="active">Active Only</option>
+        <option value="inactive">Inactive Only</option>
+       @*  <option value="all" @(Model.FilterActive=="all"?"selected":"")>All</option>
+        <option value="active" @(Model.FilterActive=="active"?"selected":"")>Active Only</option>
+        <option value="inactive" @(Model.FilterActive=="inactive"?"selected":"")>Inactive Only</option> *@
+      </select>
+    </form>
+    <a asp-action="Create" class="btn btn-acc">
+      <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      New Workflow
+    </a>
+  </div>
+</div>
+
+@if (!Model.Items.Any())
+{
+  <div class="card"><div class="tbl-empty" style="padding:48px">No workflows. <a asp-action="Create">Create one →</a></div></div>
+}
+
+<div style="display:flex;flex-direction:column;gap:12px">
+  @foreach (WorkflowItemVM wf in Model.Items)
+  {
+    <div class="card" style="@(!wf.IsActive?"opacity:.6":"")">
+      <div class="card-body">
+        <div style="display:flex;align-items:flex-start;gap:16px;margin-bottom:12px">
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+              <div style="font-size:15px;font-weight:700">@wf.WorkflowName</div>
+              <span class="badge @(wf.IsActive?"badge-green":"badge-gray")">@(wf.IsActive?"Active":"Inactive")</span>
+            </div>
+            <div style="display:flex;gap:14px;font-size:12px;color:var(--txt3);flex-wrap:wrap">
+              <span>📍 @wf.Location</span>
+              <span>📋 @wf.RequestType</span>
+              <span>⚡ @wf.Priority</span>
+              <span>🏢 @wf.Department</span>
+              <span>Created @wf.CreatedAt.ToString("dd MMM yyyy")</span>
+            </div>
+          </div>
+          <div style="display:flex;gap:6px;flex-shrink:0">
+            <a asp-action="Edit" asp-route-id="@wf.WorkflowId" class="btn btn-sec btn-sm">Edit</a>
+            <form asp-action="ToggleActive" asp-route-id="@wf.WorkflowId" method="post" style="display:inline">
+              @Html.AntiForgeryToken()
+              <button type="submit" class="btn btn-sm"
+                style="@(wf.IsActive?"background:#fffbeb;color:#d97706;border-color:#fde68a":"background:#f0fdf4;color:#16a34a;border-color:#bbf7d0")">
+                @(wf.IsActive?"Deactivate":"Activate")
+              </button>
+            </form>
+            <form asp-action="Delete" asp-route-id="@wf.WorkflowId" method="post" style="display:inline">
+              @Html.AntiForgeryToken()
+              <button type="submit" class="btn btn-ng btn-sm"
+                onclick="return confirm('Delete workflow @wf.WorkflowName?')">
+                <svg viewBox="0 0 24 24"><polyline points="3,6 5,6 21,6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
+              </button>
+            </form>
+          </div>
+        </div>
+        @if (wf.Steps.Any())
+        {
+          <div class="wf-preview">
+            @for (int i = 0; i < wf.Steps.Count; i++)
+            {
+              WfStepVM step = wf.Steps[i];
+              <div class="wf-node">
+                <div style="display:flex;flex-direction:column;align-items:center">
+                  <div class="wf-num">@step.StepLevel</div>
+                  <div style="font-size:9px;color:var(--txt3);font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-top:1px">@(step.StepLevel==1?"L1":step.StepLevel==2?"L2":"L3")</div>
+                </div>
+                <div>
+                  <div style="font-size:12px;font-weight:600">@step.ApproverRole</div>
+                  <div style="font-size:10px;color:var(--txt3)">Level @step.StepLevel</div>
+                </div>
+              </div>
+              @if (i < wf.Steps.Count - 1) { <span class="wf-arrow">→</span> }
+            }
+          </div>
+        }
+        else { <div style="font-size:12px;color:var(--txt3)">No steps configured.</div> }
+      </div>
+    </div>
+  }
+</div>

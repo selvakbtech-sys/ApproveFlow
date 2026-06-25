@@ -1,0 +1,55 @@
+@model LoginVM
+@{ Layout = null; }
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Sign In — ApproveFlow</title>
+<link rel="stylesheet" href="~/css/site.css"/>
+</head>
+<body>
+<div class="auth-page">
+  <div class="auth-panel">
+    <div class="auth-logo">
+      <div class="auth-logo-icon" style="background:#fff;padding:0px;overflow:hidden">
+        <img src="~/images/bnr-logo.jpg" alt="BNR" style="width:160%;height:100%;object-fit:contain"/>
+      </div>
+                <div class="auth-title">BNR FLOW</div>
+     @*  <div class="auth-sub">BNR - ApproveFlow — Workflow </div> *@
+    </div>
+
+    <div asp-validation-summary="ModelOnly" class="alert alert-err" style="display:@(ViewData.ModelState.IsValid?"none":"flex")"></div>
+
+    <form asp-controller="Auth" asp-action="Login" method="post">
+      @Html.AntiForgeryToken()
+      <input type="hidden" asp-for="ReturnUrl"/>
+      <div class="form-group" style="margin-bottom:14px">
+        <label class="lbl">Email address <span class="req">*</span></label>
+        <input asp-for="Email" type="email" class="inp" placeholder="you@company.com" autocomplete="email"/>
+        <span asp-validation-for="Email" class="field-validation-error"></span>
+      </div>
+      <div class="form-group" style="margin-bottom:18px">
+        <label class="lbl">Password <span class="req">*</span></label>
+        <input asp-for="Password" type="password" class="inp" placeholder="••••••••"/>
+        <span asp-validation-for="Password" class="field-validation-error"></span>
+      </div>
+      <div style="margin-bottom:20px">
+        <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer">
+          <input asp-for="RememberMe" type="checkbox" style="width:14px;height:14px;accent-color:var(--pri)"/>
+          Remember me for 8 hours
+        </label>
+      </div>
+      <button type="submit" class="btn btn-pri" style="width:100%;justify-content:center;padding:10px">
+        Sign in
+      </button>
+    </form>
+            <div style="margin-top:16px;padding:10px;background:var(--bg);border-radius:var(--r);text-align:center;font-size:11px;color:var(--txt3)">
+                Forgot Password
+            </div>
+    @* <div style="margin-top:16px;padding:10px;background:var(--bg);border-radius:var(--r);text-align:center;font-size:11px;color:var(--txt3)">
+      Demo credentials: <strong style="color:var(--txt2)">admin@gmail.com</strong> / <strong style="color:var(--txt2)">Admin@123</strong>
+    </div> *@
+  </div>
+</div>
+</body>
+</html>

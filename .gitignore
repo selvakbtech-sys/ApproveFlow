@@ -1,0 +1,12 @@
+.vs/
+bin/
+obj/
+
+uploads/
+
+*.user
+*.suo
+*.cache
+
+*.pubxml
+*.publishsettings

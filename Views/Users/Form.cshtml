@@ -1,0 +1,100 @@
+@model UserFormVM
+@{
+    bool isEdit = Model.UserId > 0;
+    ViewData["Title"] = isEdit ? "Edit User" : "New User";
+    ViewData["NavPage"] = "users";
+}
+<div class="pg-hdr">
+  <div><div class="pg-title">@ViewData["Title"]</div></div>
+  <a asp-action="Index" class="btn btn-sec">← Back</a>
+</div>
+<div style="max-width:660px">
+  <div class="card">
+    <div class="card-body">
+      <div asp-validation-summary="ModelOnly" class="alert alert-err"></div>
+      <form asp-action="Save" method="post">
+        @Html.AntiForgeryToken()
+        <input type="hidden" asp-for="UserId"/>
+        <div class="form-grid fg2" style="margin-bottom:14px">
+          <div class="form-group">
+            <label class="lbl">Full Name <span class="req">*</span></label>
+            <input asp-for="FullName" class="inp" placeholder="Jane Smith"/>
+            <span asp-validation-for="FullName" class="field-validation-error"></span>
+          </div>
+          <div class="form-group">
+            <label class="lbl">Email Address <span class="req">*</span></label>
+            <input asp-for="Email" type="email" class="inp" placeholder="jane@company.com"/>
+            <span asp-validation-for="Email" class="field-validation-error"></span>
+          </div>
+          <div class="form-group">
+            <label class="lbl">WhatsApp Number</label>
+            <input asp-for="WhatsAppNumber" class="inp" placeholder="919876543210" maxlength="20"/>
+            <span asp-validation-for="WhatsAppNumber" class="field-validation-error"></span>
+            <small class="form-hint">With country code, no + sign. Leave blank to skip WhatsApp alerts.</small>
+          </div>
+          <div class="form-group">
+            <label class="lbl">Password @(isEdit?"(blank = unchanged)":"")<span class="req">@(!isEdit?"*":"")</span></label>
+            <input asp-for="Password" type="password" class="inp" placeholder="@(isEdit?"Leave blank to keep current":"Min 8 characters")"/>
+            <span asp-validation-for="Password" class="field-validation-error"></span>
+          </div>
+          <div class="form-group">
+            <label class="lbl">Role <span class="req">*</span></label>
+            <select asp-for="RoleId" class="inp"
+              asp-items="@(new SelectList(Model.Roles,"RoleId","RoleName",Model.RoleId))">
+              <option value="">— Select role —</option>
+            </select>
+            <span asp-validation-for="RoleId" class="field-validation-error"></span>
+          </div>
+        </div>
+        <div class="form-grid fg2" style="margin-bottom:22px">
+          <!-- Locations multi-select -->
+          <div class="form-group">
+            <label class="lbl">Locations <span class="req">*</span></label>
+            <div class="ms-wrap" data-name="LocationIds" data-placeholder="Select locations…">
+              <div class="ms-trigger" tabindex="0">
+                <span class="ms-txt">Select locations…</span>
+                <svg class="ms-chev" viewBox="0 0 24 24"><polyline points="6,9 12,15 18,9"/></svg>
+              </div>
+              <div class="ms-drop">
+                @foreach (var l in Model.Locations)
+                {
+                  <label class="ms-opt">
+                    <input type="checkbox" value="@l.LocationId" data-label="@l.LocationName"
+                      @(Model.LocationIds.Contains(l.LocationId)?"checked":"")/>
+                    @l.LocationName
+                  </label>
+                }
+              </div>
+              <div class="ms-pills"></div>
+            </div>
+          </div>
+          <!-- Departments multi-select -->
+          <div class="form-group">
+            <label class="lbl">Departments <span class="req">*</span></label>
+            <div class="ms-wrap" data-name="DepartmentIds" data-placeholder="Select departments…">
+              <div class="ms-trigger" tabindex="0">
+                <span class="ms-txt">Select departments…</span>
+                <svg class="ms-chev" viewBox="0 0 24 24"><polyline points="6,9 12,15 18,9"/></svg>
+              </div>
+              <div class="ms-drop">
+                @foreach (var d in Model.Departments)
+                {
+                  <label class="ms-opt">
+                    <input type="checkbox" value="@d.DepartmentId" data-label="@d.DeptName"
+                      @(Model.DepartmentIds.Contains(d.DepartmentId)?"checked":"")/>
+                    @d.DeptName
+                  </label>
+                }
+              </div>
+              <div class="ms-pills"></div>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;gap:10px">
+          <button type="submit" class="btn btn-pri">@(isEdit?"Save Changes":"Create User")</button>
+          <a asp-action="Index" class="btn btn-sec">Cancel</a>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>

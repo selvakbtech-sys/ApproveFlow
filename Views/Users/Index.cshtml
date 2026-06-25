@@ -1,0 +1,112 @@
+@model UserListVM
+@{
+    ViewData["Title"] = "User Management";
+    ViewData["NavPage"] = "users";
+    string RCls(string r) => r switch{"Admin"=>"badge-red","Manager"=>"badge-purple","Approver L2"=>"badge-blue","Requestor"=>"badge-sky",_=>"badge-gray"};
+}
+<div class="pg-hdr">
+  <div><div class="pg-title">User Management</div><div class="pg-sub">@Model.Items.Count users</div></div>
+  <div class="pg-actions">
+    <a asp-action="Create" class="btn btn-acc">
+      <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      New User
+    </a>
+  </div>
+</div>
+
+<form method="get" asp-action="Index">
+  <div class="filter-bar">
+    <div class="f-group">
+      <label class="f-lbl">Role</label>
+      <select name="role" class="f-ctrl">
+        <option value="">All Roles</option>
+                @foreach (var l in Model.Roles)
+                {
+                    if (Model.FilterRole == l.RoleName)
+                    {
+                        <option value="@l.RoleName" selected>
+                            @l.RoleName
+                        </option>
+                    }
+                    else
+                    {
+                        <option value="@l.RoleName">
+                            @l.RoleName
+
+                        </option>
+                    }
+                }
+       @*  @foreach (var r in Model.Roles) { <option value="@r.RoleName" @(Model.FilterRole==r.RoleName?"selected":"")>@r.RoleName</option> } *@
+      </select>
+    </div>
+    <div class="f-group">
+      <label class="f-lbl">Status</label>
+      <select name="status" class="f-ctrl">
+        <option value="">All</option>
+        <option value="active">Active</option>
+        <option value="suspended">Suspended</option>
+        @* <option value="active" @(Model.FilterStatus=="active"?"selected":"")>Active</option>
+        <option value="suspended" @(Model.FilterStatus=="suspended"?"selected":"")>Suspended</option> *@
+      </select>
+    </div>
+    <div style="display:flex;gap:6px;align-items:flex-end">
+      <button type="submit" class="btn btn-pri btn-sm">Filter</button>
+      <a asp-action="Index" class="btn btn-sec btn-sm">Clear</a>
+    </div>
+        <a href="/Users/WhatsAppTest" class="btn btn-success btn-sm">
+            <i class="bi bi-whatsapp me-1"></i>WhatsApp Test
+        </a>
+  </div>
+</form>
+
+<div class="card">
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <thead><tr><th>User</th><th>Role</th><th>Locations</th><th>Departments</th><th>Status</th><th>Created</th><th class="r">Actions</th></tr></thead>
+      <tbody>
+        @if (!Model.Items.Any()) { <tr><td colspan="7" class="tbl-empty">No users found.</td></tr> }
+        @foreach (var u in Model.Items)
+        {
+          <tr style="opacity:@(u.Status=="active"?"1":".6")">
+            <td>
+              <div style="display:flex;align-items:center;gap:10px">
+                <div style="width:34px;height:34px;border-radius:50%;background:var(--pri);color:var(--acc);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">
+                  @(u.AvatarInitials ?? u.FullName[..1].ToUpper())
+                </div>
+                <div>
+                  <div style="font-weight:600;font-size:13px">@u.FullName</div>
+                  <div style="font-size:11px;color:var(--txt3)">@u.Email</div>
+                </div>
+              </div>
+            </td>
+            <td><span class="badge @RCls(u.RoleName)">@u.RoleName</span></td>
+            <td>
+              @foreach (var l in u.Locations)
+              { <span style="background:#f0f9ff;color:#0369a1;border:1px solid #bae6fd;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:500;margin:1px">@l</span> }
+            </td>
+            <td>
+              @foreach (var d in u.Departments)
+              { <span style="background:#faf5ff;color:#7c3aed;border:1px solid #e9d5ff;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:500;margin:1px">@d</span> }
+            </td>
+            <td><span class="badge @(u.Status=="active"?"badge-green":"badge-red")">@u.Status</span></td>
+            <td style="font-size:11px;color:var(--txt3)">@u.CreatedAt.ToString("dd MMM yyyy")</td>
+            <td class="r">
+              <div style="display:inline-flex;gap:5px">
+                <a asp-action="Edit" asp-route-id="@u.UserId" class="btn btn-sec btn-sm">Edit</a>
+                <a asp-action="ResetPassword" asp-route-id="@u.UserId" asp-route-name="@u.FullName" class="btn btn-sec btn-sm" style="background:#f0f9ff;color:#0369a1;border-color:#bae6fd">Reset PW</a>
+                <form asp-action="ToggleStatus" asp-route-id="@u.UserId" method="post" style="display:inline">
+                  @Html.AntiForgeryToken()
+                  <input type="hidden" name="status" value="@(u.Status=="active"?"suspended":"active")"/>
+                  <button type="submit" class="btn btn-sm @(u.Status=="active"?"btn-ng":"btn-ok")"
+                    onclick="return confirm('@(u.Status=="active"?"Suspend":"Activate") @u.FullName?')">
+                    @(u.Status=="active"?"Suspend":"Activate")
+                  </button>
+                </form>
+              </div>
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+</div>
