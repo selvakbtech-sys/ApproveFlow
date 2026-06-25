@@ -7,13 +7,13 @@
 }
 
 <div class="pg-hdr">
-  <div><div class="pg-title">Aging Report</div><div class="pg-sub">Open requests pending approval — IST</div></div>
+  <div><div class="pg-title">Aging Report</div><div class="pg-sub">Pending Approval requests — IST</div></div>
 </div>
 
 <div class="metric-grid">
   <div class="metric-card" style="--mc:#0f172a;cursor:default">
     <div class="metric-num">@Model.TotalOpen</div>
-    <div class="metric-lbl">Open Requests</div>
+    <div class="metric-lbl">Pending Approval Requests</div>
   </div>
   <div class="metric-card" style="--mc:@(Model.AvgAge>7?"#d97706":"#16a34a");cursor:default">
     <div class="metric-num">@Model.AvgAge<span style="font-size:18px;font-weight:600">d</span></div>
@@ -34,8 +34,8 @@
     <div class="f-group">
       <label class="f-lbl">Status</label>
       <select name="FilterStatus" class="f-ctrl">
-        <option value="">All Open</option>
-        @foreach (var s in new[]{"Open","Partial Approved","Clarification Needed"})
+        <option value="">All Pending</option>
+        @foreach (var s in new[]{"Pending Approval","Partial Approved","Clarification Needed"})
         { <option value="@s" selected="@(Model.FilterStatus==s)">@s</option> }
       </select>
     </div>
@@ -140,7 +140,7 @@
       <tbody>
         @if (!Model.Items.Any())
         {
-          <tr><td colspan="10" class="tbl-empty">@(Model.TotalOpen==0?"🎉 No open requests!":"No results match the filters.")</td></tr>
+          <tr><td colspan="10" class="tbl-empty">@(Model.TotalOpen==0?"🎉 No pending requests!":"No results match the filters.")</td></tr>
         }
         @foreach (var r in Model.Items)
         {

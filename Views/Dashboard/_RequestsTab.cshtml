@@ -1,6 +1,6 @@
 @model MyRequestsTabVM
 @{
-    string Sc(string s) => s switch { "Approved"=>"badge-green","Rejected"=>"badge-red","Open"=>"badge-blue","Partial Approved"=>"badge-sky","Clarification Needed"=>"badge-purple","Draft"=>"badge-gray","Deleted"=>"badge-dark",_=>"badge-gray" };
+    string Sc(string s) => s switch { "Approved"=>"badge-green","Rejected"=>"badge-red","Pending Approval"=>"badge-blue","Partial Approved"=>"badge-sky","Clarification Needed"=>"badge-purple","Draft"=>"badge-gray","Deleted"=>"badge-dark",_=>"badge-gray" };
     string ShortStatus(string s) => s switch { "Partial Approved"=>"Part. Approved","Clarification Needed"=>"Clarify",_=>s };
     string Pc(string p) => p switch { "Critical"=>"badge-red","High"=>"badge-amber","Medium"=>"badge-blue",_=>"badge-gray" };
 }
@@ -12,10 +12,10 @@
     <div class="metric-lbl">Total Request</div>
     <div class="metric-hint">All time</div>
   </a>
-  <a asp-controller="Requests" asp-action="Index" asp-route-FilterMine="true" asp-route-FilterStatus="Open" class="metric-card" style="--mc:#d97706">
+  <a asp-controller="Requests" asp-action="Index" asp-route-FilterMine="true" asp-route-FilterStatus="Pending Approval" class="metric-card" style="--mc:#d97706">
     <div class="metric-num">@Model.MyPending</div>
     <div class="metric-lbl">Pending Request</div>
-    <div class="metric-hint">Open &amp; Partial Approved</div>
+    <div class="metric-hint">Pending Approval &amp; Partial Approved</div>
   </a>
   <a asp-controller="Requests" asp-action="Index" asp-route-FilterMine="true" asp-route-FilterStatus="Approved" class="metric-card" style="--mc:#16a34a">
     <div class="metric-num">@Model.MyApproved</div>

@@ -2,7 +2,7 @@
 @{
     ViewData["Title"] = "Requests";
     ViewData["NavPage"] = "requests";
-    string Sc(string s) => s switch {"Approved"=>"badge-green","Rejected"=>"badge-red","Open"=>"badge-blue","Partial Approved"=>"badge-sky","Clarification Needed"=>"badge-amber","Draft"=>"badge-gray","Deleted"=>"badge-dark",_=>"badge-gray"};
+    string Sc(string s) => s switch {"Approved"=>"badge-green","Rejected"=>"badge-red","Pending Approval"=>"badge-blue","Partial Approved"=>"badge-sky","Clarification Needed"=>"badge-amber","Draft"=>"badge-gray","Deleted"=>"badge-dark",_=>"badge-gray"};
     string Pc(string p) => p switch {"Critical"=>"badge-red","High"=>"badge-amber","Medium"=>"badge-blue",_=>"badge-gray"};
 }
 
@@ -38,7 +38,7 @@
       <label class="f-lbl">Status</label>
       <select name="FilterStatus" class="f-ctrl">
         <option value="">All</option>
-        @foreach (var s in new[]{"Draft","Open","Partial Approved","Approved","Rejected","Clarification Needed"})
+        @foreach (var s in new[]{"Draft","Pending Approval","Partial Approved","Approved","Rejected","Clarification Needed","Deleted"})
         { <option value="@s" selected="@(Model.FilterStatus==s)">@s</option> }
       </select>
     </div>
@@ -144,7 +144,7 @@
                 }
                 @if (ViewBag.CanDelete == true)
                 {
-                  @if (r.Status == "Open")
+                  @if (r.Status == "Pending Approval")
                   {
                     <form asp-action="Delete" asp-route-id="@r.RequestId" method="post" style="display:inline">
                       @Html.AntiForgeryToken()
@@ -157,7 +157,7 @@
                   }
                   else
                   {
-                    <button type="button" title="Delete" onclick="alert('Only requests with OPEN status can be deleted.')"
+                    <button type="button" title="Delete" onclick="alert('Only requests with Pending Approval status can be deleted.')"
                       style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:0;border:1px solid var(--danger,#ef4444);background:transparent;border-radius:6px;cursor:pointer;color:var(--danger,#ef4444)">
                       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3,6 5,6 21,6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
                     </button>

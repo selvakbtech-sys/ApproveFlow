@@ -2,7 +2,7 @@
 @{
     ViewData["Title"] = "Request Details";
     ViewData["NavPage"] = "requests";
-    string Sc(string s) => s switch{"Approved"=>"badge-green","Rejected"=>"badge-red","Open"=>"badge-blue","Partial Approved"=>"badge-sky","Clarification Needed"=>"badge-amber","Draft"=>"badge-gray","Deleted"=>"badge-dark",_=>"badge-gray"};
+    string Sc(string s) => s switch{"Approved"=>"badge-green","Rejected"=>"badge-red","Pending Approval"=>"badge-blue","Partial Approved"=>"badge-sky","Clarification Needed"=>"badge-amber","Draft"=>"badge-gray","Deleted"=>"badge-dark",_=>"badge-gray"};
     string Pc(string p) => p switch{"Critical"=>"badge-red","High"=>"badge-amber","Medium"=>"badge-blue",_=>"badge-gray"};
     string SCls(string s) => s switch{"approved"=>"sn-ok","rejected"=>"sn-ng","pending"=>"sn-wa","clarification"=>"sn-cl",_=>"sn-wait"};
     string TlCls(string a) => a switch{"approved"=>"tl-approved","rejected"=>"tl-rejected","clarification"=>"tl-clarification","submitted"=>"tl-submitted",_=>"tl-saved_draft"};
@@ -36,7 +36,7 @@
     }
     @if (ViewBag.CanDelete == true)
     {
-      @if (Model.Status == "Open")
+      @if (Model.Status == "Pending Approval")
       {
         <form asp-action="Delete" asp-route-id="@Model.RequestId" method="post" style="display:inline">
           @Html.AntiForgeryToken()
@@ -49,7 +49,7 @@
       else
       {
         <button type="button" class="btn btn-ng btn-sm"
-          onclick="alert('Only requests with OPEN status can be deleted.')">
+          onclick="alert('Only requests with Pending Approval status can be deleted.')">
           Delete
         </button>
       }

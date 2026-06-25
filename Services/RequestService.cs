@@ -447,7 +447,7 @@ public class RequestService : IRequestService
 
         var isResubmit = r.Status == "Clarification Needed";
 
-        r.Status = "Open";
+        r.Status = "Pending Approval";
         r.SubmittedAt ??= IstClock.Now;
         _db.RequestActionLogs.Add(new RequestActionLog
         { RequestId = requestId, ActorUserId = userId, Action = "submitted", StepLevel = r.CurrentStepLevel });
@@ -663,14 +663,14 @@ public class RequestService : IRequestService
         if (r == null) return (false, "Not found.");
         bool isAdmin = userRole.Equals("Admin", StringComparison.OrdinalIgnoreCase);
         if (!isAdmin && r.RequestorId != userId) return (false, "Not authorized.");
-        if (r.Status != "Open") return (false, "Only requests with OPEN status can be deleted.");
+        if (r.Status != "Pending Approval") return (false, "Only requests with Pending Approval status can be deleted.");
         r.Status = "Deleted";
         _db.RequestActionLogs.Add(new RequestActionLog
         {
             RequestId = requestId,
             ActorUserId = userId,
             Action = "deleted",
-            Comment = "Request deleted while in OPEN status.",
+            Comment = "Request deleted while in Pending Approval status.",
             StepLevel = null
         });
         await _db.SaveChangesAsync();
@@ -682,7 +682,7 @@ public class RequestService : IRequestService
         var q = _db.Requests
             .Include(r => r.Requestor).Include(r => r.Location)
             .Include(r => r.Department).Include(r => r.RequestType)
-            .Where(r => r.Status == "Open" || r.Status == "Partial Approved" || r.Status == "Clarification Needed")
+            .Where(r => r.Status == "Pending Approval" || r.Status == "Partial Approved" || r.Status == "Clarification Needed")
             .AsQueryable();
 
         if (!string.IsNullOrEmpty(f.FilterStatus)) q = q.Where(r => r.Status == f.FilterStatus);
