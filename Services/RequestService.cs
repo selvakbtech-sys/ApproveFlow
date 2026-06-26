@@ -663,7 +663,7 @@ public class RequestService : IRequestService
         if (r == null) return (false, "Not found.");
         bool isAdmin = userRole.Equals("Admin", StringComparison.OrdinalIgnoreCase);
         if (!isAdmin && r.RequestorId != userId) return (false, "Not authorized.");
-        if (r.Status != "Pending Approval") return (false, "Only requests with Pending Approval status can be deleted.");
+        if (r.Status != "Pending Approval" && r.Status != "Open") return (false, "Only requests with Pending Approval status can be deleted.");
         r.Status = "Deleted";
         _db.RequestActionLogs.Add(new RequestActionLog
         {
@@ -682,7 +682,7 @@ public class RequestService : IRequestService
         var q = _db.Requests
             .Include(r => r.Requestor).Include(r => r.Location)
             .Include(r => r.Department).Include(r => r.RequestType)
-            .Where(r => r.Status == "Pending Approval" || r.Status == "Partial Approved" || r.Status == "Clarification Needed")
+            .Where(r => r.Status == "Open" || r.Status == "Pending Approval" || r.Status == "Partial Approved" || r.Status == "Clarification Needed")
             .AsQueryable();
 
         if (!string.IsNullOrEmpty(f.FilterStatus)) q = q.Where(r => r.Status == f.FilterStatus);

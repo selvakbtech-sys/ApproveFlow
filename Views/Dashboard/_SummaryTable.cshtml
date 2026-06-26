@@ -19,6 +19,7 @@
           <tr>
             <th>@Model.LabelHeader</th>
             <th>Pending</th>
+            <th>Part. Approved</th>
             <th>Approved</th>
             <th>Rejected</th>
             <th>Clarification</th>
@@ -30,6 +31,7 @@
             <tr>
               <td class="cat-cell" title="@r.CategoryName">@r.CategoryName</td>
               <td class="sum-num-pending">@r.PendingCount</td>
+              <td class="sum-num-partial">@r.PartialApprovedCount</td>
               <td class="sum-num-approved">@r.ApprovedCount</td>
               <td class="sum-num-rejected">@r.RejectedCount</td>
               <td class="sum-num-clarif">@r.ClarificationCount</td>

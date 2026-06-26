@@ -1,0 +1,65 @@
+@model ApproveFlow.MVC.Models.ViewModels.SummaryTableVM
+@{
+    var tid = "tt" + Guid.NewGuid().ToString("N").Substring(0, 8);
+}
+<div class="card" style="margin-bottom:0">
+  <div class="card-hdr">
+    @Html.Raw(Model.Icon)
+    @Model.Title
+  </div>
+  @if (!Model.Rows.Any())
+  {
+    <div class="sum-empty">No data</div>
+  }
+  else
+  {
+    <div class="tbl-wrap">
+      <table class="sum-tbl" id="@tid">
+        <thead>
+          <tr>
+            <th>@Model.LabelHeader</th>
+            <th>Pending</th>
+            <th>Part. Approved</th>
+            <th>Approved</th>
+            <th>Rejected</th>
+            <th>Clarification</th>
+          </tr>
+        </thead>
+        <tbody>
+          @foreach (var r in Model.Rows)
+          {
+            <tr>
+              <td class="cat-cell" title="@r.CategoryName">@r.CategoryName</td>
+              <td class="sum-num-pending">@r.PendingCount</td>
+              <td class="sum-num-partial">@r.PartialApprovedCount</td>
+              <td class="sum-num-approved">@r.ApprovedCount</td>
+              <td class="sum-num-rejected">@r.RejectedCount</td>
+              <td class="sum-num-clarif">@r.ClarificationCount</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+    <script>
+    (function () {
+      var t = document.getElementById('@tid');
+      if (!t) return;
+      t.querySelectorAll('th').forEach(function (th, i) {
+        var asc = true;
+        th.addEventListener('click', function () {
+          t.querySelectorAll('th').forEach(function (h) { h.classList.remove('sorted-asc', 'sorted-desc'); });
+          th.classList.add(asc ? 'sorted-asc' : 'sorted-desc');
+          var tb = t.querySelector('tbody');
+          Array.from(tb.querySelectorAll('tr')).sort(function (a, b) {
+            var av = a.cells[i].textContent.trim(), bv = b.cells[i].textContent.trim();
+            var an = parseFloat(av), bn = parseFloat(bv);
+            var c = isNaN(an) ? av.localeCompare(bv) : an - bn;
+            return asc ? c : -c;
+          }).forEach(function (r) { tb.appendChild(r); });
+          asc = !asc;
+        });
+      });
+    })();
+    </script>
+  }
+</div>

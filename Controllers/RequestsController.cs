@@ -333,7 +333,7 @@ public class RequestsController : BaseCtrl
                 $"\"{r.RequestTypeName}\"," +
                 $"\"{r.Priority}\"," +
                 $"\"{(r.Amount.HasValue ? r.Amount.Value.ToString("N2") : "")}\"," +
-                $"\"{r.Status}\"," +
+                $"\"{(r.Status == "Open" ? "Pending Approval" : r.Status)}\"," +
                 $"\"{r.DeptName}\"," +
                 $"\"{r.LocationName}\"," +
                 $"\"{r.CreatedAt:dd-MMM-yyyy}\"," +

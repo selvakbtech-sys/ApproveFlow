@@ -4,6 +4,7 @@
     ViewData["NavPage"] = "aging";
     string Pc(string p) => p switch{"Critical"=>"badge-red","High"=>"badge-amber","Medium"=>"badge-blue",_=>"badge-gray"};
     string AgeCls(int d) => d<=3?"age-0":d<=7?"age-4":d<=14?"age-8":d<=30?"age-15":"age-30";
+    string Ds(string s) => s == "Open" ? "Pending Approval" : s;
 }
 
 <div class="pg-hdr">
@@ -154,7 +155,7 @@
             <td style="font-size:12px">@r.RequestTypeName</td>
             <td style="font-weight:600">@(r.Amount.HasValue?"₹"+r.Amount.Value.ToString("N0"):"—")</td>
             <td><span class="badge @Pc(r.Priority)">@r.Priority</span></td>
-            <td><span class="badge badge-amber">@r.Status</span></td>
+            <td><span class="badge badge-amber">@Ds(r.Status)</span></td>
             <td style="font-size:11px;color:var(--txt3)">@r.CreatedAt.ToString("dd MMM")</td>
             <td><span class="@AgeCls(r.AgeDays)">@r.AgeDays d</span></td>
             <td class="r"><a asp-controller="Requests" asp-action="Detail" asp-route-id="@r.RequestId" class="btn btn-sec btn-sm">View →</a></td>

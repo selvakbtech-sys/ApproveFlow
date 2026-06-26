@@ -1,12 +1,12 @@
 @model MyRequestsTabVM
 @{
-    string Sc(string s) => s switch { "Approved"=>"badge-green","Rejected"=>"badge-red","Pending Approval"=>"badge-blue","Partial Approved"=>"badge-sky","Clarification Needed"=>"badge-purple","Draft"=>"badge-gray","Deleted"=>"badge-dark",_=>"badge-gray" };
-    string ShortStatus(string s) => s switch { "Partial Approved"=>"Part. Approved","Clarification Needed"=>"Clarify",_=>s };
+    string Sc(string s) => s switch { "Approved"=>"badge-green","Rejected"=>"badge-red","Pending Approval"=>"badge-blue","Open"=>"badge-blue","Partial Approved"=>"badge-sky","Clarification Needed"=>"badge-purple","Draft"=>"badge-gray","Deleted"=>"badge-dark",_=>"badge-gray" };
+    string ShortStatus(string s) => s switch { "Pending Approval"=>"Pending Approval","Open"=>"Pending Approval","Partial Approved"=>"Part. Approved","Clarification Needed"=>"Clarify",_=>s };
     string Pc(string p) => p switch { "Critical"=>"badge-red","High"=>"badge-amber","Medium"=>"badge-blue",_=>"badge-gray" };
 }
 
 @* ── KPI Cards ── *@
-<div class="metric-row" style="grid-template-columns:repeat(6,1fr)">
+<div class="metric-row" style="grid-template-columns:repeat(7,1fr)">
   <a asp-controller="Requests" asp-action="Index" asp-route-FilterMine="true" class="metric-card" style="--mc:#0f172a">
     <div class="metric-num">@Model.MyTotal</div>
     <div class="metric-lbl">Total Request</div>
@@ -15,7 +15,12 @@
   <a asp-controller="Requests" asp-action="Index" asp-route-FilterMine="true" asp-route-FilterStatus="Pending Approval" class="metric-card" style="--mc:#d97706">
     <div class="metric-num">@Model.MyPending</div>
     <div class="metric-lbl">Pending Request</div>
-    <div class="metric-hint">Pending Approval &amp; Partial Approved</div>
+    <div class="metric-hint">Pending Approval</div>
+  </a>
+  <a asp-controller="Requests" asp-action="Index" asp-route-FilterMine="true" asp-route-FilterStatus="Partial Approved" class="metric-card" style="--mc:#0369a1">
+    <div class="metric-num">@Model.MyPartialApproved</div>
+    <div class="metric-lbl">Partial Approved</div>
+    <div class="metric-hint">&nbsp;</div>
   </a>
   <a asp-controller="Requests" asp-action="Index" asp-route-FilterMine="true" asp-route-FilterStatus="Approved" class="metric-card" style="--mc:#16a34a">
     <div class="metric-num">@Model.MyApproved</div>

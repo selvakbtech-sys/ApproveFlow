@@ -2,8 +2,9 @@
 @{
     ViewData["Title"] = "Request Details";
     ViewData["NavPage"] = "requests";
-    string Sc(string s) => s switch{"Approved"=>"badge-green","Rejected"=>"badge-red","Pending Approval"=>"badge-blue","Partial Approved"=>"badge-sky","Clarification Needed"=>"badge-amber","Draft"=>"badge-gray","Deleted"=>"badge-dark",_=>"badge-gray"};
+    string Sc(string s) => s switch{"Approved"=>"badge-green","Rejected"=>"badge-red","Pending Approval"=>"badge-blue","Open"=>"badge-blue","Partial Approved"=>"badge-sky","Clarification Needed"=>"badge-amber","Draft"=>"badge-gray","Deleted"=>"badge-dark",_=>"badge-gray"};
     string Pc(string p) => p switch{"Critical"=>"badge-red","High"=>"badge-amber","Medium"=>"badge-blue",_=>"badge-gray"};
+    string Ds(string s) => s == "Open" ? "Pending Approval" : s;
     string SCls(string s) => s switch{"approved"=>"sn-ok","rejected"=>"sn-ng","pending"=>"sn-wa","clarification"=>"sn-cl",_=>"sn-wait"};
     string TlCls(string a) => a switch{"approved"=>"tl-approved","rejected"=>"tl-rejected","clarification"=>"tl-clarification","submitted"=>"tl-submitted",_=>"tl-saved_draft"};
     string TlIco(string a) => a switch{"approved"=>"✓","rejected"=>"✕","clarification"=>"?","submitted"=>"↑",_=>"·"};
@@ -15,7 +16,7 @@
   <div>
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
       <div class="pg-title">@Model.RequestNumber</div>
-      <span class="badge @Sc(Model.Status)">@Model.Status</span>
+      <span class="badge @Sc(Model.Status)">@Ds(Model.Status)</span>
       <span class="badge @Pc(Model.Priority)">@Model.Priority</span>
     </div>
     <div class="pg-sub" style="font-size:20px;font-weight:700;color:var(--txt1)">@Model.Title</div>
@@ -36,7 +37,7 @@
     }
     @if (ViewBag.CanDelete == true)
     {
-      @if (Model.Status == "Pending Approval")
+      @if (Model.Status == "Pending Approval" || Model.Status == "Open")
       {
         <form asp-action="Delete" asp-route-id="@Model.RequestId" method="post" style="display:inline">
           @Html.AntiForgeryToken()

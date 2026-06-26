@@ -2,8 +2,9 @@
 @{
     ViewData["Title"] = "Requests";
     ViewData["NavPage"] = "requests";
-    string Sc(string s) => s switch {"Approved"=>"badge-green","Rejected"=>"badge-red","Pending Approval"=>"badge-blue","Partial Approved"=>"badge-sky","Clarification Needed"=>"badge-amber","Draft"=>"badge-gray","Deleted"=>"badge-dark",_=>"badge-gray"};
+    string Sc(string s) => s switch {"Approved"=>"badge-green","Rejected"=>"badge-red","Pending Approval"=>"badge-blue","Open"=>"badge-blue","Partial Approved"=>"badge-sky","Clarification Needed"=>"badge-amber","Draft"=>"badge-gray","Deleted"=>"badge-dark",_=>"badge-gray"};
     string Pc(string p) => p switch {"Critical"=>"badge-red","High"=>"badge-amber","Medium"=>"badge-blue",_=>"badge-gray"};
+    string Ds(string s) => s == "Open" ? "Pending Approval" : s;
 }
 
 <div class="pg-hdr">
@@ -119,7 +120,7 @@
             <td style="font-size:12px">@r.RequestTypeName</td>
             <td><span class="badge @Pc(r.Priority)">@r.Priority</span></td>
             <td style="font-weight:600">@(r.Amount.HasValue ? "₹"+r.Amount.Value.ToString("N0") : "—")</td>
-            <td><span class="badge @Sc(r.Status)">@r.Status</span></td>
+            <td><span class="badge @Sc(r.Status)">@Ds(r.Status)</span></td>
             <td style="font-size:11px;color:var(--txt3);white-space:nowrap">@r.CreatedAt.ToString("dd MMM yyyy")</td>
             <td class="r">
               <div style="display:inline-flex;gap:4px;align-items:center">
@@ -144,7 +145,7 @@
                 }
                 @if (ViewBag.CanDelete == true)
                 {
-                  @if (r.Status == "Pending Approval")
+                  @if (r.Status == "Pending Approval" || r.Status == "Open")
                   {
                     <form asp-action="Delete" asp-route-id="@r.RequestId" method="post" style="display:inline">
                       @Html.AntiForgeryToken()

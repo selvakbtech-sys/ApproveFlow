@@ -103,11 +103,12 @@ public class DeptStatVM
 
 public class DashboardSummaryDto
 {
-    public string CategoryName     { get; set; } = "";
-    public int    PendingCount     { get; set; }
-    public int    ApprovedCount    { get; set; }
-    public int    RejectedCount    { get; set; }
-    public int    ClarificationCount { get; set; }
+    public string CategoryName          { get; set; } = "";
+    public int    PendingCount          { get; set; }
+    public int    PartialApprovedCount  { get; set; }
+    public int    ApprovedCount         { get; set; }
+    public int    RejectedCount         { get; set; }
+    public int    ClarificationCount    { get; set; }
 }
 
 public class SummaryTableVM
@@ -120,12 +121,13 @@ public class SummaryTableVM
 
 public class MyRequestsTabVM
 {
-    public int MyTotal { get; set; }
-    public int MyPending { get; set; }
-    public int MyApproved { get; set; }
-    public int MyRejected { get; set; }
-    public int MyDraft { get; set; }
-    public int MyClarification { get; set; }
+    public int MyTotal           { get; set; }
+    public int MyPending         { get; set; }
+    public int MyPartialApproved { get; set; }
+    public int MyApproved        { get; set; }
+    public int MyRejected        { get; set; }
+    public int MyDraft           { get; set; }
+    public int MyClarification   { get; set; }
     public List<DashboardSummaryDto> ByTypeSummary { get; set; } = new();
     public List<DashboardSummaryDto> ByPrioritySummary { get; set; } = new();
     public List<DashboardSummaryDto> ByLocationSummary { get; set; } = new();

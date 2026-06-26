@@ -21,7 +21,7 @@ public class DashboardService : IDashboardService
     {
         bool isApprover = !isAdmin && await _db.RequestApprovers.AnyAsync(a => a.ApproverUserId == userId);
 
-        var myPendingApproval = await _db.Requests.CountAsync(r => r.RequestorId == userId && r.Status == "Pending Approval");
+        var myPendingApproval = await _db.Requests.CountAsync(r => r.RequestorId == userId && (r.Status == "Open" || r.Status == "Pending Approval"));
         var myPartial = await _db.Requests.CountAsync(r => r.RequestorId == userId && r.Status == "Partial Approved");
         var vm = new DashboardVM
         {
@@ -49,7 +49,7 @@ public class DashboardService : IDashboardService
 
         if (isAdmin)
         {
-            var adminPendingApproval = await _db.Requests.CountAsync(r => r.Status == "Pending Approval");
+            var adminPendingApproval = await _db.Requests.CountAsync(r => r.Status == "Open" || r.Status == "Pending Approval");
             var adminPartial = await _db.Requests.CountAsync(r => r.Status == "Partial Approved");
             vm.Total = await _db.Requests.CountAsync(r => r.Status != "Deleted");
             vm.Draft = await _db.Requests.CountAsync(r => r.Status == "Draft");
@@ -60,7 +60,7 @@ public class DashboardService : IDashboardService
             vm.Rejected = await _db.Requests.CountAsync(r => r.Status == "Rejected");
             vm.ClarificationNeeded = await _db.Requests.CountAsync(r => r.Status == "Clarification Needed");
             vm.TotalAmountApproved = await _db.Requests.Where(r => r.Status == "Approved" && r.Amount != null).SumAsync(r => r.Amount ?? 0);
-            vm.TotalAmountPending = await _db.Requests.Where(r => (r.Status == "Pending Approval" || r.Status == "Partial Approved") && r.Amount != null).SumAsync(r => r.Amount ?? 0);
+            vm.TotalAmountPending = await _db.Requests.Where(r => (r.Status == "Open" || r.Status == "Pending Approval" || r.Status == "Partial Approved") && r.Amount != null).SumAsync(r => r.Amount ?? 0);
         }
 
         var activityQuery = _db.RequestActionLogs
@@ -102,7 +102,7 @@ public class DashboardService : IDashboardService
         var urgentQuery = _db.Requests
             .Include(r => r.Requestor).Include(r => r.Location)
             .Include(r => r.Department).Include(r => r.RequestType).Include(r => r.Documents)
-            .Where(r => (r.Status == "Pending Approval" || r.Status == "Partial Approved") && (r.Priority == "Critical" || r.Priority == "High"));
+            .Where(r => (r.Status == "Open" || r.Status == "Pending Approval" || r.Status == "Partial Approved") && (r.Priority == "Critical" || r.Priority == "High"));
         if (!isAdmin)
             urgentQuery = urgentQuery.Where(r => r.RequestorId == userId);
         vm.UrgentPending = await urgentQuery
@@ -150,7 +150,7 @@ public class DashboardService : IDashboardService
                 {
                     LocationName = g.Key,
                     Total = g.Count(),
-                    Pending = g.Count(r => r.Status == "Pending Approval" || r.Status == "Partial Approved"),
+                    Pending = g.Count(r => r.Status == "Open" || r.Status == "Pending Approval" || r.Status == "Partial Approved"),
                     Approved = g.Count(r => r.Status == "Approved"),
                     Rejected = g.Count(r => r.Status == "Rejected"),
                 }).ToListAsync();
@@ -162,7 +162,7 @@ public class DashboardService : IDashboardService
                 {
                     DeptName = g.Key,
                     Total = g.Count(),
-                    Pending = g.Count(r => r.Status == "Pending Approval" || r.Status == "Partial Approved"),
+                    Pending = g.Count(r => r.Status == "Open" || r.Status == "Pending Approval" || r.Status == "Partial Approved"),
                     Approved = g.Count(r => r.Status == "Approved"),
                     Rejected = g.Count(r => r.Status == "Rejected"),
                 }).OrderByDescending(d => d.Total).ToListAsync();
@@ -174,7 +174,7 @@ public class DashboardService : IDashboardService
                 .ToDictionaryAsync(x => x.Key, x => x.Count);
 
             vm.ByPriority = await _db.Requests
-                .Where(r => r.Status == "Pending Approval" || r.Status == "Partial Approved")
+                .Where(r => r.Status == "Open" || r.Status == "Pending Approval" || r.Status == "Partial Approved")
                 .GroupBy(r => r.Priority)
                 .Select(g => new { g.Key, Count = g.Count() })
                 .ToDictionaryAsync(x => x.Key, x => x.Count);
@@ -214,12 +214,13 @@ public class DashboardService : IDashboardService
     {
         var vm = new MyRequestsTabVM
         {
-            MyTotal         = await _db.Requests.CountAsync(r => r.RequestorId == userId && r.Status != "Deleted"),
-            MyPending       = await _db.Requests.CountAsync(r => r.RequestorId == userId && (r.Status == "Pending Approval" || r.Status == "Partial Approved")),
-            MyApproved      = await _db.Requests.CountAsync(r => r.RequestorId == userId && r.Status == "Approved"),
-            MyRejected      = await _db.Requests.CountAsync(r => r.RequestorId == userId && r.Status == "Rejected"),
-            MyDraft         = await _db.Requests.CountAsync(r => r.RequestorId == userId && r.Status == "Draft"),
-            MyClarification = await _db.Requests.CountAsync(r => r.RequestorId == userId && r.Status == "Clarification Needed"),
+            MyTotal           = await _db.Requests.CountAsync(r => r.RequestorId == userId && r.Status != "Deleted"),
+            MyPending         = await _db.Requests.CountAsync(r => r.RequestorId == userId && (r.Status == "Open" || r.Status == "Pending Approval")),
+            MyPartialApproved = await _db.Requests.CountAsync(r => r.RequestorId == userId && r.Status == "Partial Approved"),
+            MyApproved        = await _db.Requests.CountAsync(r => r.RequestorId == userId && r.Status == "Approved"),
+            MyRejected        = await _db.Requests.CountAsync(r => r.RequestorId == userId && r.Status == "Rejected"),
+            MyDraft           = await _db.Requests.CountAsync(r => r.RequestorId == userId && r.Status == "Draft"),
+            MyClarification   = await _db.Requests.CountAsync(r => r.RequestorId == userId && r.Status == "Clarification Needed"),
         };
 
         var myReqs = _db.Requests.AsNoTracking().Where(r => r.RequestorId == userId && r.Status != "Deleted");
@@ -228,11 +229,12 @@ public class DashboardService : IDashboardService
             .GroupBy(r => r.RequestType.TypeName)
             .Select(g => new DashboardSummaryDto
             {
-                CategoryName       = g.Key,
-                PendingCount       = g.Count(r => r.Status == "Pending Approval" || r.Status == "Partial Approved"),
-                ApprovedCount      = g.Count(r => r.Status == "Approved"),
-                RejectedCount      = g.Count(r => r.Status == "Rejected"),
-                ClarificationCount = g.Count(r => r.Status == "Clarification Needed"),
+                CategoryName         = g.Key,
+                PendingCount         = g.Count(r => r.Status == "Open" || r.Status == "Pending Approval"),
+                PartialApprovedCount = g.Count(r => r.Status == "Partial Approved"),
+                ApprovedCount        = g.Count(r => r.Status == "Approved"),
+                RejectedCount        = g.Count(r => r.Status == "Rejected"),
+                ClarificationCount   = g.Count(r => r.Status == "Clarification Needed"),
             })
             .OrderBy(x => x.CategoryName).ToListAsync();
 
@@ -241,11 +243,12 @@ public class DashboardService : IDashboardService
             .GroupBy(r => r.Priority)
             .Select(g => new DashboardSummaryDto
             {
-                CategoryName       = g.Key,
-                PendingCount       = g.Count(r => r.Status == "Pending Approval" || r.Status == "Partial Approved"),
-                ApprovedCount      = g.Count(r => r.Status == "Approved"),
-                RejectedCount      = g.Count(r => r.Status == "Rejected"),
-                ClarificationCount = g.Count(r => r.Status == "Clarification Needed"),
+                CategoryName         = g.Key,
+                PendingCount         = g.Count(r => r.Status == "Open" || r.Status == "Pending Approval"),
+                PartialApprovedCount = g.Count(r => r.Status == "Partial Approved"),
+                ApprovedCount        = g.Count(r => r.Status == "Approved"),
+                RejectedCount        = g.Count(r => r.Status == "Rejected"),
+                ClarificationCount   = g.Count(r => r.Status == "Clarification Needed"),
             })
             .ToListAsync();
         vm.ByPrioritySummary = rawPri
@@ -256,11 +259,12 @@ public class DashboardService : IDashboardService
             .GroupBy(r => r.Location.LocationName)
             .Select(g => new DashboardSummaryDto
             {
-                CategoryName       = g.Key,
-                PendingCount       = g.Count(r => r.Status == "Pending Approval" || r.Status == "Partial Approved"),
-                ApprovedCount      = g.Count(r => r.Status == "Approved"),
-                RejectedCount      = g.Count(r => r.Status == "Rejected"),
-                ClarificationCount = g.Count(r => r.Status == "Clarification Needed"),
+                CategoryName         = g.Key,
+                PendingCount         = g.Count(r => r.Status == "Open" || r.Status == "Pending Approval"),
+                PartialApprovedCount = g.Count(r => r.Status == "Partial Approved"),
+                ApprovedCount        = g.Count(r => r.Status == "Approved"),
+                RejectedCount        = g.Count(r => r.Status == "Rejected"),
+                ClarificationCount   = g.Count(r => r.Status == "Clarification Needed"),
             })
             .OrderBy(x => x.CategoryName).ToListAsync();
 
@@ -268,11 +272,12 @@ public class DashboardService : IDashboardService
             .GroupBy(r => r.Department.DeptName)
             .Select(g => new DashboardSummaryDto
             {
-                CategoryName       = g.Key,
-                PendingCount       = g.Count(r => r.Status == "Pending Approval" || r.Status == "Partial Approved"),
-                ApprovedCount      = g.Count(r => r.Status == "Approved"),
-                RejectedCount      = g.Count(r => r.Status == "Rejected"),
-                ClarificationCount = g.Count(r => r.Status == "Clarification Needed"),
+                CategoryName         = g.Key,
+                PendingCount         = g.Count(r => r.Status == "Open" || r.Status == "Pending Approval"),
+                PartialApprovedCount = g.Count(r => r.Status == "Partial Approved"),
+                ApprovedCount        = g.Count(r => r.Status == "Approved"),
+                RejectedCount        = g.Count(r => r.Status == "Rejected"),
+                ClarificationCount   = g.Count(r => r.Status == "Clarification Needed"),
             })
             .OrderBy(x => x.CategoryName).ToListAsync();
 
@@ -416,7 +421,7 @@ public class DashboardService : IDashboardService
         var vm = new MyTerritoryTabVM
         {
             TotalInTerritory = await q.CountAsync(),
-            Pending          = await q.CountAsync(r => r.Status == "Pending Approval" || r.Status == "Partial Approved"),
+            Pending          = await q.CountAsync(r => r.Status == "Open" || r.Status == "Pending Approval"),
             Approved         = await q.CountAsync(r => r.Status == "Approved"),
             Rejected         = await q.CountAsync(r => r.Status == "Rejected"),
             Clarification    = await q.CountAsync(r => r.Status == "Clarification Needed"),
@@ -431,11 +436,12 @@ public class DashboardService : IDashboardService
             .GroupBy(r => r.RequestType.TypeName)
             .Select(g => new DashboardSummaryDto
             {
-                CategoryName       = g.Key,
-                PendingCount       = g.Count(r => r.Status == "Pending Approval" || r.Status == "Partial Approved"),
-                ApprovedCount      = g.Count(r => r.Status == "Approved"),
-                RejectedCount      = g.Count(r => r.Status == "Rejected"),
-                ClarificationCount = g.Count(r => r.Status == "Clarification Needed"),
+                CategoryName          = g.Key,
+                PendingCount          = g.Count(r => r.Status == "Open" || r.Status == "Pending Approval"),
+                PartialApprovedCount  = g.Count(r => r.Status == "Partial Approved"),
+                ApprovedCount         = g.Count(r => r.Status == "Approved"),
+                RejectedCount         = g.Count(r => r.Status == "Rejected"),
+                ClarificationCount    = g.Count(r => r.Status == "Clarification Needed"),
             })
             .OrderBy(x => x.CategoryName).ToListAsync();
 
@@ -444,11 +450,12 @@ public class DashboardService : IDashboardService
             .GroupBy(r => r.Priority)
             .Select(g => new DashboardSummaryDto
             {
-                CategoryName       = g.Key,
-                PendingCount       = g.Count(r => r.Status == "Pending Approval" || r.Status == "Partial Approved"),
-                ApprovedCount      = g.Count(r => r.Status == "Approved"),
-                RejectedCount      = g.Count(r => r.Status == "Rejected"),
-                ClarificationCount = g.Count(r => r.Status == "Clarification Needed"),
+                CategoryName          = g.Key,
+                PendingCount          = g.Count(r => r.Status == "Open" || r.Status == "Pending Approval"),
+                PartialApprovedCount  = g.Count(r => r.Status == "Partial Approved"),
+                ApprovedCount         = g.Count(r => r.Status == "Approved"),
+                RejectedCount         = g.Count(r => r.Status == "Rejected"),
+                ClarificationCount    = g.Count(r => r.Status == "Clarification Needed"),
             })
             .ToListAsync();
         vm.ByPrioritySummary = rawPri3
@@ -459,11 +466,12 @@ public class DashboardService : IDashboardService
             .GroupBy(r => r.Location.LocationName)
             .Select(g => new DashboardSummaryDto
             {
-                CategoryName       = g.Key,
-                PendingCount       = g.Count(r => r.Status == "Pending Approval" || r.Status == "Partial Approved"),
-                ApprovedCount      = g.Count(r => r.Status == "Approved"),
-                RejectedCount      = g.Count(r => r.Status == "Rejected"),
-                ClarificationCount = g.Count(r => r.Status == "Clarification Needed"),
+                CategoryName          = g.Key,
+                PendingCount          = g.Count(r => r.Status == "Open" || r.Status == "Pending Approval"),
+                PartialApprovedCount  = g.Count(r => r.Status == "Partial Approved"),
+                ApprovedCount         = g.Count(r => r.Status == "Approved"),
+                RejectedCount         = g.Count(r => r.Status == "Rejected"),
+                ClarificationCount    = g.Count(r => r.Status == "Clarification Needed"),
             })
             .OrderBy(x => x.CategoryName).ToListAsync();
 
@@ -471,11 +479,12 @@ public class DashboardService : IDashboardService
             .GroupBy(r => r.Department.DeptName)
             .Select(g => new DashboardSummaryDto
             {
-                CategoryName       = g.Key,
-                PendingCount       = g.Count(r => r.Status == "Pending Approval" || r.Status == "Partial Approved"),
-                ApprovedCount      = g.Count(r => r.Status == "Approved"),
-                RejectedCount      = g.Count(r => r.Status == "Rejected"),
-                ClarificationCount = g.Count(r => r.Status == "Clarification Needed"),
+                CategoryName          = g.Key,
+                PendingCount          = g.Count(r => r.Status == "Open" || r.Status == "Pending Approval"),
+                PartialApprovedCount  = g.Count(r => r.Status == "Partial Approved"),
+                ApprovedCount         = g.Count(r => r.Status == "Approved"),
+                RejectedCount         = g.Count(r => r.Status == "Rejected"),
+                ClarificationCount    = g.Count(r => r.Status == "Clarification Needed"),
             })
             .OrderBy(x => x.CategoryName).ToListAsync();
 
@@ -490,7 +499,7 @@ public class DashboardService : IDashboardService
             .Select(g => new DashboardSummaryDto
             {
                 CategoryName      = g.Key,
-                PendingCount      = g.Count(r => r.Status == "Pending Approval" || r.Status == "Partial Approved"),
+                PendingCount      = g.Count(r => r.Status == "Open" || r.Status == "Pending Approval" || r.Status == "Partial Approved"),
                 ApprovedCount     = g.Count(r => r.Status == "Approved"),
                 RejectedCount     = g.Count(r => r.Status == "Rejected"),
                 ClarificationCount = g.Count(r => r.Status == "Clarification Needed"),
@@ -508,7 +517,7 @@ public class DashboardService : IDashboardService
             .Select(g => new DashboardSummaryDto
             {
                 CategoryName      = g.Key,
-                PendingCount      = g.Count(r => r.Status == "Pending Approval" || r.Status == "Partial Approved"),
+                PendingCount      = g.Count(r => r.Status == "Open" || r.Status == "Pending Approval" || r.Status == "Partial Approved"),
                 ApprovedCount     = g.Count(r => r.Status == "Approved"),
                 RejectedCount     = g.Count(r => r.Status == "Rejected"),
                 ClarificationCount = g.Count(r => r.Status == "Clarification Needed"),
@@ -526,7 +535,7 @@ public class DashboardService : IDashboardService
             .Select(g => new DashboardSummaryDto
             {
                 CategoryName      = g.Key,
-                PendingCount      = g.Count(r => r.Status == "Pending Approval" || r.Status == "Partial Approved"),
+                PendingCount      = g.Count(r => r.Status == "Open" || r.Status == "Pending Approval" || r.Status == "Partial Approved"),
                 ApprovedCount     = g.Count(r => r.Status == "Approved"),
                 RejectedCount     = g.Count(r => r.Status == "Rejected"),
                 ClarificationCount = g.Count(r => r.Status == "Clarification Needed"),
@@ -542,7 +551,7 @@ public class DashboardService : IDashboardService
             .Select(g => new DashboardSummaryDto
             {
                 CategoryName      = g.Key,
-                PendingCount      = g.Count(r => r.Status == "Pending Approval" || r.Status == "Partial Approved"),
+                PendingCount      = g.Count(r => r.Status == "Open" || r.Status == "Pending Approval" || r.Status == "Partial Approved"),
                 ApprovedCount     = g.Count(r => r.Status == "Approved"),
                 RejectedCount     = g.Count(r => r.Status == "Rejected"),
                 ClarificationCount = g.Count(r => r.Status == "Clarification Needed"),

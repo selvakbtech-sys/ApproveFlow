@@ -2,10 +2,10 @@
 @{
     ViewData["Title"] = "Dashboard";
     ViewData["NavPage"] = "dashboard";
-    string Sc(string s) => s switch { "Approved"=>"badge-green","Rejected"=>"badge-red","Pending Approval"=>"badge-amber","Clarification Needed"=>"badge-purple","Draft"=>"badge-gray",_=>"badge-gray" };
+    string Sc(string s) => s switch { "Approved"=>"badge-green","Rejected"=>"badge-red","Pending Approval"=>"badge-amber","Open"=>"badge-amber","Clarification Needed"=>"badge-purple","Draft"=>"badge-gray",_=>"badge-gray" };
     string Pc(string p) => p switch { "Critical"=>"badge-red","High"=>"badge-amber","Medium"=>"badge-blue",_=>"badge-gray" };
-    string Sl(string s) => s switch { "Approved"=>"✅","Rejected"=>"❌","Pending Approval"=>"⏳","Clarification Needed"=>"💬","Draft"=>"📝",_=>"📌" };
-    string ShortStatus(string s) => s switch { "Pending Approval"=>"Pending","Clarification Needed"=>"Clarify",_=>s };
+    string Sl(string s) => s switch { "Approved"=>"✅","Rejected"=>"❌","Pending Approval"=>"⏳","Open"=>"⏳","Clarification Needed"=>"💬","Draft"=>"📝",_=>"📌" };
+    string ShortStatus(string s) => s switch { "Pending Approval"=>"Pending","Open"=>"Pending","Clarification Needed"=>"Clarify",_=>s };
     bool isAdmin = ViewBag.IsAdmin == true;
     bool isApprover = ViewBag.IsApprover == true;
     bool isViewOnly = ((string)(ViewBag.UserRole ?? "") == "View Only");
