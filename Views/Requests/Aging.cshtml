@@ -146,7 +146,7 @@
         @foreach (var r in Model.Items)
         {
           <tr>
-            <td><span class="mono" style="background:var(--bg);padding:2px 6px;border-radius:4px">@r.RequestNumber</span></td>
+            <td><span class="mono" style="background:var(--bg);padding:2px 6px;border-radius:4px">@r.DisplayRequestNumber</span></td>
             <td style="max-width:180px">
               <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">@r.Title</div>
               <div style="font-size:11px;color:var(--txt3)">@r.DeptName</div>

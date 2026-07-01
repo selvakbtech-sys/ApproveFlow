@@ -54,7 +54,7 @@
 <div class="pg-hdr">
   <div>
     <div class="pg-title">Dashboard</div>
-    <div class="pg-sub" style="font-size:12px;color:var(--txt3);margin-top:2px">@DateTime.Now.ToString("dddd, dd MMMM yyyy") · India Standard Time</div>
+    <div class="pg-sub" style="font-size:12px;color:var(--txt3);margin-top:2px">@DateTime.Now.ToString("dddd, dd MMMM yyyy")</div>
   </div>
   <div class="pg-actions">
     <a asp-controller="Requests" asp-action="Create" class="btn btn-acc">
@@ -259,7 +259,7 @@
               {
                 var age = (int)(DateTimeOffset.UtcNow - (item.SubmittedAt ?? item.UpdatedAt)).TotalDays;
                 <tr>
-                  <td style="font-family:monospace;font-size:11px;font-weight:600">@item.RequestNumber</td>
+                  <td style="font-family:monospace;font-size:11px;font-weight:600">@item.DisplayRequestNumber</td>
                   <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">@item.Title</td>
                   <td style="color:var(--txt2);font-size:12px">@item.RequestorName</td>
                   <td><span class="badge @Pc(item.Priority)">@item.Priority</span></td>
@@ -370,7 +370,7 @@
             @foreach (var r in Model.ClarificationItems)
             {
               <tr>
-                <td style="font-family:monospace;font-size:11px;font-weight:600">@r.RequestNumber</td>
+                <td style="font-family:monospace;font-size:11px;font-weight:600">@r.DisplayRequestNumber</td>
                 <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">@r.Title</td>
                 <td style="font-size:12px;color:var(--txt2)">@r.RequestorName</td>
                 <td style="font-size:12px">@r.RequestTypeName</td>
@@ -535,7 +535,7 @@
           @foreach (var r in displayedRecent)
           {
             <tr>
-              <td style="font-family:monospace;font-size:11px;font-weight:600">@r.RequestNumber</td>
+              <td style="font-family:monospace;font-size:11px;font-weight:600">@r.DisplayRequestNumber</td>
               <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">@r.Title</td>
               <td style="font-size:11px;color:var(--txt2)">@r.RequestTypeName</td>
               <td style="font-size:12px">@r.RequestorName</td>

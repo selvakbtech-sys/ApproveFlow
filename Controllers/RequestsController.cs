@@ -3,13 +3,14 @@ namespace ApproveFlow.MVC.Controllers;
 public class RequestsController : BaseCtrl
 {
     private readonly IRequestService _svc;
+    private readonly IUserMappingService _mapping;
     private readonly AppDbContext _db;
     private readonly IConfiguration _cfg;
     private readonly ILogger<RequestsController> _log;
     private readonly IWebHostEnvironment _env;
 
-    public RequestsController(IRequestService svc, AppDbContext db, IConfiguration cfg, ILogger<RequestsController> log, IWebHostEnvironment env)
-    { _svc = svc; _db = db; _cfg = cfg; _log = log; _env = env; }
+    public RequestsController(IRequestService svc, IUserMappingService mapping, AppDbContext db, IConfiguration cfg, ILogger<RequestsController> log, IWebHostEnvironment env)
+    { _svc = svc; _mapping = mapping; _db = db; _cfg = cfg; _log = log; _env = env; }
 
     public async Task<IActionResult> Index(RequestListVM filter, int page = 1)
     {
@@ -20,7 +21,7 @@ public class RequestsController : BaseCtrl
                 .Select(u => u.Role.Permissions.Any(p => p.ScreenName == "Requests" && p.CanDelete))
                 .FirstOrDefaultAsync();
         int? scopeUser = filter.FilterMine ? UserId : null;
-        return View(await _svc.GetListAsync(filter, page, 20, scopeUser));
+        return View(await _svc.GetListAsync(filter, page, 20, scopeUser, UserId));
     }
 
     public async Task<IActionResult> MyApprovals(RequestListVM filter, int page = 1)
@@ -54,7 +55,7 @@ public class RequestsController : BaseCtrl
             .Include(u => u.UserLocations).ThenInclude(ul => ul.Location)
             .Include(u => u.UserDepartments).ThenInclude(ud => ud.Department)
             .FirstOrDefaultAsync(u => u.UserId == UserId);
-        vm.RequestTypes = await _db.RequestTypes.Where(t => t.IsActive).ToListAsync();
+        vm.RequestTypes = await _mapping.GetAllowedRequestTypesAsync(UserId);
         vm.Locations = user?.UserLocations.Select(ul => ul.Location).Where(l => l.IsActive).OrderBy(l => l.LocationName).ToList() ?? new();
         vm.Departments = user?.UserDepartments.Select(ud => ud.Department).Where(d => d.IsActive).OrderBy(d => d.DeptName).ToList() ?? new();
         return View("Form", vm);
@@ -157,7 +158,7 @@ public class RequestsController : BaseCtrl
             .Include(u => u.UserLocations).ThenInclude(ul => ul.Location)
             .Include(u => u.UserDepartments).ThenInclude(ud => ud.Department)
             .FirstOrDefaultAsync(u => u.UserId == UserId);
-        vm.RequestTypes = await _db.RequestTypes.Where(t => t.IsActive).ToListAsync();
+        vm.RequestTypes = await _mapping.GetAllowedRequestTypesAsync(UserId);
         vm.Locations = user?.UserLocations.Select(ul => ul.Location).Where(l => l.IsActive).OrderBy(l => l.LocationName).ToList() ?? new();
         vm.Departments = user?.UserDepartments.Select(ud => ud.Department).Where(d => d.IsActive).OrderBy(d => d.DeptName).ToList() ?? new();
         vm.AllDeptNames = vm.Departments.Select(d => d.DeptName).ToList();
@@ -315,9 +316,24 @@ public class RequestsController : BaseCtrl
         return View(vm);
     }
 
+    [HttpPost, ValidateAntiForgeryToken]
     public async Task<IActionResult> ExportExcel(RequestListVM filter)
     {
+        if (string.IsNullOrWhiteSpace(filter.FilterDateFrom))
+            return Json(new { error = "From Date is required." });
+        if (string.IsNullOrWhiteSpace(filter.FilterDateTo))
+            return Json(new { error = "To Date is required." });
+        if (!DateOnly.TryParse(filter.FilterDateFrom, out var from))
+            return Json(new { error = "From Date is invalid." });
+        if (!DateOnly.TryParse(filter.FilterDateTo, out var to))
+            return Json(new { error = "To Date is invalid." });
+        if (from > to)
+            return Json(new { error = "From Date cannot be greater than To Date." });
+
         var allItems = await _svc.GetAllForExportAsync(filter);
+
+        if (!allItems.Any())
+            return Json(new { error = "No records found for the selected date range." });
 
         var sb = new System.Text.StringBuilder();
         sb.Append('﻿');
@@ -327,7 +343,7 @@ public class RequestsController : BaseCtrl
         foreach (var r in allItems)
         {
             sb.AppendLine(
-                $"\"{r.RequestNumber}\"," +
+                $"\"{r.DisplayRequestNumber}\"," +
                 $"\"{r.Title?.Replace("\"", "\"\"")}\"," +
                 $"\"{r.RequestorName}\"," +
                 $"\"{r.RequestTypeName}\"," +
@@ -344,6 +360,6 @@ public class RequestsController : BaseCtrl
         return File(
             bytes,
             "text/csv",
-            $"Requests_{DateTime.Now:yyyyMMdd_HHmmss}.csv");
+            $"Requests_{filter.FilterDateFrom}_to_{filter.FilterDateTo}.csv");
     }
 }

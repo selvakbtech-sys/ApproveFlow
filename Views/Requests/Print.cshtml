@@ -9,7 +9,7 @@
 <html>
 <head>
     <meta charset="utf-8"/>
-    <title>@Model.RequestNumber — Print</title>
+    <title>@Model.DisplayRequestNumber — Print</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; color: #1a1a1a; background: #fff; padding: 15px; }
@@ -81,7 +81,7 @@
             <div class="doc-title">Approval Request Document</div>
         </div>
         <div>
-            <div class="request-id">@Model.RequestNumber</div>
+            <div class="request-id">@Model.DisplayRequestNumber</div>
             <div class="print-date">Printed: @DateTime.Now.ToString("dd MMM yyyy hh:mm tt")</div>
         </div>
     </div>
@@ -105,7 +105,7 @@
         <div class="info-grid">
             <div class="info-item">
                 <div class="info-lbl">Request ID</div>
-                <div class="info-val">@Model.RequestNumber</div>
+                <div class="info-val">@Model.DisplayRequestNumber</div>
             </div>
             <div class="info-item">
                 <div class="info-lbl">Status</div>
@@ -284,7 +284,7 @@
     @* Footer *@
     <div class="footer">
         <span>ApproveFlow — Approval Management System</span>
-        <span>@Model.RequestNumber | Generated: @DateTime.Now.ToString("dd MMM yyyy hh:mm tt")</span>
+        <span>@Model.DisplayRequestNumber | Generated: @DateTime.Now.ToString("dd MMM yyyy hh:mm tt")</span>
     </div>
 
 </body>

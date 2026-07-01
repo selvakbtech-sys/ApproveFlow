@@ -1,0 +1,533 @@
+@model UserMappingFormVM
+@{
+    bool isEdit = Model.UserId > 0;
+    ViewData["Title"] = isEdit ? "Edit User Mapping" : "New User Mapping";
+    ViewData["NavPage"] = "usermapping";
+}
+
+<style>
+  /* ── Searchable select (user dropdown) ── */
+  .srch-sel { position: relative; }
+  /* position:fixed escapes .card { overflow:hidden } clipping */
+  .srch-sel-drop {
+    position: fixed;
+    background: var(--card); border: 1px solid var(--bdr);
+    border-radius: var(--r); box-shadow: 0 4px 16px rgba(0,0,0,.15);
+    z-index: 9999; display: none;
+  }
+  .srch-sel-drop.show { display: block; }
+  .srch-sel-inner { max-height: 230px; overflow-y: auto; }
+  .srch-sel-opt {
+    padding: 9px 13px; cursor: pointer; font-size: 13px;
+    border-bottom: 1px solid var(--bg); transition: background 120ms ease;
+  }
+  .srch-sel-opt:hover   { background: var(--bg); }
+  .srch-sel-opt.sel-active { background: var(--in-bg); color: var(--in); font-weight: 500; }
+  .srch-sel-opt.sr-hide { display: none; }
+
+  /* ── Custom RT multi-select (standalone, no ms-drop dependency) ── */
+  .crt-wrap     { position: relative; }
+  .crt-trigger  {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 11px; border: 1px solid var(--bdr-s); border-radius: var(--r);
+    background: var(--card); cursor: pointer; font-size: 13px;
+    min-height: 38px; gap: 6px; user-select: none;
+  }
+  .crt-trigger.open { border-color: var(--pri); }
+  .crt-chev     { width: 12px; height: 12px; stroke: var(--txt3); fill: none; flex-shrink: 0; transition: transform 150ms ease; }
+  /* position:fixed escapes .card { overflow:hidden } clipping */
+  .crt-panel    {
+    position: fixed;
+    background: var(--card); border: 1px solid var(--bdr);
+    border-radius: var(--r); box-shadow: 0 4px 16px rgba(0,0,0,.15);
+    z-index: 9999; display: none;
+  }
+  .crt-panel.open  { display: block; }
+  .crt-srch-box { padding: 7px 8px; border-bottom: 1px solid var(--bdr); }
+  .crt-srch-inp {
+    width: 100%; padding: 6px 10px; border: 1px solid var(--bdr-s);
+    border-radius: var(--r); font-size: 12px; font-family: inherit;
+    color: var(--txt); background: var(--in-bg); outline: none; box-sizing: border-box;
+  }
+  .crt-srch-inp:focus { border-color: var(--pri); }
+  .crt-bulk-bar { display: flex; gap: 6px; padding: 5px 8px; border-bottom: 1px solid var(--bdr); background: var(--bg); }
+  .crt-bulk-btn {
+    font-size: 11px; font-weight: 600; padding: 3px 10px;
+    border: 1px solid var(--bdr); border-radius: 4px;
+    background: var(--card); cursor: pointer; color: var(--txt2); transition: background 120ms;
+  }
+  .crt-bulk-btn:hover { background: var(--bg); color: var(--txt); }
+  .crt-opts     { max-height: 300px; overflow-y: auto; }
+  .crt-opt      {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 13px; cursor: pointer; font-size: 13px;
+    border-bottom: 1px solid var(--bg); transition: background 120ms;
+  }
+  .crt-opt:hover { background: var(--bg); }
+  .crt-opt input[type=checkbox] { margin: 0; cursor: pointer; }
+  .crt-no-res   { padding: 14px; text-align: center; font-size: 12px; color: var(--txt3); display: none; }
+  .crt-pills    { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; min-height: 0; }
+  .crt-pill     {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: var(--pri); color: #fff; border-radius: 999px;
+    font-size: 11px; font-weight: 600; padding: 2px 8px;
+  }
+  .crt-pill-x   { cursor: pointer; font-size: 14px; line-height: 1; opacity: .8; }
+  .crt-pill-x:hover { opacity: 1; }
+</style>
+
+<div class="pg-hdr">
+  <div><div class="pg-title">@ViewData["Title"]</div></div>
+  <a asp-action="Index" class="btn btn-sec">← Back</a>
+</div>
+
+<div style="max-width:660px">
+  <div class="card">
+    <div class="card-body">
+      <div asp-validation-summary="ModelOnly" class="alert alert-err"></div>
+      <form asp-action="Save" method="post" id="mapForm">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="IsCreate" value="@Model.IsCreate.ToString().ToLower()"/>
+        @* Single hidden UserId field — populated by the searchable dropdown in create mode *@
+        <input type="hidden" id="hidUserId" name="UserId" value="@Model.UserId"/>
+
+        @* ── User Field ── *@
+        <div class="form-group" style="margin-bottom:18px">
+          <label class="lbl">User <span class="req">*</span></label>
+          @if (isEdit)
+          {
+            <input class="inp" value="@Model.UserName" disabled/>
+            <small class="hint">User cannot be changed. Delete and re-create the mapping to reassign.</small>
+          }
+          else
+          {
+            <div class="srch-sel" id="uSel">
+              <div class="srch-sel-trigger inp" id="uTrig" tabindex="0"
+                style="display:flex;align-items:center;justify-content:space-between;min-height:38px;cursor:pointer;gap:6px">
+                <span id="uDisp" style="color:var(--txt3)">Search User…</span>
+                <svg id="uChev" viewBox="0 0 24 24"
+                  style="width:12px;height:12px;stroke:var(--txt3);fill:none;flex-shrink:0;transition:transform 150ms ease">
+                  <polyline points="6,9 12,15 18,9"/>
+                </svg>
+              </div>
+              <div class="srch-sel-drop" id="uDrop">
+                <div style="padding:6px;border-bottom:1px solid var(--bdr)">
+                  <input type="text" id="uSrch" class="ms-srch-inp"
+                    placeholder="Type name or email to filter…" autocomplete="off"/>
+                </div>
+                <div class="srch-sel-inner" id="uInner">
+                  @foreach (var u in Model.Users)
+                  {
+                    <div class="srch-sel-opt"
+                      data-value="@u.Value"
+                      data-q="@u.Text.ToLower()">@u.Text</div>
+                  }
+                </div>
+                <div id="uNoRes" class="ms-no-res">No users found.</div>
+              </div>
+            </div>
+            <span class="field-validation-error" id="uErr" style="display:none">Please select a user.</span>
+          }
+        </div>
+
+        @* ── Duplicate mapping warning (create mode only, shown via JS) ── *@
+        @if (!isEdit)
+        {
+          <div id="dupWarn" style="display:none;margin-bottom:16px">
+            <div style="background:var(--warn-bg,#fff8e1);border:1px solid var(--warn-bdr,#f59e0b);
+                        border-radius:var(--r);padding:12px 14px;display:flex;gap:10px;align-items:flex-start">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"
+                   style="width:18px;height:18px;flex-shrink:0;margin-top:1px">
+                <path stroke-linecap="round" stroke-linejoin="round"
+                      d="M12 9v3m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+              </svg>
+              <div>
+                <div style="font-size:13px;font-weight:600;color:#92400e;margin-bottom:4px">
+                  This user already has a Request Type Mapping.
+                </div>
+                <div style="font-size:12px;color:#78350f;margin-bottom:10px">
+                  Please edit the existing mapping instead of creating a new one.
+                </div>
+                <a id="dupEditBtn" href="#" class="btn btn-sec"
+                   style="font-size:12px;padding:4px 12px;text-decoration:none">
+                  Open Existing Mapping
+                </a>
+              </div>
+            </div>
+          </div>
+        }
+
+        @* ── Request Types Multi-Select (standalone custom widget) ── *@
+        <div class="form-group" style="margin-bottom:22px">
+          <label class="lbl">Request Types <span class="req">*</span></label>
+          <div class="crt-wrap" id="crtWrap">
+            <div class="crt-trigger" id="crtTrig" tabindex="0">
+              <span id="crtDisp" style="color:var(--txt3)">Select Request Types…</span>
+              <svg class="crt-chev" id="crtChev" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" fill="none"><polyline points="6,9 12,15 18,9"/></svg>
+            </div>
+            <div class="crt-panel" id="crtPanel">
+              <div class="crt-srch-box">
+                <input type="text" class="crt-srch-inp" id="crtSrch" placeholder="Search request types…" autocomplete="off"/>
+              </div>
+              <div class="crt-bulk-bar">
+                <button type="button" class="crt-bulk-btn" id="crtSelAll">Select All</button>
+                <button type="button" class="crt-bulk-btn" id="crtClrAll">Clear All</button>
+              </div>
+              <div class="crt-opts" id="crtOpts">
+                @foreach (var rt in Model.RequestTypes)
+                {
+                  <label class="crt-opt">
+                    @if (Model.SelectedRequestTypeIds.Contains(rt.RequestTypeId))
+                    {
+                      <input type="checkbox" class="crt-cb" value="@rt.RequestTypeId" data-label="@rt.TypeName" checked/>
+                    }
+                    else
+                    {
+                      <input type="checkbox" class="crt-cb" value="@rt.RequestTypeId" data-label="@rt.TypeName"/>
+                    }
+                    @rt.TypeName
+                  </label>
+                }
+              </div>
+              <div class="crt-no-res" id="crtNoRes">No request types found.</div>
+            </div>
+            <div class="crt-pills" id="crtPills"></div>
+            @* hidden inputs generated by JS on change *@
+            <div id="crtHidden"></div>
+          </div>
+          <small class="hint">Select one or more request types to assign to this user.</small>
+          <span class="field-validation-error" id="rtErr" style="display:none">Please select at least one request type.</span>
+        </div>
+
+        @if (isEdit)
+        {
+          <div class="form-group" style="margin-bottom:22px">
+            <label class="lbl">Status</label>
+            <div style="display:flex;align-items:center;gap:12px;margin-top:4px">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+                @if (Model.IsActive) { <input type="radio" name="IsActive" value="True" checked/> }
+                else                { <input type="radio" name="IsActive" value="True"/> }
+                Active
+              </label>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+                @if (!Model.IsActive) { <input type="radio" name="IsActive" value="False" checked/> }
+                else                  { <input type="radio" name="IsActive" value="False"/> }
+                Inactive
+              </label>
+            </div>
+          </div>
+        }
+
+        <div style="display:flex;gap:10px">
+          <button type="submit" class="btn btn-pri" id="saveBtn">
+            @(isEdit ? "Save Changes" : "Create Mapping")
+          </button>
+          <a asp-action="Index" class="btn btn-sec">Cancel</a>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+@section Scripts {
+<script>
+(function () {
+  'use strict';
+  var IS_EDIT = @(isEdit ? "true" : "false");
+
+  /* ════════════════════════════════════════════════════════
+     1.  SEARCHABLE USER DROPDOWN  (create mode only)
+  ════════════════════════════════════════════════════════ */
+  if (!IS_EDIT) {
+    var hidUserId = document.getElementById('hidUserId');
+    var uSel      = document.getElementById('uSel');
+    var uTrig     = document.getElementById('uTrig');
+    var uDrop     = document.getElementById('uDrop');
+    var uSrch     = document.getElementById('uSrch');
+    var uInner    = document.getElementById('uInner');
+    var uNoRes    = document.getElementById('uNoRes');
+    var uDisp     = document.getElementById('uDisp');
+    var uChev     = document.getElementById('uChev');
+    var uErrEl    = document.getElementById('uErr');
+    var uOpts     = uInner.querySelectorAll('.srch-sel-opt');
+
+    function uPosition() {
+      var rect = uTrig.getBoundingClientRect();
+      uDrop.style.top   = (rect.bottom + 3) + 'px';
+      uDrop.style.left  = rect.left + 'px';
+      uDrop.style.width = rect.width + 'px';
+    }
+    function uOpen() {
+      uPosition();
+      uDrop.classList.add('show');
+      uChev.style.transform = 'rotate(180deg)';
+      uSrch.value = '';
+      uFilter('');
+      setTimeout(function () { uSrch.focus(); }, 30);
+    }
+    function uClose() {
+      uDrop.classList.remove('show');
+      uChev.style.transform = '';
+    }
+    function uFilter(term) {
+      var shown = 0;
+      uOpts.forEach(function (o) {
+        var match = !term || o.dataset.q.indexOf(term) !== -1;
+        o.classList.toggle('sr-hide', !match);
+        if (match) shown++;
+      });
+      uNoRes.style.display = shown === 0 ? 'block' : 'none';
+    }
+    /* ── Duplicate-check helpers ── */
+    var dupWarn   = document.getElementById('dupWarn');
+    var dupEditBtn= document.getElementById('dupEditBtn');
+    var saveBtn   = document.getElementById('saveBtn');
+    var crtWrap   = document.getElementById('crtWrap');
+
+    function setDuplicate(isDup, editUrl) {
+      if (isDup) {
+        dupWarn.style.display   = '';
+        dupEditBtn.href          = editUrl || '#';
+        /* disable RT widget and Save button */
+        crtWrap.style.opacity   = '0.45';
+        crtWrap.style.pointerEvents = 'none';
+        saveBtn.disabled        = true;
+        saveBtn.style.opacity   = '0.5';
+      } else {
+        dupWarn.style.display   = 'none';
+        crtWrap.style.opacity   = '';
+        crtWrap.style.pointerEvents = '';
+        saveBtn.disabled        = false;
+        saveBtn.style.opacity   = '';
+      }
+    }
+
+    function checkDuplicate(userId) {
+      if (!userId || userId === '0') { setDuplicate(false); return; }
+      fetch('/UserMapping/CheckUser?userId=' + userId)
+        .then(function (r) { return r.json(); })
+        .then(function (d) { setDuplicate(d.exists, d.editUrl); })
+        .catch(function () { setDuplicate(false); });
+    }
+
+    function uSelect(opt) {
+      hidUserId.value       = opt.dataset.value;
+      uDisp.textContent     = opt.textContent.trim();
+      uDisp.style.color     = 'var(--txt)';
+      uOpts.forEach(function (o) { o.classList.toggle('sel-active', o === opt); });
+      uErrEl.style.display  = 'none';
+      uClose();
+      checkDuplicate(opt.dataset.value);
+    }
+
+    uTrig.addEventListener('click', function (e) {
+      e.stopPropagation();
+      uDrop.classList.contains('show') ? uClose() : uOpen();
+    });
+    uTrig.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); uOpen(); }
+    });
+    uSrch.addEventListener('input', function () { uFilter(uSrch.value.toLowerCase()); });
+    uSrch.addEventListener('click', function (e) { e.stopPropagation(); });
+    uOpts.forEach(function (o) {
+      o.addEventListener('click', function (e) { e.stopPropagation(); uSelect(o); });
+    });
+    document.addEventListener('click', function (e) {
+      if (!uSel.contains(e.target)) uClose();
+    });
+
+    // Pre-select if value exists (e.g. validation failed, page re-rendered)
+    var preVal = hidUserId.value;
+    if (preVal && preVal !== '0') {
+      var preOpt = Array.from(uOpts).find(function (o) { return o.dataset.value === preVal; });
+      if (preOpt) {
+        uDisp.textContent = preOpt.textContent.trim();
+        uDisp.style.color = 'var(--txt)';
+        preOpt.classList.add('sel-active');
+        // Re-run duplicate check in case page was re-rendered after a failed save
+        checkDuplicate(preVal);
+      }
+    }
+  }
+
+  /* ════════════════════════════════════════════════════════
+     2.  STANDALONE RT MULTI-SELECT (no initMs dependency)
+  ════════════════════════════════════════════════════════ */
+  var crtTrig   = document.getElementById('crtTrig');
+  var crtPanel  = document.getElementById('crtPanel');
+  var crtChev   = document.getElementById('crtChev');
+  var crtDisp   = document.getElementById('crtDisp');
+  var crtSrch   = document.getElementById('crtSrch');
+  var crtOpts   = document.getElementById('crtOpts');
+  var crtNoRes  = document.getElementById('crtNoRes');
+  var crtPills  = document.getElementById('crtPills');
+  var crtHidden = document.getElementById('crtHidden');
+  var crtSelAll = document.getElementById('crtSelAll');
+  var crtClrAll = document.getElementById('crtClrAll');
+  var crtWrap   = document.getElementById('crtWrap');
+
+  function crtIsOpen() { return crtPanel.classList.contains('open'); }
+
+  /* Position the fixed panel below the trigger using getBoundingClientRect
+     so it escapes .card { overflow:hidden } clipping entirely. */
+  function crtPositionPanel() {
+    var rect = crtTrig.getBoundingClientRect();
+    crtPanel.style.top   = (rect.bottom + 3) + 'px';
+    crtPanel.style.left  = rect.left + 'px';
+    crtPanel.style.width = rect.width + 'px';
+  }
+
+  function crtOpen() {
+    crtPositionPanel();
+    crtPanel.classList.add('open');
+    crtTrig.classList.add('open');
+    crtChev.style.transform = 'rotate(180deg)';
+    crtSrch.value = '';
+    crtFilter('');
+    setTimeout(function () { crtSrch.focus(); }, 30);
+  }
+
+  function crtClose() {
+    crtPanel.classList.remove('open');
+    crtTrig.classList.remove('open');
+    crtChev.style.transform = '';
+  }
+
+  /* Reposition on scroll/resize so the panel tracks the trigger */
+  window.addEventListener('scroll', function () { if (crtIsOpen()) crtPositionPanel(); }, true);
+  window.addEventListener('resize', function () { if (crtIsOpen()) crtPositionPanel(); });
+
+  function crtFilter(term) {
+    var opts  = crtOpts.querySelectorAll('.crt-opt');
+    var shown = 0;
+    opts.forEach(function (opt) {
+      var lbl   = opt.textContent.trim().toLowerCase();
+      var match = !term || lbl.indexOf(term) !== -1;
+      opt.style.display = match ? '' : 'none';
+      if (match) shown++;
+    });
+    crtNoRes.style.display = shown === 0 ? 'block' : 'none';
+  }
+
+  function crtRender() {
+    var cbs      = crtOpts.querySelectorAll('.crt-cb:checked');
+    var selected = Array.from(cbs).map(function (cb) {
+      return { val: cb.value, lbl: cb.dataset.label };
+    });
+
+    /* update trigger label */
+    if (selected.length === 0) {
+      crtDisp.textContent  = 'Select Request Types…';
+      crtDisp.style.color  = 'var(--txt3)';
+    } else {
+      crtDisp.textContent  = selected.length + ' type' + (selected.length > 1 ? 's' : '') + ' selected';
+      crtDisp.style.color  = 'var(--txt)';
+    }
+
+    /* rebuild pills */
+    crtPills.innerHTML = '';
+    selected.forEach(function (s) {
+      var pill = document.createElement('span');
+      pill.className = 'crt-pill';
+      pill.innerHTML = s.lbl + '<span class="crt-pill-x" data-val="' + s.val + '">×</span>';
+      crtPills.appendChild(pill);
+    });
+
+    /* rebuild hidden inputs */
+    crtHidden.innerHTML = '';
+    selected.forEach(function (s) {
+      var inp = document.createElement('input');
+      inp.type  = 'hidden';
+      inp.name  = 'SelectedRequestTypeIds';
+      inp.value = s.val;
+      crtHidden.appendChild(inp);
+    });
+  }
+
+  /* toggle open/close */
+  crtTrig.addEventListener('click', function (e) {
+    e.stopPropagation();
+    crtIsOpen() ? crtClose() : crtOpen();
+  });
+  crtTrig.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); crtIsOpen() ? crtClose() : crtOpen(); }
+  });
+
+  /* stop panel clicks bubbling to document close handler */
+  crtPanel.addEventListener('click', function (e) { e.stopPropagation(); });
+
+  /* checkbox change */
+  crtOpts.addEventListener('change', function () { crtRender(); });
+
+  /* pill × click */
+  crtPills.addEventListener('click', function (e) {
+    var x = e.target.closest('.crt-pill-x');
+    if (!x) return;
+    var cb = crtOpts.querySelector('.crt-cb[value="' + x.dataset.val + '"]');
+    if (cb) { cb.checked = false; crtRender(); }
+  });
+
+  /* search */
+  crtSrch.addEventListener('input', function () { crtFilter(crtSrch.value.toLowerCase().trim()); });
+
+  /* Select All (visible) */
+  crtSelAll.addEventListener('click', function (e) {
+    e.stopPropagation();
+    crtOpts.querySelectorAll('.crt-opt').forEach(function (opt) {
+      if (opt.style.display !== 'none') {
+        var cb = opt.querySelector('.crt-cb');
+        if (cb) cb.checked = true;
+      }
+    });
+    crtRender();
+  });
+
+  /* Clear All */
+  crtClrAll.addEventListener('click', function (e) {
+    e.stopPropagation();
+    crtOpts.querySelectorAll('.crt-cb').forEach(function (cb) { cb.checked = false; });
+    crtRender();
+  });
+
+  /* close on outside click */
+  document.addEventListener('click', function (e) {
+    if (!crtWrap.contains(e.target)) crtClose();
+  });
+
+  /* initial render to populate pills + hidden inputs for pre-checked items */
+  crtRender();
+
+  /* ════════════════════════════════════════════════════════
+     3.  FORM VALIDATION
+  ════════════════════════════════════════════════════════ */
+  document.getElementById('mapForm').addEventListener('submit', function (e) {
+    var valid = true;
+
+    /* validate user selection (create only) */
+    if (!IS_EDIT) {
+      var uid    = document.getElementById('hidUserId').value;
+      var uErrEl = document.getElementById('uErr');
+      if (!uid || uid === '0') {
+        uErrEl.style.display = '';
+        valid = false;
+      } else {
+        uErrEl.style.display = 'none';
+      }
+    }
+
+    /* validate at least one request type selected */
+    var rtHidden = document.querySelectorAll('#crtHidden input[type=hidden]');
+    var rtErrEl  = document.getElementById('rtErr');
+    if (!rtHidden.length) {
+      rtErrEl.style.display = '';
+      valid = false;
+    } else {
+      rtErrEl.style.display = 'none';
+    }
+
+    if (!valid) e.preventDefault();
+  });
+
+})();
+</script>
+}

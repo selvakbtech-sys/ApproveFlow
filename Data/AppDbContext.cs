@@ -27,6 +27,7 @@ public class AppDbContext : DbContext
     public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<WhatsAppPendingClarification> WhatsAppPendingClarifications => Set<WhatsAppPendingClarification>();
     public DbSet<ApprovalAttachment> ApprovalAttachments => Set<ApprovalAttachment>();
+    public DbSet<UserRequestTypeMapping> UserRequestTypeMappings => Set<UserRequestTypeMapping>();
 
     protected override void OnModelCreating(ModelBuilder mb)
     {
@@ -102,6 +103,13 @@ public class AppDbContext : DbContext
             e.ToTable("ApprovalAttachments");
             e.HasOne(x => x.Request).WithMany().HasForeignKey(x => x.RequestId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.UploadedByUser).WithMany().HasForeignKey(x => x.UploadedByUserId).OnDelete(DeleteBehavior.Restrict);
+        });
+        mb.Entity<UserRequestTypeMapping>(e => {
+            e.ToTable("UserRequestTypeMappings");
+            e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.RequestType).WithMany().HasForeignKey(x => x.RequestTypeId).OnDelete(DeleteBehavior.Restrict);
+            e.HasIndex(x => x.UserId);
+            e.HasIndex(x => x.RequestTypeId);
         });
     }
 

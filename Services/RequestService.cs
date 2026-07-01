@@ -2,7 +2,7 @@ namespace ApproveFlow.MVC.Services;
 
 public interface IRequestService
 {
-    Task<RequestListVM> GetListAsync(RequestListVM filter, int page, int pageSize, int? filterUserId = null);
+    Task<RequestListVM> GetListAsync(RequestListVM filter, int page, int pageSize, int? filterUserId = null, int loggedInUserId = 0);
     Task<RequestListVM> GetMyApprovalsAsync(int approverUserId, RequestListVM filter, int page, int pageSize);
     Task<RequestFormVM?> GetDetailAsync(int id, int curUserId);
     Task<RequestFormVM> BuildFormAsync(int userId);
@@ -21,8 +21,9 @@ public class RequestService : IRequestService
     private readonly AppDbContext _db;
     private readonly IWhatsAppService _wa;
     private readonly ILogger<RequestService> _log;
-    public RequestService(AppDbContext db, IWhatsAppService wa, ILogger<RequestService> log)
-    { _db = db; _wa = wa; _log = log; }
+    private readonly IUserMappingService _mapping;
+    public RequestService(AppDbContext db, IWhatsAppService wa, ILogger<RequestService> log, IUserMappingService mapping)
+    { _db = db; _wa = wa; _log = log; _mapping = mapping; }
 
     public async Task<List<ReqListItemVM>> GetAllForExportAsync(RequestListVM filter)
     {
@@ -56,6 +57,11 @@ public class RequestService : IRequestService
         if (filter.FilterLocationId.HasValue)
             q = q.Where(r => r.LocationId == filter.FilterLocationId);
 
+        if (!string.IsNullOrEmpty(filter.FilterDateFrom) && DateOnly.TryParse(filter.FilterDateFrom, out var df))
+            q = q.Where(r => r.CreatedAt.Date >= df.ToDateTime(TimeOnly.MinValue));
+        if (!string.IsNullOrEmpty(filter.FilterDateTo) && DateOnly.TryParse(filter.FilterDateTo, out var dt))
+            q = q.Where(r => r.CreatedAt.Date <= dt.ToDateTime(TimeOnly.MaxValue));
+
         return await q
             .OrderByDescending(r => r.CreatedAt)
             .Select(r => new ReqListItemVM
@@ -77,7 +83,7 @@ public class RequestService : IRequestService
             .ToListAsync();
     }
 
-    public async Task<RequestListVM> GetListAsync(RequestListVM f, int page, int size, int? filterUserId = null)
+    public async Task<RequestListVM> GetListAsync(RequestListVM f, int page, int size, int? filterUserId = null, int loggedInUserId = 0)
     {
         var q = _db.Requests
             .AsNoTracking()
@@ -124,7 +130,7 @@ public class RequestService : IRequestService
         f.Items = items; f.TotalCount = total; f.PageNumber = page; f.PageSize = size;
         f.Locations = await _db.Locations.Where(l => l.IsActive).OrderBy(l => l.LocationName).ToListAsync();
         f.Departments = await _db.Departments.Where(d => d.IsActive).OrderBy(d => d.DeptName).ToListAsync();
-        f.RequestTypes = await _db.RequestTypes.Where(t => t.IsActive).OrderBy(t => t.TypeName).ToListAsync();
+        f.RequestTypes = await _mapping.GetAllowedRequestTypesAsync(loggedInUserId);
         return f;
     }
 
@@ -178,7 +184,7 @@ public class RequestService : IRequestService
         f.Items = items; f.TotalCount = total; f.PageNumber = page; f.PageSize = size;
         f.Locations = await _db.Locations.Where(l => l.IsActive).OrderBy(l => l.LocationName).ToListAsync();
         f.Departments = await _db.Departments.Where(d => d.IsActive).OrderBy(d => d.DeptName).ToListAsync();
-        f.RequestTypes = await _db.RequestTypes.Where(t => t.IsActive).OrderBy(t => t.TypeName).ToListAsync();
+        f.RequestTypes = await _mapping.GetAllowedRequestTypesAsync(approverUserId);
         return f;
     }
 
@@ -269,7 +275,7 @@ public class RequestService : IRequestService
                 UploadedAt = a.UploadedAt,
                 UploadedByName = a.UploadedByUser.FullName,
             }).ToList(),
-            RequestTypes = await _db.RequestTypes.Where(t => t.IsActive).ToListAsync(),
+            RequestTypes = await _mapping.GetAllowedRequestTypesAsync(curUserId),
         };
     }
 
@@ -296,7 +302,7 @@ public class RequestService : IRequestService
             DeptName = defaultDept?.DeptName ?? "",
             RequestorName = user.FullName,
             Status = "Draft",
-            RequestTypes = await _db.RequestTypes.Where(t => t.IsActive).OrderBy(t => t.TypeName).ToListAsync(),
+            RequestTypes = await _mapping.GetAllowedRequestTypesAsync(userId),
             Locations = userLocations,
             Departments = userDepartments,
             AllDeptNames = userDepartments.Select(d => d.DeptName).ToList(),
@@ -337,7 +343,7 @@ public class RequestService : IRequestService
         _db.Requests.Add(entity);
         await _db.SaveChangesAsync();
 
-        entity.RequestNumber = $"REQ-{IstClock.Now.Year}-{entity.RequestId:D4}";
+        entity.RequestNumber = $"REQ-{IstClock.Now.Year % 100:D2}-{entity.RequestId:D6}";
         _db.RequestActionLogs.Add(new RequestActionLog
         { RequestId = entity.RequestId, ActorUserId = userId, Action = "saved_draft" });
         await _db.SaveChangesAsync();

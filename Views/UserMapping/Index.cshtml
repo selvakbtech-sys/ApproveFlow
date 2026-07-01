@@ -1,0 +1,108 @@
+@model UserMappingListVM
+@{
+    ViewData["Title"] = "User Mapping";
+    ViewData["NavPage"] = "usermapping";
+}
+<div class="pg-hdr">
+  <div><div class="pg-title">User Mapping</div><div class="pg-sub">@Model.Items.Count mapping(s)</div></div>
+  <div class="pg-actions">
+    <a asp-action="Create" class="btn btn-acc">
+      <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      New Mapping
+    </a>
+  </div>
+</div>
+
+<form method="get" asp-action="Index">
+  <div class="filter-bar">
+    <div class="f-group">
+      <label class="f-lbl">Search User</label>
+      <input name="search" class="f-ctrl" value="@Model.SearchTerm" placeholder="User name…"/>
+    </div>
+    <div class="f-group">
+      <label class="f-lbl">Status</label>
+      <select name="status" class="f-ctrl">
+        <option value="">All</option>
+        @if (Model.FilterStatus == "active")   { <option value="active"   selected>Active</option>   } else { <option value="active">Active</option>   }
+      @if (Model.FilterStatus == "inactive") { <option value="inactive" selected>Inactive</option> } else { <option value="inactive">Inactive</option> }
+      </select>
+    </div>
+    <div style="display:flex;gap:6px;align-items:flex-end">
+      <button type="submit" class="btn btn-pri btn-sm">Filter</button>
+      <a asp-action="Index" class="btn btn-sec btn-sm">Clear</a>
+    </div>
+  </div>
+</form>
+
+<div class="card">
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>User</th>
+          <th>Mapped Request Types</th>
+          <th>Status</th>
+          <th>Created By</th>
+          <th>Created Date</th>
+          <th>Modified By</th>
+          <th>Modified Date</th>
+          <th class="r">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        @if (!Model.Items.Any())
+        {
+          <tr><td colspan="8" class="tbl-empty">No user mappings found.</td></tr>
+        }
+        @foreach (var m in Model.Items)
+        {
+          <tr style="opacity:@(m.IsActive?"1":".6")">
+            <td>
+              <div style="display:flex;align-items:center;gap:10px">
+                <div style="width:34px;height:34px;border-radius:50%;background:var(--pri);color:var(--acc);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">
+                  @(m.AvatarInitials ?? m.UserName[..1].ToUpper())
+                </div>
+                <div>
+                  <div style="font-weight:600;font-size:13px">@m.UserName</div>
+                  <div style="font-size:11px;color:var(--txt3)">@m.UserEmail</div>
+                </div>
+              </div>
+            </td>
+            <td>
+              @foreach (var t in m.RequestTypeNames)
+              {
+                <span style="background:#f0fdf4;color:#166534;border:1px solid #bbf7d0;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:500;margin:1px;display:inline-block">@t</span>
+              }
+            </td>
+            <td><span class="badge @(m.IsActive?"badge-green":"badge-red")">@(m.IsActive?"Active":"Inactive")</span></td>
+            <td style="font-size:11px;color:var(--txt3)">@m.CreatedByName</td>
+            <td style="font-size:11px;color:var(--txt3)">@m.CreatedAt.ToString("dd MMM yyyy")</td>
+            <td style="font-size:11px;color:var(--txt3)">@(m.ModifiedByName ?? "—")</td>
+            <td style="font-size:11px;color:var(--txt3)">@(m.UpdatedAt > m.CreatedAt ? m.UpdatedAt.ToString("dd MMM yyyy") : "—")</td>
+            <td class="r">
+              <div style="display:inline-flex;gap:5px">
+                <a asp-action="Details" asp-route-userId="@m.UserId" class="btn btn-sec btn-sm" style="background:#f0f9ff;color:#0369a1;border-color:#bae6fd">View</a>
+                <a asp-action="Edit" asp-route-userId="@m.UserId" class="btn btn-sec btn-sm">Edit</a>
+                <form asp-action="ToggleStatus" asp-route-userId="@m.UserId" method="post" style="display:inline">
+                  @Html.AntiForgeryToken()
+                  <input type="hidden" name="isActive" value="@(m.IsActive?"false":"true")"/>
+                  <button type="submit" class="btn btn-sm @(m.IsActive?"btn-ng":"btn-ok")"
+                    onclick="return confirm('@(m.IsActive?"Deactivate":"Activate") mapping for @m.UserName?')">
+                    @(m.IsActive?"Deactivate":"Activate")
+                  </button>
+                </form>
+                <form asp-action="Delete" asp-route-userId="@m.UserId" method="post" style="display:inline">
+                  @Html.AntiForgeryToken()
+                  <button type="submit" class="btn btn-sm btn-ng"
+                    onclick="return confirm('Delete mapping for @m.UserName? This cannot be undone.')">
+                    Delete
+                  </button>
+                </form>
+              </div>
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+</div>

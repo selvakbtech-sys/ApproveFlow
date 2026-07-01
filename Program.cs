@@ -32,6 +32,7 @@ builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddScoped<IRequestService, RequestService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<INotifService, NotifService>();
+builder.Services.AddScoped<IUserMappingService, UserMappingService>();
 
 // WhatsApp integration
 builder.Services.AddHttpClient("WhatsApp");

@@ -44,6 +44,7 @@ public class MyPendingApprovalItemVM
 {
     public int RequestId { get; set; }
     public string RequestNumber { get; set; } = "";
+    public string DisplayRequestNumber => Helpers.RequestNumberHelper.Format(RequestNumber);
     public string Title { get; set; } = "";
     public string Priority { get; set; } = "";
     public string RequestorName { get; set; } = "";
@@ -65,6 +66,7 @@ public class RecentActivityVM
 {
     public int RequestId { get; set; }
     public string RequestNumber { get; set; } = "";
+    public string DisplayRequestNumber => Helpers.RequestNumberHelper.Format(RequestNumber);
     public string Title { get; set; } = "";
     public string ActorName { get; set; } = "";
     public string Action { get; set; } = "";
@@ -139,6 +141,7 @@ public class MyRecentRequestItemVM
 {
     public int RequestId { get; set; }
     public string RequestNumber { get; set; } = "";
+    public string DisplayRequestNumber => Helpers.RequestNumberHelper.Format(RequestNumber);
     public string Title { get; set; } = "";
     public string RequestTypeName { get; set; } = "";
     public string Status { get; set; } = "";
@@ -166,6 +169,7 @@ public class ApprovalQueueItemVM
 {
     public int RequestId { get; set; }
     public string RequestNumber { get; set; } = "";
+    public string DisplayRequestNumber => Helpers.RequestNumberHelper.Format(RequestNumber);
     public string RequestTypeName { get; set; } = "";
     public string RequestorName { get; set; } = "";
     public string Status { get; set; } = "";

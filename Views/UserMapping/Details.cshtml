@@ -1,0 +1,65 @@
+@model UserMappingFormVM
+@{
+    ViewData["Title"] = "User Mapping Details";
+    ViewData["NavPage"] = "usermapping";
+}
+<div class="pg-hdr">
+  <div><div class="pg-title">User Mapping Details</div></div>
+  <div style="display:flex;gap:8px">
+    <a asp-action="Edit" asp-route-userId="@Model.UserId" class="btn btn-pri">Edit</a>
+    <a asp-action="Index" class="btn btn-sec">← Back</a>
+  </div>
+</div>
+<div style="max-width:660px">
+  <div class="card">
+    <div class="card-body">
+
+      <div style="margin-bottom:20px">
+        <div class="lbl" style="margin-bottom:4px">User</div>
+        <div style="font-weight:600;font-size:14px">@Model.UserName</div>
+      </div>
+
+      <div style="margin-bottom:20px">
+        <div class="lbl" style="margin-bottom:6px">Mapped Request Types</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+          @if (Model.SelectedRequestTypeIds.Any())
+          {
+            @foreach (var rt in Model.RequestTypes.Where(t => Model.SelectedRequestTypeIds.Contains(t.RequestTypeId)))
+            {
+              <span style="background:#f0fdf4;color:#166534;border:1px solid #bbf7d0;border-radius:6px;padding:4px 10px;font-size:12px;font-weight:600">@rt.TypeName</span>
+            }
+          }
+          else
+          {
+            <span style="color:var(--txt3);font-size:13px">No request types mapped.</span>
+          }
+        </div>
+      </div>
+
+      <div style="margin-bottom:20px">
+        <div class="lbl" style="margin-bottom:4px">Status</div>
+        <span class="badge @(Model.IsActive?"badge-green":"badge-red")">@(Model.IsActive?"Active":"Inactive")</span>
+      </div>
+
+      <div class="form-grid fg2" style="gap:16px 24px">
+        <div>
+          <div class="lbl" style="margin-bottom:2px">Created By</div>
+          <div style="font-size:13px">@(Model.CreatedByName ?? "—")</div>
+        </div>
+        <div>
+          <div class="lbl" style="margin-bottom:2px">Created Date</div>
+          <div style="font-size:13px">@(Model.CreatedAt?.ToString("dd MMM yyyy HH:mm") ?? "—")</div>
+        </div>
+        <div>
+          <div class="lbl" style="margin-bottom:2px">Modified By</div>
+          <div style="font-size:13px">@(Model.ModifiedByName ?? "—")</div>
+        </div>
+        <div>
+          <div class="lbl" style="margin-bottom:2px">Modified Date</div>
+          <div style="font-size:13px">@(Model.UpdatedAt.HasValue && Model.UpdatedAt > Model.CreatedAt ? Model.UpdatedAt?.ToString("dd MMM yyyy HH:mm") : "—")</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>

@@ -65,6 +65,12 @@
       User Management
     </a>
     }
+    @if (CanView("User Mapping")) {
+    <a asp-controller="UserMapping" asp-action="Index" class="nav-link @(IsActive("usermapping")?"active":"")">
+      <svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4" stroke-width="1.8"/><line x1="19" y1="8" x2="23" y2="12" stroke-width="1.8" stroke-linecap="round"/><line x1="23" y1="8" x2="19" y2="12" stroke-width="1.8" stroke-linecap="round"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M19 3h4M19 3v4"/></svg>
+      User Mapping
+    </a>
+    }
     @if (CanView("Locations")) {
     <a asp-controller="Masters" asp-action="Index" asp-route-type="locations" class="nav-link @(IsActive("locations")?"active":"")">
       <svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3" stroke-width="1.8"/></svg>

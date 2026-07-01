@@ -15,7 +15,7 @@
 <div class="pg-hdr">
   <div>
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-      <div class="pg-title">@Model.RequestNumber</div>
+      <div class="pg-title">@Model.DisplayRequestNumber</div>
       <span class="badge @Sc(Model.Status)">@Ds(Model.Status)</span>
       <span class="badge @Pc(Model.Priority)">@Model.Priority</span>
     </div>
@@ -42,7 +42,7 @@
         <form asp-action="Delete" asp-route-id="@Model.RequestId" method="post" style="display:inline">
           @Html.AntiForgeryToken()
           <button type="submit" class="btn btn-ng btn-sm"
-            onclick="return confirm('Delete request @Model.RequestNumber? This cannot be undone.')">
+            onclick="return confirm('Delete request @Model.DisplayRequestNumber? This cannot be undone.')">
             Delete
           </button>
         </form>

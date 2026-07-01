@@ -25,6 +25,7 @@ public class ReqListItemVM
 {
     public int RequestId { get; set; }
     public string RequestNumber { get; set; } = "";
+    public string DisplayRequestNumber => Helpers.RequestNumberHelper.Format(RequestNumber);
     public string Title { get; set; } = "";
     public string Status { get; set; } = "";
     public string Priority { get; set; } = "";
@@ -57,6 +58,7 @@ public class RequestFormVM
     public string DeptName { get; set; } = "";
     public string Status { get; set; } = "Draft";
     public string RequestNumber { get; set; } = "";
+    public string DisplayRequestNumber => Helpers.RequestNumberHelper.Format(RequestNumber);
     public string? MatchedWorkflowName { get; set; }
     public bool CanAct { get; set; }
     public int? CurrentActingStep { get; set; }
@@ -158,6 +160,7 @@ public class AgingItemVM
 {
     public int RequestId { get; set; }
     public string RequestNumber { get; set; } = "";
+    public string DisplayRequestNumber => Helpers.RequestNumberHelper.Format(RequestNumber);
     public string Title { get; set; } = "";
     public string RequestorName { get; set; } = "";
     public string LocationName { get; set; } = "";

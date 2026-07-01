@@ -28,7 +28,7 @@ public class RoleFormVM
 
     public static readonly string[] AllScreens =
     {
-        "Dashboard", "Requests", "New Request", "User Management",
+        "Dashboard", "Requests", "New Request", "User Management", "User Mapping",
         "Roles & Permissions", "Workflow Definition",
         "Locations", "Departments", "Request Types"
     };
