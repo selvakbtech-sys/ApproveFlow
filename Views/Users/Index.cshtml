@@ -14,7 +14,7 @@
   </div>
 </div>
 
-<form method="get" asp-action="Index">
+@* <form method="get" asp-action="Index">
   <div class="filter-bar">
     <div class="f-group">
       <label class="f-lbl">Role</label>
@@ -36,7 +36,7 @@
                         </option>
                     }
                 }
-       @*  @foreach (var r in Model.Roles) { <option value="@r.RoleName" @(Model.FilterRole==r.RoleName?"selected":"")>@r.RoleName</option> } *@
+       @foreach (var r in Model.Roles) { <option value="@r.RoleName" @(Model.FilterRole==r.RoleName?"selected":"")>@r.RoleName</option> } 
       </select>
     </div>
     <div class="f-group">
@@ -45,8 +45,8 @@
         <option value="">All</option>
         <option value="active">Active</option>
         <option value="suspended">Suspended</option>
-        @* <option value="active" @(Model.FilterStatus=="active"?"selected":"")>Active</option>
-        <option value="suspended" @(Model.FilterStatus=="suspended"?"selected":"")>Suspended</option> *@
+        <option value="active" @(Model.FilterStatus=="active"?"selected":"")>Active</option>
+        <option value="suspended" @(Model.FilterStatus=="suspended"?"selected":"")>Suspended</option> 
       </select>
     </div>
     <div style="display:flex;gap:6px;align-items:flex-end">
@@ -57,14 +57,14 @@
             <i class="bi bi-whatsapp me-1"></i>WhatsApp Test
         </a>
   </div>
-</form>
+</form> *@
 
 <div class="card">
   <div class="tbl-wrap">
-    <table class="tbl">
-      <thead><tr><th>User</th><th>Role</th><th>Locations</th><th>Departments</th><th>Status</th><th>Created</th><th class="r">Actions</th></tr></thead>
+    <table class="tbl" data-grid>
+      <thead><tr><th>User</th><th>Username</th><th>Role</th><th>Locations</th><th>Departments</th><th>Status</th><th>Created</th><th class="r">Actions</th></tr></thead>
       <tbody>
-        @if (!Model.Items.Any()) { <tr><td colspan="7" class="tbl-empty">No users found.</td></tr> }
+        @if (!Model.Items.Any()) { <tr><td colspan="8" class="tbl-empty">No users found.</td></tr> }
         @foreach (var u in Model.Items)
         {
           <tr style="opacity:@(u.Status=="active"?"1":".6")">
@@ -79,6 +79,7 @@
                 </div>
               </div>
             </td>
+            <td style="font-size:12px;font-weight:600">@u.Username</td>
             <td><span class="badge @RCls(u.RoleName)">@u.RoleName</span></td>
             <td>
               @foreach (var l in u.Locations)

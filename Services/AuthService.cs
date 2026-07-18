@@ -2,7 +2,7 @@ namespace ApproveFlow.MVC.Services;
 
 public interface IAuthService
 {
-    Task<User?> ValidateAsync(string email, string password);
+    Task<User?> ValidateAsync(string username, string password);
     Task<bool> ChangePasswordAsync(int userId, string current, string next);
     Task ResetPasswordAsync(int userId, string newPw);
 }
@@ -12,9 +12,9 @@ public class AuthService : IAuthService
     private readonly AppDbContext _db;
     public AuthService(AppDbContext db) { _db = db; }
 
-    public async Task<User?> ValidateAsync(string email, string password)
+    public async Task<User?> ValidateAsync(string username, string password)
     {
-        var normalizedEmail = email.Trim().ToLower();
+        var normalizedUsername = username.Trim().ToLower();
 
         var user = await _db.Users
             .AsSplitQuery()
@@ -25,7 +25,7 @@ public class AuthService : IAuthService
             .Include(u => u.UserDepartments)
                 .ThenInclude(ud => ud.Department)
             .FirstOrDefaultAsync(u =>
-                u.Email.Trim().ToLower() == normalizedEmail &&
+                u.Username.Trim().ToLower() == normalizedUsername &&
                 u.Status.Trim().ToLower() == "active");
 
         if (user == null) return null;

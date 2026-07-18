@@ -32,16 +32,17 @@
     <div class="metric-lbl">Rejected</div>
     <div class="metric-hint">&nbsp;</div>
   </a>
-  <a asp-controller="Requests" asp-action="Index" asp-route-FilterMine="true" asp-route-FilterStatus="Draft" class="metric-card" style="--mc:#475569">
-    <div class="metric-num">@Model.MyDraft</div>
-    <div class="metric-lbl">Draft</div>
-    <div class="metric-hint">&nbsp;</div>
-  </a>
+ 
   <a asp-controller="Requests" asp-action="Index" asp-route-FilterMine="true" asp-route-FilterStatus="Clarification Needed" class="metric-card" style="--mc:#7c3aed">
     <div class="metric-num">@Model.MyClarification</div>
     <div class="metric-lbl">Clarification</div>
     <div class="metric-hint">&nbsp;</div>
   </a>
+    <a asp-controller="Requests" asp-action="Index" asp-route-FilterMine="true" asp-route-FilterStatus="Draft" class="metric-card" style="--mc:#475569">
+        <div class="metric-num">@Model.MyDraft</div>
+        <div class="metric-lbl">Draft</div>
+        <div class="metric-hint">&nbsp;</div>
+    </a>
 </div>
 
 @* ── Summary Tables ── *@
@@ -67,7 +68,7 @@
 </div>
 
 @* ── Recent Requests Grid ── *@
-<div class="card" style="margin-bottom:16px">
+<div class="card" id="myRecentRequestsCard" style="margin-bottom:16px">
   <div class="card-hdr">
     <svg viewBox="0 0 24 24" style="width:15px;height:15px"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>
      Recent Requests

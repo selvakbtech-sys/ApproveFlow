@@ -12,6 +12,11 @@ public class RequestsController : BaseCtrl
     public RequestsController(IRequestService svc, IUserMappingService mapping, AppDbContext db, IConfiguration cfg, ILogger<RequestsController> log, IWebHostEnvironment env)
     { _svc = svc; _mapping = mapping; _db = db; _cfg = cfg; _log = log; _env = env; }
 
+    // Non-admins are ALWAYS scoped to their own requests (RequestorId == UserId).
+    // Admins see all, or only their own when the "My Requests" filter is active.
+    private int? ScopeUserId(bool filterMine) =>
+        UserRole == "Admin" ? (filterMine ? UserId : (int?)null) : UserId;
+
     public async Task<IActionResult> Index(RequestListVM filter, int page = 1)
     {
         if (DenyIfNoPerm("Requests") is { } r1) return r1;
@@ -20,22 +25,41 @@ public class RequestsController : BaseCtrl
             await _db.Users.Where(u => u.UserId == UserId)
                 .Select(u => u.Role.Permissions.Any(p => p.ScreenName == "Requests" && p.CanDelete))
                 .FirstOrDefaultAsync();
-        int? scopeUser = filter.FilterMine ? UserId : null;
+        int? scopeUser = ScopeUserId(filter.FilterMine);
         return View(await _svc.GetListAsync(filter, page, 20, scopeUser, UserId));
     }
 
-    public async Task<IActionResult> MyApprovals(RequestListVM filter, int page = 1)
+    // Approval Requests page for the logged-in approver. Reached from the dashboard KPI
+    // cards as /Requests/Approval?status=Pending|Approved|Rejected|Clarification (empty =
+    // All). The friendly `status` token is mapped to concrete request statuses inside the
+    // service (ApprovalStatusFilter) so the grid totals always match the KPI counts, and
+    // it is echoed to the view so the Status dropdown pre-selects the matching option.
+    public async Task<IActionResult> Approval(RequestListVM filter, string? status, int page = 1)
     {
+        if (DenyIfNoPerm("Requests") is { } r1) return r1;
         ViewBag.UserRole = UserRole;
         ViewBag.IsMyApprovals = true;
-        return View("Index", await _svc.GetMyApprovalsAsync(UserId, filter, page, 20));
+        ViewBag.ApprovalStatus = status;
+        return View("Index", await _svc.GetMyApprovalsAsync(UserId, filter, page, 20, status));
     }
 
-    public async Task<IActionResult> Detail(int id, string tab = "details")
+    // Backward-compatible alias for older links; delegates to the Approval page.
+    public Task<IActionResult> MyApprovals(RequestListVM filter, string? status, int page = 1)
+        => Approval(filter, status, page);
+
+    public async Task<IActionResult> Detail(int id, string tab = "details", string? mode = null)
     {
+        if (DenyIfNoPerm("Requests") is { } rd) return rd;
+        // A user may only open a request they created or are an approver on (admin = any).
+        if (!await _svc.CanAccessRequestAsync(id, UserId, UserRole)) return Deny();
         var vm = await _svc.GetDetailAsync(id, UserId);
         if (vm == null) { Err("Request not found."); return RedirectToAction("Index"); }
-        vm.ActiveTab = tab;
+        // Clarification Response mode: only meaningful for the request's owner while it is
+        // awaiting clarification (server-side gate — CanSubmitClarification already checks
+        // owner + status). Force the Details tab so the response panel is in view.
+        bool clarificationMode = mode == "clarification" && vm.CanSubmitClarification;
+        vm.ActiveTab = clarificationMode ? "details" : tab;
+        ViewBag.ClarificationMode = clarificationMode;
         ViewBag.UserRole = UserRole;
         ViewBag.CanDelete = UserRole == "Admin" ||
             await _db.Users.Where(u => u.UserId == UserId)
@@ -44,18 +68,31 @@ public class RequestsController : BaseCtrl
         return View(vm);
     }
 
+    // GET New Request page — requires View permission on the New Request screen.
     public async Task<IActionResult> Create()
-        => View("Form", await _svc.BuildFormAsync(UserId));
+    {
+        if (DenyIfNoPerm("New Request") is { } rc) return rc;
+        return View("Form", await _svc.BuildFormAsync(UserId));
+    }
 
     public async Task<IActionResult> Edit(int id)
     {
+        if (DenyIfNoPerm("Requests", Perm.Edit) is { } re) return re;
+        if (!await _svc.CanAccessRequestAsync(id, UserId, UserRole)) return Deny();
         var vm = await _svc.GetDetailAsync(id, UserId);
         if (vm == null) { Err("Not found."); return RedirectToAction("Index"); }
+        // Editing the original request is no longer how clarification is answered — the
+        // requester replies through the Submit Clarification panel on the Detail page.
+        if (vm.Status == "Clarification Needed")
+        {
+            Err("This request is awaiting clarification. Use \"Submit Clarification\" to respond.");
+            return RedirectToAction("Detail", new { id });
+        }
         var user = await _db.Users
             .Include(u => u.UserLocations).ThenInclude(ul => ul.Location)
             .Include(u => u.UserDepartments).ThenInclude(ud => ud.Department)
             .FirstOrDefaultAsync(u => u.UserId == UserId);
-        vm.RequestTypes = await _mapping.GetAllowedRequestTypesAsync(UserId);
+        vm.RequestTypes = await _mapping.GetMappedRequestTypesAsync(UserId);
         vm.Locations = user?.UserLocations.Select(ul => ul.Location).Where(l => l.IsActive).OrderBy(l => l.LocationName).ToList() ?? new();
         vm.Departments = user?.UserDepartments.Select(ud => ud.Department).Where(d => d.IsActive).OrderBy(d => d.DeptName).ToList() ?? new();
         return View("Form", vm);
@@ -64,6 +101,18 @@ public class RequestsController : BaseCtrl
     [HttpPost, ValidateAntiForgeryToken]
     public async Task<IActionResult> Save(RequestFormVM vm, string? saveAction)
     {
+        // Permission: creating a new request needs New Request → Create;
+        // editing an existing one needs Requests → Edit. (Submit is part of Create.)
+        var neededPerm = vm.RequestId == 0
+            ? DenyIfNoPerm("New Request", Perm.Create)
+            : DenyIfNoPerm("Requests", Perm.Edit);
+        if (neededPerm is { } rp) return rp;
+
+        // Part 3 — never trust the posted RequestTypeId. It must belong to the
+        // logged-in user's active User Mapping, otherwise refuse to save (HTTP 403).
+        if (!await _mapping.IsRequestTypeAllowedAsync(UserId, vm.RequestTypeId))
+            return Deny();
+
         if (!ModelState.IsValid)
         {
             await ReloadFormDropdowns(vm);
@@ -158,7 +207,7 @@ public class RequestsController : BaseCtrl
             .Include(u => u.UserLocations).ThenInclude(ul => ul.Location)
             .Include(u => u.UserDepartments).ThenInclude(ud => ud.Department)
             .FirstOrDefaultAsync(u => u.UserId == UserId);
-        vm.RequestTypes = await _mapping.GetAllowedRequestTypesAsync(UserId);
+        vm.RequestTypes = await _mapping.GetMappedRequestTypesAsync(UserId);
         vm.Locations = user?.UserLocations.Select(ul => ul.Location).Where(l => l.IsActive).OrderBy(l => l.LocationName).ToList() ?? new();
         vm.Departments = user?.UserDepartments.Select(ud => ud.Department).Where(d => d.IsActive).OrderBy(d => d.DeptName).ToList() ?? new();
         vm.AllDeptNames = vm.Departments.Select(d => d.DeptName).ToList();
@@ -184,6 +233,24 @@ public class RequestsController : BaseCtrl
     [HttpPost, ValidateAntiForgeryToken]
     public async Task<IActionResult> Submit(int id)
     {
+        // Submitting a request needs New Request → Create.
+        if (DenyIfNoPerm("New Request", Perm.Create) is { } rp) return rp;
+
+        // Part 3 — the request's type must still belong to the user's active mapping.
+        var reqInfo = await _db.Requests.Where(r => r.RequestId == id)
+            .Select(r => new { r.RequestTypeId, r.Status }).FirstOrDefaultAsync();
+        if (reqInfo == null) { Err("Request not found."); return RedirectToAction("Index"); }
+        if (!await _mapping.IsRequestTypeAllowedAsync(UserId, reqInfo.RequestTypeId))
+            return Deny();
+
+        // Clarification is answered through Submit Clarification, not by resubmitting the
+        // request — block the old edit-and-resubmit path even if reached directly.
+        if (reqInfo.Status == "Clarification Needed")
+        {
+            Err("This request is awaiting clarification. Use \"Submit Clarification\" to respond.");
+            return RedirectToAction("Detail", new { id });
+        }
+
         var (ok, err) = await _svc.SubmitAsync(id, UserId);
         if (ok) Ok("Request submitted for approval."); else Err(err!);
         return RedirectToAction("Detail", new { id });
@@ -192,6 +259,8 @@ public class RequestsController : BaseCtrl
     [HttpPost, ValidateAntiForgeryToken]
     public async Task<IActionResult> Action(int id, string action, string? comment, IFormFile? approvalFile)
     {
+        // Approve / Reject / Clarification are approval actions.
+        if (DenyIfNoPerm("Requests", Perm.Approve) is { } rp) return rp;
         if (approvalFile != null && approvalFile.Length > 0)
         {
             var maxMb = int.Parse(_cfg["AppSettings:MaxFileUploadMB"] ?? "20");
@@ -214,8 +283,40 @@ public class RequestsController : BaseCtrl
         return RedirectToAction("Detail", new { id });
     }
 
+    // Requester responds to a clarification request (does NOT edit the original request).
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> SubmitClarification(int id, string clarificationRemarks, IFormFile? clarificationFile)
+    {
+        if (DenyIfNoPerm("Requests") is { } rp) return rp;
+        if (!await _svc.CanAccessRequestAsync(id, UserId, UserRole)) return Deny();
+
+        if (clarificationFile != null && clarificationFile.Length > 0)
+        {
+            var maxMb = int.Parse(_cfg["AppSettings:MaxFileUploadMB"] ?? "20");
+            if (clarificationFile.Length > maxMb * 1024L * 1024L)
+            {
+                Err($"Attachment exceeds {maxMb} MB.");
+                return RedirectToAction("Detail", new { id });
+            }
+            var allowed = new[] { ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".jpg", ".jpeg", ".png" };
+            var ext = Path.GetExtension(clarificationFile.FileName).ToLowerInvariant();
+            if (!allowed.Contains(ext))
+            {
+                Err("Invalid file type. Allowed: PDF, DOC, DOCX, XLS, XLSX, JPG, PNG.");
+                return RedirectToAction("Detail", new { id });
+            }
+        }
+
+        var maxFileMb = int.Parse(_cfg["AppSettings:MaxFileUploadMB"] ?? "20");
+        var (ok, err) = await _svc.SubmitClarificationResponseAsync(id, UserId, clarificationRemarks, clarificationFile, GetStoragePath(), maxFileMb);
+        if (ok) Ok("Clarification submitted. The approver has been notified."); else Err(err!);
+        return RedirectToAction("Detail", new { id });
+    }
+
     public async Task<IActionResult> DownloadApproval(int id, int attachmentId)
     {
+        if (DenyIfNoPerm("Requests") is { } rp) return rp;
+        if (!await _svc.CanAccessRequestAsync(id, UserId, UserRole)) return Deny();
         var att = await _db.ApprovalAttachments
             .FirstOrDefaultAsync(a => a.AttachmentId == attachmentId && a.RequestId == id);
         if (att == null) return NotFound();
@@ -227,6 +328,7 @@ public class RequestsController : BaseCtrl
     [HttpPost, ValidateAntiForgeryToken]
     public async Task<IActionResult> Delete(int id)
     {
+        if (DenyIfNoPerm("Requests", Perm.Delete) is { } rp) return rp;
         var (ok, err) = await _svc.DeleteAsync(id, UserId, UserRole);
         if (ok) Ok("Request deleted."); else Err(err!);
         return RedirectToAction("Index");
@@ -235,6 +337,8 @@ public class RequestsController : BaseCtrl
     [HttpPost, ValidateAntiForgeryToken]
     public async Task<IActionResult> Upload(int id, IFormFile file)
     {
+        if (DenyIfNoPerm("Requests", Perm.Edit) is { } rp) return rp;
+        if (!await _svc.CanAccessRequestAsync(id, UserId, UserRole)) return Deny();
         var maxMb = int.Parse(_cfg["AppSettings:MaxFileUploadMB"] ?? "20");
         if (file == null || file.Length == 0) { Err("No file selected."); return RedirectToAction("Detail", new { id, tab = "documents" }); }
         if (file.Length > maxMb * 1024L * 1024L) { Err($"File exceeds {maxMb} MB."); return RedirectToAction("Detail", new { id, tab = "documents" }); }
@@ -260,6 +364,8 @@ public class RequestsController : BaseCtrl
 
     public async Task<IActionResult> Download(int id, int docId)
     {
+        if (DenyIfNoPerm("Requests") is { } rp) return rp;
+        if (!await _svc.CanAccessRequestAsync(id, UserId, UserRole)) return Deny();
         var doc = await _db.RequestDocuments
             .FirstOrDefaultAsync(d => d.DocumentId == docId && d.RequestId == id);
         if (doc == null) return NotFound();
@@ -271,6 +377,8 @@ public class RequestsController : BaseCtrl
     [HttpPost, ValidateAntiForgeryToken]
     public async Task<IActionResult> DeleteDoc(int id, int docId)
     {
+        if (DenyIfNoPerm("Requests", Perm.Edit) is { } rp) return rp;
+        if (!await _svc.CanAccessRequestAsync(id, UserId, UserRole)) return Deny();
         var doc = await _db.RequestDocuments.FirstOrDefaultAsync(d => d.DocumentId == docId && d.RequestId == id);
         if (doc != null)
         {
@@ -284,28 +392,43 @@ public class RequestsController : BaseCtrl
     }
 
     public async Task<IActionResult> Aging(AgingReportVM filter)
-        => View(await _svc.GetAgingAsync(filter));
+    {
+        if (DenyIfNoPerm("Requests") is { } rp) return rp;
+        // Non-admins only see aging for their own requests.
+        int? scope = UserRole == "Admin" ? null : UserId;
+        return View(await _svc.GetAgingAsync(filter, scope));
+    }
 
     [HttpGet]
-    public async Task<IActionResult> WfPreview(int requestTypeId, string priority)
+    public async Task<IActionResult> WfPreview(int requestTypeId, string priority, int locationId, int departmentId, decimal? amount = null)
     {
-        var user = await _db.Users
-            .Include(u => u.UserLocations).Include(u => u.UserDepartments)
-            .FirstOrDefaultAsync(u => u.UserId == UserId);
-        int locId = user?.UserLocations.FirstOrDefault()?.LocationId ?? 0;
-        int deptId = user?.UserDepartments.FirstOrDefault()?.DepartmentId ?? 0;
-        var wf = await _svc.MatchWorkflowAsync(locId, requestTypeId, priority, deptId);
+        // Workflow preview is used by the New Request / Edit request forms.
+        if (!HasPerm("New Request") && !HasPerm("Requests")) return Deny();
+        // Match against the Location/Department SELECTED on the form — never the user's
+        // default location/department. Workflow matching is independent of User Mapping.
+        var wf = await _svc.MatchWorkflowAsync(locationId, requestTypeId, priority, departmentId, UserId, amount);
         if (wf == null) return Json(new { matched = false });
-        var steps = await _db.WorkflowSteps.Include(s => s.ApproverUser)
+        var steps = await _db.WorkflowSteps
+            .Include(s => s.ApproverRole).Include(s => s.ApproverUser).ThenInclude(u => u!.Role)
             .Where(s => s.WorkflowId == wf.WorkflowId).OrderBy(s => s.StepLevel)
-            .Select(s => new { s.StepLevel, name = s.IsAutoAssignDeptManager ? "Dept Manager (auto)" : s.ApproverUser!.FullName })
+            .Select(s => new
+            {
+                s.StepLevel,
+                name = s.IsAutoAssignDeptManager ? "Dept Manager (auto)"
+                    : (s.ApproverRole != null ? s.ApproverRole.RoleName
+                       : (s.ApproverUser != null ? s.ApproverUser.Role.RoleName : "Unassigned"))
+            })
             .ToListAsync();
         return Json(new { matched = true, workflowName = wf.WorkflowName, steps });
     }
 
-    [AllowAnonymous]
+    // Print is reached from the authenticated Requests list/detail. It must NOT be
+    // anonymous (that would expose any request by raw id). The token-based share flow
+    // uses ViewShared below, not this action.
     public async Task<IActionResult> Print(int id)
     {
+        if (DenyIfNoPerm("Requests") is { } rp) return rp;
+        if (!await _svc.CanAccessRequestAsync(id, UserId, UserRole)) return Deny();
         var vm = await _svc.GetDetailAsync(id, UserId);
         if (vm == null)
         {
@@ -316,9 +439,53 @@ public class RequestsController : BaseCtrl
         return View(vm);
     }
 
+    // ── Notification Alert: secure read-only share link ───────
+    [AllowAnonymous]
+    [Route("r/{token}")]
+    public async Task<IActionResult> ViewShared(string token)
+    {
+        var tok = await _db.RequestViewTokens.AsNoTracking().FirstOrDefaultAsync(t => t.Token == token);
+        if (tok == null || tok.ExpiresAt < IstClock.Now)
+            return View("ViewSharedExpired");
+
+        var vm = await _svc.GetDetailAsync(tok.RequestId, 0);
+        if (vm == null || vm.Status == "Deleted")
+            return View("ViewSharedExpired");
+
+        ViewBag.Token = token;
+        return View("ViewShared", vm);
+    }
+
+    [AllowAnonymous]
+    public async Task<IActionResult> ViewSharedDownload(string token, int docId)
+    {
+        var tok = await _db.RequestViewTokens.AsNoTracking().FirstOrDefaultAsync(t => t.Token == token);
+        if (tok == null || tok.ExpiresAt < IstClock.Now) return NotFound();
+
+        var doc = await _db.RequestDocuments.FirstOrDefaultAsync(d => d.DocumentId == docId && d.RequestId == tok.RequestId);
+        if (doc == null) return NotFound();
+        var fullPath = System.IO.Path.Combine(GetStoragePath(), doc.StoredFileName);
+        if (!System.IO.File.Exists(fullPath)) return NotFound();
+        return PhysicalFile(fullPath, doc.ContentType ?? "application/octet-stream", doc.FileName);
+    }
+
+    [AllowAnonymous]
+    public async Task<IActionResult> ViewSharedDownloadApproval(string token, int attachmentId)
+    {
+        var tok = await _db.RequestViewTokens.AsNoTracking().FirstOrDefaultAsync(t => t.Token == token);
+        if (tok == null || tok.ExpiresAt < IstClock.Now) return NotFound();
+
+        var att = await _db.ApprovalAttachments.FirstOrDefaultAsync(a => a.AttachmentId == attachmentId && a.RequestId == tok.RequestId);
+        if (att == null) return NotFound();
+        var fullPath = System.IO.Path.Combine(GetStoragePath(), att.StoredFileName);
+        if (!System.IO.File.Exists(fullPath)) return NotFound();
+        return PhysicalFile(fullPath, att.ContentType ?? "application/octet-stream", att.FileName);
+    }
+
     [HttpPost, ValidateAntiForgeryToken]
     public async Task<IActionResult> ExportExcel(RequestListVM filter)
     {
+        if (DenyIfNoPerm("Requests") is { } rp) return rp;
         if (string.IsNullOrWhiteSpace(filter.FilterDateFrom))
             return Json(new { error = "From Date is required." });
         if (string.IsNullOrWhiteSpace(filter.FilterDateTo))
@@ -330,7 +497,8 @@ public class RequestsController : BaseCtrl
         if (from > to)
             return Json(new { error = "From Date cannot be greater than To Date." });
 
-        var allItems = await _svc.GetAllForExportAsync(filter);
+        // Non-admins only export their own requests (Admins export all, or own if filtered).
+        var allItems = await _svc.GetAllForExportAsync(filter, ScopeUserId(filter.FilterMine));
 
         if (!allItems.Any())
             return Json(new { error = "No records found for the selected date range." });

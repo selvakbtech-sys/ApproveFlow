@@ -9,7 +9,9 @@ public class WorkflowsController : BaseCtrl
     {
         if (DenyIfNoPerm("Workflow Definition") is { } rw) return rw;
         var q = _db.WorkflowDefinitions.Include(w => w.Location).Include(w => w.RequestType)
-            .Include(w => w.Department).Include(w => w.Steps).ThenInclude(s => s.ApproverUser).ThenInclude(u => u!.Role).AsQueryable();
+            .Include(w => w.Department)
+            .Include(w => w.Steps).ThenInclude(s => s.ApproverRole)
+            .Include(w => w.Steps).ThenInclude(s => s.ApproverUser).ThenInclude(u => u!.Role).AsQueryable();
         if (active == "active") q = q.Where(w => w.IsActive);
         if (active == "inactive") q = q.Where(w => !w.IsActive);
         var items = await q.OrderBy(w => w.WorkflowName).Select(w => new WorkflowItemVM
@@ -25,7 +27,9 @@ public class WorkflowsController : BaseCtrl
             {
                 StepLevel = s.StepLevel,
                 ApproverName = "",
-                ApproverRole = s.IsAutoAssignDeptManager ? "Manager (auto)" : (s.ApproverUser!.Role.RoleName)
+                ApproverRole = s.IsAutoAssignDeptManager ? "Manager (auto)"
+                    : (s.ApproverRole != null ? s.ApproverRole.RoleName
+                       : (s.ApproverUser != null ? s.ApproverUser.Role.RoleName : "Unassigned"))
             }).ToList(),
             CreatedAt = w.CreatedAt,
             UpdatedAt = w.UpdatedAt,
@@ -33,12 +37,21 @@ public class WorkflowsController : BaseCtrl
         return View(new WorkflowListVM { Items = items, FilterActive = active });
     }
 
-    [HttpGet] public async Task<IActionResult> Create() => View("Form", await BuildFormAsync(null));
-    [HttpGet] public async Task<IActionResult> Edit(int id) => View("Form", await BuildFormAsync(id));
+    [HttpGet] public async Task<IActionResult> Create()
+    {
+        if (DenyIfNoPerm("Workflow Definition", Perm.Create) is { } r) return r;
+        return View("Form", await BuildFormAsync(null));
+    }
+    [HttpGet] public async Task<IActionResult> Edit(int id)
+    {
+        if (DenyIfNoPerm("Workflow Definition", Perm.Edit) is { } r) return r;
+        return View("Form", await BuildFormAsync(id));
+    }
 
     [HttpPost, ValidateAntiForgeryToken]
     public async Task<IActionResult> Save(WorkflowFormVM vm)
     {
+        if (DenyIfNoPerm("Workflow Definition", vm.WorkflowId == 0 ? Perm.Create : Perm.Edit) is { } dr) return dr;
         if (!ModelState.IsValid) { await PopulateAsync(vm); return View("Form", vm); }
         if (vm.Steps == null || vm.Steps.Count == 0)
         {
@@ -46,16 +59,17 @@ public class WorkflowsController : BaseCtrl
             await PopulateAsync(vm); return View("Form", vm);
         }
 
+        // Resolve each step's selected role name to its RoleId. The approver is stored
+        // as a ROLE; the concrete approver user is resolved at submit time
+        // (RequestService.SubmitAsync), so the workflow no longer depends on a
+        // specific user existing at design time.
+        var roleIdByName = await _db.Roles.ToDictionaryAsync(r => r.RoleName, r => r.RoleId);
         foreach (var s in vm.Steps)
         {
             s.IsAutoAssignDeptManager = false;
-            if (!string.IsNullOrEmpty(s.ApproverRole))
-            {
-                var user = await _db.Users.Include(u => u.Role)
-                    .Where(u => u.Role.RoleName == s.ApproverRole && u.Status == "active")
-                    .FirstOrDefaultAsync();
-                s.ApproverUserId = user?.UserId;
-            }
+            s.ApproverUserId = null;
+            s.ApproverRoleId = (!string.IsNullOrEmpty(s.ApproverRole) && roleIdByName.TryGetValue(s.ApproverRole, out var rid))
+                ? rid : (int?)null;
         }
 
         if (vm.WorkflowId == 0)
@@ -75,22 +89,37 @@ public class WorkflowsController : BaseCtrl
                 return View("Form", vm);
             }
 
-            var wf = new WorkflowDefinition
+            var strategy = _db.Database.CreateExecutionStrategy();
+            await strategy.ExecuteAsync(async () =>
             {
-                WorkflowName  = vm.WorkflowName,
-                LocationId    = vm.LocationId,
-                RequestTypeId = vm.RequestTypeId,
-                Priority      = string.IsNullOrEmpty(vm.Priority) ? null : vm.Priority,
-                DepartmentId  = vm.DepartmentId,
-                IsActive      = vm.IsActive,
-            };
-            foreach (var s in vm.Steps.OrderBy(x => x.StepLevel))
-                wf.Steps.Add(new WorkflowStep { StepLevel = s.StepLevel, ApproverUserId = s.ApproverUserId, IsAutoAssignDeptManager = false });
-            _db.WorkflowDefinitions.Add(wf); await _db.SaveChangesAsync(); Ok("Workflow created.");
+                using var tx = await _db.Database.BeginTransactionAsync();
+                var wf = new WorkflowDefinition
+                {
+                    WorkflowName  = vm.WorkflowName,
+                    LocationId    = vm.LocationId,
+                    RequestTypeId = vm.RequestTypeId,
+                    Priority      = string.IsNullOrEmpty(vm.Priority) ? null : vm.Priority,
+                    DepartmentId  = vm.DepartmentId,
+                    IsActive      = vm.IsActive,
+                };
+                foreach (var s in vm.Steps.OrderBy(x => x.StepLevel))
+                    wf.Steps.Add(new WorkflowStep { StepLevel = s.StepLevel, ApproverRoleId = s.ApproverRoleId, ApproverUserId = null, IsAutoAssignDeptManager = false });
+                _db.WorkflowDefinitions.Add(wf);
+                await _db.SaveChangesAsync();
+
+                foreach (var s in vm.Steps)
+                    foreach (var roleId in (s.NotificationRoleIds ?? new()).Distinct())
+                        _db.WorkflowNotificationRoles.Add(new WorkflowNotificationRole { WorkflowId = wf.WorkflowId, StepLevel = s.StepLevel, RoleId = roleId, CreatedBy = UserId });
+                await _db.SaveChangesAsync();
+
+                await tx.CommitAsync();
+            });
+            Ok("Workflow created.");
         }
         else
         {
-            var wf = await _db.WorkflowDefinitions.Include(w => w.Steps).FirstOrDefaultAsync(w => w.WorkflowId == vm.WorkflowId);
+            var wf = await _db.WorkflowDefinitions.Include(w => w.Steps).Include(w => w.NotificationRoles)
+                .FirstOrDefaultAsync(w => w.WorkflowId == vm.WorkflowId);
             if (wf == null) { Err("Not found."); return RedirectToAction("Index"); }
 
             var dupEdit = await _db.WorkflowDefinitions.AnyAsync(w =>
@@ -108,13 +137,26 @@ public class WorkflowsController : BaseCtrl
                 return View("Form", vm);
             }
 
-            wf.WorkflowName = vm.WorkflowName; wf.LocationId = vm.LocationId; wf.RequestTypeId = vm.RequestTypeId;
-            wf.Priority = string.IsNullOrEmpty(vm.Priority) ? null : vm.Priority;
-            wf.DepartmentId = vm.DepartmentId; wf.IsActive = vm.IsActive;
-            _db.WorkflowSteps.RemoveRange(wf.Steps);
-            foreach (var s in vm.Steps.OrderBy(x => x.StepLevel))
-                wf.Steps.Add(new WorkflowStep { StepLevel = s.StepLevel, ApproverUserId = s.ApproverUserId, IsAutoAssignDeptManager = false });
-            await _db.SaveChangesAsync(); Ok("Workflow updated.");
+            var strategy = _db.Database.CreateExecutionStrategy();
+            await strategy.ExecuteAsync(async () =>
+            {
+                using var tx = await _db.Database.BeginTransactionAsync();
+                wf.WorkflowName = vm.WorkflowName; wf.LocationId = vm.LocationId; wf.RequestTypeId = vm.RequestTypeId;
+                wf.Priority = string.IsNullOrEmpty(vm.Priority) ? null : vm.Priority;
+                wf.DepartmentId = vm.DepartmentId; wf.IsActive = vm.IsActive;
+                _db.WorkflowSteps.RemoveRange(wf.Steps);
+                foreach (var s in vm.Steps.OrderBy(x => x.StepLevel))
+                    wf.Steps.Add(new WorkflowStep { StepLevel = s.StepLevel, ApproverRoleId = s.ApproverRoleId, ApproverUserId = null, IsAutoAssignDeptManager = false });
+
+                _db.WorkflowNotificationRoles.RemoveRange(wf.NotificationRoles);
+                foreach (var s in vm.Steps)
+                    foreach (var roleId in (s.NotificationRoleIds ?? new()).Distinct())
+                        _db.WorkflowNotificationRoles.Add(new WorkflowNotificationRole { WorkflowId = wf.WorkflowId, StepLevel = s.StepLevel, RoleId = roleId, CreatedBy = UserId });
+
+                await _db.SaveChangesAsync();
+                await tx.CommitAsync();
+            });
+            Ok("Workflow updated.");
         }
         return RedirectToAction("Index");
     }
@@ -122,6 +164,7 @@ public class WorkflowsController : BaseCtrl
     [HttpPost, ValidateAntiForgeryToken]
     public async Task<IActionResult> ToggleActive(int id)
     {
+        if (DenyIfNoPerm("Workflow Definition", Perm.Edit) is { } dr) return dr;
         var wf = await _db.WorkflowDefinitions.FindAsync(id);
         if (wf != null) { wf.IsActive = !wf.IsActive; await _db.SaveChangesAsync(); }
         return RedirectToAction("Index");
@@ -130,6 +173,7 @@ public class WorkflowsController : BaseCtrl
     [HttpPost, ValidateAntiForgeryToken]
     public async Task<IActionResult> Delete(int id)
     {
+        if (DenyIfNoPerm("Workflow Definition", Perm.Delete) is { } dr) return dr;
         try
         {
             bool inUse = await _db.Requests.AnyAsync(r => r.WorkflowId == id);
@@ -154,7 +198,11 @@ public class WorkflowsController : BaseCtrl
         var vm = new WorkflowFormVM { Steps = new List<WfStepFormVM> { new() { StepLevel = 1 } } };
         await PopulateAsync(vm);
         if (id == null) return vm;
-        var wf = await _db.WorkflowDefinitions.Include(w => w.Steps).FirstOrDefaultAsync(w => w.WorkflowId == id);
+        var wf = await _db.WorkflowDefinitions
+            .Include(w => w.Steps).ThenInclude(s => s.ApproverRole)
+            .Include(w => w.Steps).ThenInclude(s => s.ApproverUser).ThenInclude(u => u!.Role)
+            .Include(w => w.NotificationRoles)
+            .FirstOrDefaultAsync(w => w.WorkflowId == id);
         if (wf == null) return vm;
         vm.WorkflowId = wf.WorkflowId; vm.WorkflowName = wf.WorkflowName;
         vm.LocationId = wf.LocationId; vm.RequestTypeId = wf.RequestTypeId;
@@ -164,8 +212,11 @@ public class WorkflowsController : BaseCtrl
             {
                 StepLevel = s.StepLevel,
                 ApproverUserId = s.ApproverUserId,
-                ApproverRole = s.ApproverUser != null ? s.ApproverUser.Role.RoleName : "",
-                IsAutoAssignDeptManager = s.IsAutoAssignDeptManager
+                ApproverRoleId = s.ApproverRoleId,
+                ApproverRole = s.ApproverRole != null ? s.ApproverRole.RoleName
+                    : (s.ApproverUser != null ? s.ApproverUser.Role.RoleName : ""),
+                IsAutoAssignDeptManager = s.IsAutoAssignDeptManager,
+                NotificationRoleIds = wf.NotificationRoles.Where(x => x.StepLevel == s.StepLevel).Select(x => x.RoleId).ToList()
             }).ToList();
         return vm;
     }
@@ -175,12 +226,19 @@ public class WorkflowsController : BaseCtrl
         vm.Locations    = await _db.Locations.Where(l => l.IsActive).OrderBy(l => l.LocationName).ToListAsync();
         vm.RequestTypes = await _db.RequestTypes.Where(t => t.IsActive).OrderBy(t => t.TypeName).ToListAsync();
         vm.Departments  = await _db.Departments.Where(d => d.IsActive).OrderBy(d => d.DeptName).ToListAsync();
+        // Approval Steps dropdown source: roles that have the "Approve Request"
+        // permission (Requests screen, CanApprove) in the Roles & Permissions module.
+        // This is independent of the ApprovalSteps table and of whether any user is
+        // currently assigned to the role — so removing a role's approve right in
+        // Roles & Permissions makes it disappear here automatically, no code change.
         var approverRoleIds = await _db.RolePermissions
             .Where(p => p.ScreenName == "Requests" && p.CanApprove)
             .Select(p => p.RoleId)
             .ToListAsync();
-        vm.Approvers = await _db.Users.Include(u => u.Role)
-            .Where(u => u.Status == "active" && approverRoleIds.Contains(u.RoleId))
-            .OrderBy(u => u.FullName).ToListAsync();
+        vm.ApproverRoles = await _db.Roles
+            .Where(r => r.IsActive && approverRoleIds.Contains(r.RoleId))
+            .OrderBy(r => r.RoleName)
+            .ToListAsync();
+        vm.AllRoles = await _db.Roles.Where(r => r.IsActive).OrderBy(r => r.RoleName).ToListAsync();
     }
 }

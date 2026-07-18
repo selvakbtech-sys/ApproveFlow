@@ -69,6 +69,47 @@ namespace ApproveFlow.MVC.Migrations
                     b.ToTable("ApprovalAttachments", (string)null);
                 });
 
+            modelBuilder.Entity("ApproveFlow.MVC.Models.Domain.ApprovalReply", b =>
+                {
+                    b.Property<int>("ApprovalReplyId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("ApprovalReplyId"));
+
+                    b.Property<int>("ApprovalId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("AttachmentFileName")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("AttachmentUrl")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset>("CreatedDate")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("ReplyMessage")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("RequestId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("WhatsAppMessageId")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("ApprovalReplyId");
+
+                    b.HasIndex("ApprovalId");
+
+                    b.HasIndex("RequestId");
+
+                    b.ToTable("ApprovalReplies", (string)null);
+                });
+
             modelBuilder.Entity("ApproveFlow.MVC.Models.Domain.Department", b =>
                 {
                     b.Property<int>("DepartmentId")
@@ -413,6 +454,41 @@ namespace ApproveFlow.MVC.Migrations
                     b.ToTable("RequestTypes", (string)null);
                 });
 
+            modelBuilder.Entity("ApproveFlow.MVC.Models.Domain.RequestViewToken", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("RequestId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Token")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RequestId")
+                        .IsUnique();
+
+                    b.HasIndex("Token")
+                        .IsUnique();
+
+                    b.ToTable("RequestViewTokens", (string)null);
+                });
+
             modelBuilder.Entity("ApproveFlow.MVC.Models.Domain.Role", b =>
                 {
                     b.Property<int>("RoleId")
@@ -532,15 +608,24 @@ namespace ApproveFlow.MVC.Migrations
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("datetimeoffset");
 
+                    b.Property<string>("Username")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
                     b.Property<string>("WhatsAppNumber")
                         .HasColumnType("nvarchar(max)");
 
                     b.HasKey("UserId");
 
                     b.HasIndex("Email")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("[Email] <> ''");
 
                     b.HasIndex("RoleId");
+
+                    b.HasIndex("Username")
+                        .IsUnique();
 
                     b.ToTable("Users", (string)null);
                 });
@@ -640,6 +725,64 @@ namespace ApproveFlow.MVC.Migrations
                     b.ToTable("UserRequestTypeMappings", (string)null);
                 });
 
+            modelBuilder.Entity("ApproveFlow.MVC.Models.Domain.WhatsAppMessageHistory", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset>("CreatedDate")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Direction")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
+                    b.Property<string>("MessageId")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("MessageText")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("MessageType")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)");
+
+                    b.Property<string>("MobileNumber")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<int?>("RequestId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<int?>("WorkflowId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("WorkflowLevel")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RequestId");
+
+                    b.ToTable("WhatsAppMessageHistory", (string)null);
+                });
+
             modelBuilder.Entity("ApproveFlow.MVC.Models.Domain.WhatsAppPendingClarification", b =>
                 {
                     b.Property<int>("Id")
@@ -648,11 +791,29 @@ namespace ApproveFlow.MVC.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("ApprovalRemark")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<int>("ApproverId")
                         .HasColumnType("int");
 
+                    b.Property<DateTimeOffset?>("CompletedOn")
+                        .HasColumnType("datetimeoffset");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset?>("ExpiresOn")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("ParentMessageId")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
 
                     b.Property<string>("Phone")
                         .IsRequired()
@@ -661,9 +822,24 @@ namespace ApproveFlow.MVC.Migrations
                     b.Property<int>("RequestId")
                         .HasColumnType("int");
 
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("WhatsAppMessageId")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
                     b.HasKey("Id");
 
-                    b.ToTable("WhatsAppPendingClarifications");
+                    b.HasIndex("ParentMessageId");
+
+                    b.HasIndex("WhatsAppMessageId");
+
+                    b.HasIndex("Action", "Status", "ExpiresOn");
+
+                    b.ToTable("WhatsAppPendingClarifications", (string)null);
                 });
 
             modelBuilder.Entity("ApproveFlow.MVC.Models.Domain.WorkflowDefinition", b =>
@@ -710,6 +886,45 @@ namespace ApproveFlow.MVC.Migrations
                     b.ToTable("WorkflowDefinitions", (string)null);
                 });
 
+            modelBuilder.Entity("ApproveFlow.MVC.Models.Domain.WorkflowNotificationRole", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("ModifiedBy")
+                        .HasColumnType("int");
+
+                    b.Property<int>("RoleId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("StepLevel")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("WorkflowId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RoleId");
+
+                    b.HasIndex("WorkflowId", "StepLevel", "RoleId")
+                        .IsUnique();
+
+                    b.ToTable("WorkflowNotificationRoles", (string)null);
+                });
+
             modelBuilder.Entity("ApproveFlow.MVC.Models.Domain.WorkflowStep", b =>
                 {
                     b.Property<int>("StepId")
@@ -717,6 +932,9 @@ namespace ApproveFlow.MVC.Migrations
                         .HasColumnType("int");
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("StepId"));
+
+                    b.Property<int?>("ApproverRoleId")
+                        .HasColumnType("int");
 
                     b.Property<int?>("ApproverUserId")
                         .HasColumnType("int");
@@ -731,6 +949,8 @@ namespace ApproveFlow.MVC.Migrations
                         .HasColumnType("int");
 
                     b.HasKey("StepId");
+
+                    b.HasIndex("ApproverRoleId");
 
                     b.HasIndex("ApproverUserId");
 
@@ -757,6 +977,17 @@ namespace ApproveFlow.MVC.Migrations
                     b.Navigation("Request");
 
                     b.Navigation("UploadedByUser");
+                });
+
+            modelBuilder.Entity("ApproveFlow.MVC.Models.Domain.ApprovalReply", b =>
+                {
+                    b.HasOne("ApproveFlow.MVC.Models.Domain.Request", "Request")
+                        .WithMany()
+                        .HasForeignKey("RequestId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Request");
                 });
 
             modelBuilder.Entity("ApproveFlow.MVC.Models.Domain.Notification", b =>
@@ -876,6 +1107,17 @@ namespace ApproveFlow.MVC.Migrations
                     b.Navigation("UploadedByUser");
                 });
 
+            modelBuilder.Entity("ApproveFlow.MVC.Models.Domain.RequestViewToken", b =>
+                {
+                    b.HasOne("ApproveFlow.MVC.Models.Domain.Request", "Request")
+                        .WithMany()
+                        .HasForeignKey("RequestId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Request");
+                });
+
             modelBuilder.Entity("ApproveFlow.MVC.Models.Domain.RolePermission", b =>
                 {
                     b.HasOne("ApproveFlow.MVC.Models.Domain.Role", "Role")
@@ -979,8 +1221,32 @@ namespace ApproveFlow.MVC.Migrations
                     b.Navigation("RequestType");
                 });
 
+            modelBuilder.Entity("ApproveFlow.MVC.Models.Domain.WorkflowNotificationRole", b =>
+                {
+                    b.HasOne("ApproveFlow.MVC.Models.Domain.Role", "Role")
+                        .WithMany()
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("ApproveFlow.MVC.Models.Domain.WorkflowDefinition", "Workflow")
+                        .WithMany("NotificationRoles")
+                        .HasForeignKey("WorkflowId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Role");
+
+                    b.Navigation("Workflow");
+                });
+
             modelBuilder.Entity("ApproveFlow.MVC.Models.Domain.WorkflowStep", b =>
                 {
+                    b.HasOne("ApproveFlow.MVC.Models.Domain.Role", "ApproverRole")
+                        .WithMany()
+                        .HasForeignKey("ApproverRoleId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("ApproveFlow.MVC.Models.Domain.User", "ApproverUser")
                         .WithMany()
                         .HasForeignKey("ApproverUserId")
@@ -991,6 +1257,8 @@ namespace ApproveFlow.MVC.Migrations
                         .HasForeignKey("WorkflowId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("ApproverRole");
 
                     b.Navigation("ApproverUser");
 
@@ -1036,6 +1304,8 @@ namespace ApproveFlow.MVC.Migrations
 
             modelBuilder.Entity("ApproveFlow.MVC.Models.Domain.WorkflowDefinition", b =>
                 {
+                    b.Navigation("NotificationRoles");
+
                     b.Navigation("Steps");
                 });
 #pragma warning restore 612, 618

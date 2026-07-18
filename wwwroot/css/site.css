@@ -72,9 +72,13 @@ a{color:var(--in);text-decoration:none}a:hover{text-decoration:underline}
 .btn-ghost:hover{background:var(--bg);color:var(--txt);text-decoration:none}
 .btn-sm{padding:5px 11px;font-size:12px}
 .btn-sm svg{width:12px;height:12px}
+.btn:disabled,.btn.is-loading{opacity:.6;cursor:not-allowed;pointer-events:none}
+.spin{display:inline-block;width:13px;height:13px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:btnspin .6s linear infinite;vertical-align:-2px}
+@keyframes btnspin{to{transform:rotate(360deg)}}
 .form-grid{display:grid;gap:14px}
 .fg2{grid-template-columns:1fr 1fr}
 .fg3{grid-template-columns:1fr 1fr 1fr}
+.wf-form-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;align-items:start}
 .form-group{display:flex;flex-direction:column;gap:4px}
 .form-group.full{grid-column:1/-1}
 .lbl{font-size:11px;font-weight:600;color:var(--txt2);text-transform:uppercase;letter-spacing:.4px}
@@ -99,6 +103,7 @@ textarea.inp{resize:vertical;min-height:80px}
 .ms-chev.open{transform:rotate(180deg)}
 .ms-drop{position:absolute;top:calc(100% + 3px);left:0;right:0;background:var(--card);border:1px solid var(--bdr);border-radius:var(--r);box-shadow:var(--shm);z-index:300;max-height:200px;overflow-y:auto;display:none}
 .ms-drop.show{display:block}
+.card:has(.ms-drop.show){overflow:visible}
 .ms-opt{display:flex;align-items:center;gap:10px;padding:9px 13px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--bg);transition:background var(--tr)}
 .ms-opt:hover{background:var(--bg)}
 .ms-pills{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px}
@@ -113,6 +118,22 @@ textarea.inp{resize:vertical;min-height:80px}
 .tbl tbody tr:last-child td{border-bottom:none}
 .tbl tbody tr:hover td{background:var(--bg)}
 .tbl-empty{text-align:center;padding:40px;color:var(--txt3)}
+/* ── Reusable data grid (data-grid.js) ── */
+.dg-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:12px 16px;border-bottom:1px solid var(--bdr);background:var(--card)}
+.dg-search{width:260px;max-width:100%;padding:7px 12px 7px 32px;border:1px solid var(--bdr-s);border-radius:var(--r);background:var(--card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cline x1='21' y1='21' x2='16.65' y2='16.65'/%3E%3C/svg%3E") no-repeat 10px center;font-family:var(--font);font-size:13px;color:var(--txt)}
+.dg-search:focus{outline:none;border-color:var(--pri)}
+.dg-size{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--txt3);white-space:nowrap}
+.dg-size-sel{padding:6px 24px 6px 10px;border:1px solid var(--bdr-s);border-radius:var(--r);background:var(--card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpolyline points='6,9 12,15 18,9'/%3E%3C/svg%3E") no-repeat right 8px center;font-family:var(--font);font-size:12px;color:var(--txt);appearance:none;cursor:pointer}
+.dg-sortable{cursor:pointer;user-select:none}
+.dg-sortable:hover{color:var(--txt)}
+.dg-arrow{display:inline-block;margin-left:5px;font-size:9px;color:var(--acc-h)}
+.dg-footer{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:11px 16px;border-top:1px solid var(--bdr);background:var(--bg);font-size:12px;color:var(--txt3)}
+.dg-pager{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+.dg-page-btn{min-width:30px;height:30px;padding:0 8px;border:1px solid var(--bdr-s);border-radius:var(--r);background:var(--card);color:var(--txt2);font-family:var(--font);font-size:12px;cursor:pointer;transition:background var(--tr),border-color var(--tr)}
+.dg-page-btn:hover:not(:disabled):not(.active){background:var(--bg)}
+.dg-page-btn.active{background:var(--pri);border-color:var(--pri);color:#fff;font-weight:600}
+.dg-page-btn:disabled{opacity:.45;cursor:not-allowed}
+.dg-gap{padding:0 2px;color:var(--txt3)}
 .badge{display:inline-flex;align-items:center;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600;white-space:nowrap}
 .badge-green {background:var(--ok-bg);color:var(--ok);border:1px solid var(--ok-bdr)}
 .badge-red   {background:var(--ng-bg);color:var(--ng);border:1px solid var(--ng-bdr)}
@@ -192,7 +213,7 @@ textarea.inp{resize:vertical;min-height:80px}
 .notif-meta{font-size:11px;color:var(--txt3);margin-top:2px}
 .unread-dot{width:7px;height:7px;border-radius:50%;background:var(--in);flex-shrink:0;margin-top:5px}
 .mono{font-family:var(--mono);font-size:11px}
-@media(max-width:768px){:root{--sw:0px}.sidebar{transform:translateX(-240px);width:240px!important;transition:transform var(--tr)}.sidebar.open{transform:translateX(0)}.main{margin-left:0}.fg2,.fg3{grid-template-columns:1fr}.page-body{padding:14px}.metric-grid{grid-template-columns:repeat(2,1fr)}.mob-menu{display:flex!important}}
+@media(max-width:768px){:root{--sw:0px}.sidebar{transform:translateX(-240px);width:240px!important;transition:transform var(--tr)}.sidebar.open{transform:translateX(0)}.main{margin-left:0}.fg2,.fg3,.wf-form-grid{grid-template-columns:1fr}.page-body{padding:14px}.metric-grid{grid-template-columns:repeat(2,1fr)}.mob-menu{display:flex!important}}
 .mob-menu{display:none;background:none;border:none;cursor:pointer;padding:6px;color:var(--txt)}
 .mob-menu svg{width:20px;height:20px;stroke:currentColor;fill:none}
 /* ── Summary Tables (shared across all dashboard tabs) ── */
@@ -210,3 +231,84 @@ textarea.inp{resize:vertical;min-height:80px}
 .sum-num-rejected{font-weight:700;color:#dc2626}
 .sum-num-clarif{font-weight:700;color:#7c3aed}
 .sum-empty{padding:28px;text-align:center;color:var(--txt3);font-size:12px}
+
+/* ============================================================
+   RESPONSIVE ENHANCEMENTS  (mobile polish — desktop/tablet ≥769px unchanged)
+   Extends the existing @media(max-width:768px) shell rules so every screen
+   matches the Workflow View reference on phones. All layout changes live
+   inside media queries. !important is used only to override the per-view
+   inline widths that sit on filter/form controls in the .cshtml views.
+   ============================================================ */
+
+/* Global guard: the page itself never scrolls sideways. Wide tables keep
+   their own horizontal scroll via .tbl-wrap, so no data is hidden. */
+html,body{max-width:100%}
+body{overflow-x:hidden}
+.tbl-wrap{-webkit-overflow-scrolling:touch}
+
+@media(max-width:768px){
+  /* Header / topbar — never overflows, long titles truncate */
+  .topbar{padding:0 14px;gap:8px}
+  .topbar-title{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+  /* Page header + its action buttons stack full width */
+  .pg-hdr{flex-direction:column;align-items:stretch}
+  .pg-title{font-size:18px}
+  .pg-actions{width:100%}
+  .pg-actions .btn{flex:1 1 auto;justify-content:center}
+
+  /* Filter panel → vertical; every control + action full width */
+  .filter-bar{flex-direction:column;align-items:stretch;gap:10px}
+  .filter-bar .f-group{width:100%!important;flex:1 1 100%!important;min-width:0!important}
+  .filter-bar .f-ctrl,
+  .filter-bar .f-srch,
+  .filter-bar .f-srch-w,
+  .filter-bar input,
+  .filter-bar select{width:100%!important;min-width:0!important}
+  .filter-bar .btn{flex:1 1 0;justify-content:center}
+
+  /* Card footer + pager centre-wrap */
+  .card-footer{justify-content:center;text-align:center}
+  .pager{flex-wrap:wrap;justify-content:center}
+
+  /* Data grid → stack toolbar/footer, full-width search, centred pager */
+  .dg-toolbar{flex-direction:column;align-items:stretch}
+  .dg-search{width:100%}
+  .dg-size{justify-content:flex-end}
+  .dg-footer{flex-direction:column;align-items:center;text-align:center}
+
+  /* ── Reusable mobile-collapse helpers ──────────────────────────────
+     Applied to views whose multi-column layout is set with an inline
+     grid-template-columns (e.g. "1fr 320px", "300px 1fr", "repeat(4,1fr)").
+     The inline value drives the DESKTOP layout untouched; these rules only
+     take effect ≤768px, where !important overrides the inline declaration
+     so every such form/detail grid stacks into a single column — matching
+     the Workflow module's .wf-form-grid behaviour. */
+  .m-collapse{grid-template-columns:1fr!important}
+  .m-collapse-2{grid-template-columns:repeat(2,1fr)!important}
+
+  /* Dashboard metric rows carry an inline repeat(5|6|7,1fr) that otherwise
+     overrides the page-level media query. Force a phone-friendly 2-up grid. */
+  .metric-row,.my-metric-row{grid-template-columns:repeat(2,1fr)!important}
+}
+
+@media(max-width:480px){
+  .page-body{padding:12px}
+  /* Topbar keeps the avatar, drops name/role text so it never overflows */
+  .user-pill{padding:4px}
+  .up-name,.up-role{display:none}
+  /* Cards / metric tiles: one per row */
+  .metric-grid{grid-template-columns:1fr}
+  /* Page-header actions fully stacked */
+  .pg-actions{flex-direction:column}
+  .pg-actions .btn{width:100%}
+  /* Tabs stay horizontally scrollable, just tighter */
+  .tab{padding:9px 12px}
+  /* Login / auth card: never wider than the screen */
+  .auth-page{padding:16px}
+  .auth-panel{width:100%;max-width:420px;padding:28px 22px}
+  /* Compact 2-up info/stat grids drop to one column on small phones */
+  .m-collapse-2{grid-template-columns:1fr!important}
+  /* Metric tiles: one per row on the narrowest screens */
+  .metric-row,.my-metric-row{grid-template-columns:1fr!important}
+}

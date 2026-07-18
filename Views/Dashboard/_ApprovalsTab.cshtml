@@ -5,27 +5,27 @@
 
 @* ── KPI Cards ── *@
 <div class="metric-row" style="grid-template-columns:repeat(6,1fr)">
-  <a asp-controller="Requests" asp-action="MyApprovals" class="metric-card" style="--mc:#0f172a">
+  <a asp-controller="Requests" asp-action="Approval" class="metric-card" style="--mc:#0f172a">
     <div class="metric-num">@Model.AssignedTotal</div>
     <div class="metric-lbl">Total Request</div>
     <div class="metric-hint">All assigned</div>
   </a>
-  <a asp-controller="Requests" asp-action="MyApprovals" class="metric-card" style="--mc:#d97706">
+  <a asp-controller="Requests" asp-action="Approval" asp-route-status="Pending" class="metric-card" style="--mc:#d97706">
     <div class="metric-num">@Model.PendingMyAction</div>
     <div class="metric-lbl">Pending Request</div>
     <div class="metric-hint">Awaiting action</div>
   </a>
-  <a asp-controller="Requests" asp-action="Index" asp-route-FilterStatus="Approved" class="metric-card" style="--mc:#16a34a">
+  <a asp-controller="Requests" asp-action="Approval" asp-route-status="Approved" class="metric-card" style="--mc:#16a34a">
     <div class="metric-num">@Model.ApprovedByMe</div>
     <div class="metric-lbl">Approved</div>
     <div class="metric-hint">&nbsp;</div>
   </a>
-  <a asp-controller="Requests" asp-action="Index" asp-route-FilterStatus="Rejected" class="metric-card" style="--mc:#dc2626">
+  <a asp-controller="Requests" asp-action="Approval" asp-route-status="Rejected" class="metric-card" style="--mc:#dc2626">
     <div class="metric-num">@Model.RejectedByMe</div>
     <div class="metric-lbl">Rejected</div>
     <div class="metric-hint">&nbsp;</div>
   </a>
-  <a asp-controller="Requests" asp-action="Index" asp-route-FilterStatus="Clarification Needed" class="metric-card" style="--mc:#7c3aed">
+  <a asp-controller="Requests" asp-action="Approval" asp-route-status="Clarification" class="metric-card" style="--mc:#7c3aed">
     <div class="metric-num">@Model.ClarificationByMe</div>
     <div class="metric-lbl">Clarification</div>
     <div class="metric-hint">&nbsp;</div>
@@ -60,12 +60,12 @@
 </div>
 
 @* ── Approval Queue Grid ── *@
- <div class="card" style="margin-bottom:16px">
+ <div class="card" id="approvalQueueCard" style="margin-bottom:16px">
   <div class="card-hdr">
     <svg viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22,4 12,14.01 9,11.01"/></svg>
     Recent Approval Queue
     @if (Model.PendingMyAction > 0) { <span class="badge badge-amber" style="margin-left:6px">@Model.PendingMyAction pending</span> }
-    <div class="card-hdr-right"><a asp-controller="Requests" asp-action="MyApprovals" class="btn btn-ghost btn-sm">View all →</a></div>
+    <div class="card-hdr-right"><a asp-controller="Requests" asp-action="Approval" asp-route-status="Pending" class="btn btn-ghost btn-sm">View all →</a></div>
   </div>
   <div class="tbl-wrap">
     <table class="tbl">
@@ -97,7 +97,7 @@
         }
         @if (!Model.Queue.Any())
         {
-          <tr><td colspan="7" class="tbl-empty">🎉 No pending approvals</td></tr>
+          <tr><td colspan="7" class="tbl-empty">🎉 No pending approvals.</td></tr>
         }
       </tbody>
     </table>

@@ -5,6 +5,12 @@
     string Sc(string s) => s switch {"Approved"=>"badge-green","Rejected"=>"badge-red","Pending Approval"=>"badge-blue","Open"=>"badge-blue","Partial Approved"=>"badge-sky","Clarification Needed"=>"badge-amber","Draft"=>"badge-gray","Deleted"=>"badge-dark",_=>"badge-gray"};
     string Pc(string p) => p switch {"Critical"=>"badge-red","High"=>"badge-amber","Medium"=>"badge-blue",_=>"badge-gray"};
     string Ds(string s) => s == "Open" ? "Pending Approval" : s;
+    // Approval Requests mode: the page was opened from the dashboard "My Approvals" KPI
+    // cards. Filtering runs against the approver's assigned set and the Status filter uses
+    // friendly tokens (?status=) rather than raw request statuses.
+    bool isApprovals = ViewBag.IsMyApprovals == true;
+    string approvalStatus = ViewBag.ApprovalStatus as string ?? "";
+    string listAction = isApprovals ? "Approval" : "Index";
 }
 
 <div class="pg-hdr">
@@ -25,7 +31,7 @@
   </div>
 </div>
 
-<form method="get" asp-action="Index">
+<form method="get" asp-action="@listAction">
   <div class="filter-bar" style="gap:8px">
     <div class="f-group" style="flex:1 1 160px;min-width:0">
       <label class="f-lbl">Search</label>
@@ -36,11 +42,23 @@
     </div>
     <div class="f-group" style="flex:1 1 130px;min-width:0">
       <label class="f-lbl">Status</label>
-      <select name="FilterStatus" class="f-ctrl" style="width:100%">
-        <option value="">All</option>
-        @foreach (var s in new[]{"Draft","Pending Approval","Partial Approved","Approved","Rejected","Clarification Needed","Deleted"})
-        { <option value="@s" selected="@(Model.FilterStatus==s)">@s</option> }
-      </select>
+      @if (isApprovals)
+      {
+        @* Friendly approval tokens → /Requests/Approval?status=… (auto-selected from the KPI card that was clicked) *@
+        <select name="status" class="f-ctrl" style="width:100%">
+          <option value="">All</option>
+          @foreach (var opt in new[]{ ApprovalStatusFilter.Pending, ApprovalStatusFilter.Approved, ApprovalStatusFilter.Rejected, ApprovalStatusFilter.Clarification })
+          { <option value="@opt" selected="@(string.Equals(approvalStatus, opt, StringComparison.OrdinalIgnoreCase))">@opt</option> }
+        </select>
+      }
+      else
+      {
+        <select name="FilterStatus" class="f-ctrl" style="width:100%">
+          <option value="">All</option>
+          @foreach (var s in new[]{"Draft","Pending Approval","Partial Approved","Approved","Rejected","Clarification Needed","Deleted"})
+          { <option value="@s" selected="@(Model.FilterStatus==s)">@s</option> }
+        </select>
+      }
     </div>
     <div class="f-group" style="flex:1 1 100px;min-width:0">
       <label class="f-lbl">Type</label>
@@ -86,7 +104,7 @@
       <div id="dateRangeError" style="display:none;color:var(--ng,#ef4444);font-size:11px;white-space:nowrap;margin-bottom:4px">From Date cannot be greater than To Date.</div>
       <div style="display:flex;gap:6px">
         <button type="submit" class="btn btn-pri btn-sm" onclick="return validateDateRange()">Filter</button>
-        <a asp-action="Index" class="btn btn-sec btn-sm">Clear</a>
+        <a asp-action="@listAction" class="btn btn-sec btn-sm">Clear</a>
       </div>
     </div>
   </div>
@@ -127,6 +145,23 @@
             <td style="font-size:11px;color:var(--txt3);white-space:nowrap">@r.CreatedAt.ToString("dd MMM yyyy")</td>
             <td class="r">
               <div style="display:inline-flex;gap:4px;align-items:center">
+                @* Requester on a Clarification Needed request: replace View with a
+                   dedicated Clarification action (server-side check on status + owner). *@
+                @if (r.Status == "Clarification Needed" && r.IsRequester)
+                {
+                  <a asp-action="Detail" asp-route-id="@r.RequestId" asp-route-mode="clarification"
+                     class="btn btn-sm" title="Respond to Clarification"
+                     style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:0;border:1px solid #d97706;background:#d97706;color:#fff;border-radius:6px">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+                  </a>
+                  <a href="/Requests/Print/@r.RequestId" target="_blank"
+                     class="btn btn-sec btn-sm" title="Print"
+                     style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:0">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6,9 6,2 18,2 18,9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+                  </a>
+                }
+                else
+                {
                 <a asp-action="Detail" asp-route-id="@r.RequestId"
                    class="btn btn-sec btn-sm" title="View"
                    style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:0">
@@ -138,7 +173,7 @@
                    style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:0">
                   <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6,9 6,2 18,2 18,9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
                 </a>
-                @if (r.Status == "Draft" || r.Status == "Clarification Needed")
+                @if (r.Status == "Draft")
                 {
                   <a asp-action="Edit" asp-route-id="@r.RequestId"
                      class="btn btn-sec btn-sm" title="Edit"
@@ -167,6 +202,7 @@
                     </button>
                   }
                 }
+                }
               </div>
             </td>
           </tr>
@@ -179,12 +215,18 @@
     <div class="card-footer">
       <span>Showing @((Model.PageNumber-1)*Model.PageSize+1)–@(Math.Min(Model.PageNumber*Model.PageSize,Model.TotalCount)) of @Model.TotalCount</span>
       <div class="pager">
+        @{
+          // In approval mode the status filter travels as the friendly `status` token;
+          // otherwise as the raw FilterStatus. Passing null omits the unused one.
+          string? pgStatusToken = isApprovals ? approvalStatus : null;
+          string? pgFilterStatus = isApprovals ? null : Model.FilterStatus;
+        }
         @if (Model.PageNumber > 1)
-        { <a class="pb" asp-action="Index" asp-route-page="@(Model.PageNumber-1)" asp-route-SearchTerm="@Model.SearchTerm" asp-route-FilterStatus="@Model.FilterStatus" asp-route-FilterTypeId="@Model.FilterTypeId" asp-route-FilterPriority="@Model.FilterPriority" asp-route-FilterDeptId="@Model.FilterDeptId" asp-route-FilterLocationId="@Model.FilterLocationId" asp-route-FilterDateFrom="@Model.FilterDateFrom" asp-route-FilterDateTo="@Model.FilterDateTo">‹</a> }
+        { <a class="pb" asp-action="@listAction" asp-route-page="@(Model.PageNumber-1)" asp-route-status="@pgStatusToken" asp-route-SearchTerm="@Model.SearchTerm" asp-route-FilterStatus="@pgFilterStatus" asp-route-FilterTypeId="@Model.FilterTypeId" asp-route-FilterPriority="@Model.FilterPriority" asp-route-FilterDeptId="@Model.FilterDeptId" asp-route-FilterLocationId="@Model.FilterLocationId" asp-route-FilterDateFrom="@Model.FilterDateFrom" asp-route-FilterDateTo="@Model.FilterDateTo">‹</a> }
         @for (int p = Math.Max(1,Model.PageNumber-2); p <= Math.Min(Model.TotalPages,Model.PageNumber+2); p++)
-        { <a class="pb @(p==Model.PageNumber?"active":"")" asp-action="Index" asp-route-page="@p" asp-route-SearchTerm="@Model.SearchTerm" asp-route-FilterStatus="@Model.FilterStatus" asp-route-FilterTypeId="@Model.FilterTypeId" asp-route-FilterPriority="@Model.FilterPriority" asp-route-FilterDeptId="@Model.FilterDeptId" asp-route-FilterLocationId="@Model.FilterLocationId" asp-route-FilterDateFrom="@Model.FilterDateFrom" asp-route-FilterDateTo="@Model.FilterDateTo">@p</a> }
+        { <a class="pb @(p==Model.PageNumber?"active":"")" asp-action="@listAction" asp-route-page="@p" asp-route-status="@pgStatusToken" asp-route-SearchTerm="@Model.SearchTerm" asp-route-FilterStatus="@pgFilterStatus" asp-route-FilterTypeId="@Model.FilterTypeId" asp-route-FilterPriority="@Model.FilterPriority" asp-route-FilterDeptId="@Model.FilterDeptId" asp-route-FilterLocationId="@Model.FilterLocationId" asp-route-FilterDateFrom="@Model.FilterDateFrom" asp-route-FilterDateTo="@Model.FilterDateTo">@p</a> }
         @if (Model.PageNumber < Model.TotalPages)
-        { <a class="pb" asp-action="Index" asp-route-page="@(Model.PageNumber+1)" asp-route-SearchTerm="@Model.SearchTerm" asp-route-FilterStatus="@Model.FilterStatus" asp-route-FilterTypeId="@Model.FilterTypeId" asp-route-FilterPriority="@Model.FilterPriority" asp-route-FilterDeptId="@Model.FilterDeptId" asp-route-FilterLocationId="@Model.FilterLocationId" asp-route-FilterDateFrom="@Model.FilterDateFrom" asp-route-FilterDateTo="@Model.FilterDateTo">›</a> }
+        { <a class="pb" asp-action="@listAction" asp-route-page="@(Model.PageNumber+1)" asp-route-status="@pgStatusToken" asp-route-SearchTerm="@Model.SearchTerm" asp-route-FilterStatus="@pgFilterStatus" asp-route-FilterTypeId="@Model.FilterTypeId" asp-route-FilterPriority="@Model.FilterPriority" asp-route-FilterDeptId="@Model.FilterDeptId" asp-route-FilterLocationId="@Model.FilterLocationId" asp-route-FilterDateFrom="@Model.FilterDateFrom" asp-route-FilterDateTo="@Model.FilterDateTo">›</a> }
       </div>
     </div>
   }
@@ -193,7 +235,7 @@
 @* ── Export Date Range Modal ── *@
 <div id="exportModal" style="display:none;position:fixed;inset:0;z-index:1000;align-items:center;justify-content:center">
   <div onclick="closeExportModal()" style="position:absolute;inset:0;background:rgba(0,0,0,.45)"></div>
-  <div style="position:relative;background:var(--card);border:1px solid var(--bdr);border-radius:var(--rl);box-shadow:0 8px 32px rgba(0,0,0,.18);width:100%;max-width:420px;margin:16px;padding:0">
+  <div style="position:relative;background:var(--card);border:1px solid var(--bdr);border-radius:var(--rl);box-shadow:0 8px 32px rgba(0,0,0,.18);width:100%;max-width:420px;margin:16px;max-height:calc(100vh - 32px);overflow-y:auto;padding:0">
     <div style="padding:16px 20px;border-bottom:1px solid var(--bdr);display:flex;align-items:center;justify-content:space-between">
       <span style="font-size:15px;font-weight:700">Export Requests</span>
       <button onclick="closeExportModal()" type="button" style="background:none;border:none;cursor:pointer;color:var(--txt3);font-size:20px;line-height:1;padding:0 4px">&times;</button>

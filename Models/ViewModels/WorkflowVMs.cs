@@ -41,7 +41,11 @@ public class WorkflowFormVM
     public List<Location> Locations { get; set; } = new();
     public List<RequestType> RequestTypes { get; set; } = new();
     public List<Department> Departments { get; set; } = new();
-    public List<User> Approvers { get; set; } = new();
+    // Roles that carry the "Approve Request" permission — the source for the
+    // Approval Steps role dropdown. Driven by Roles & Permissions, not by users
+    // or the ApprovalSteps table, so removing a role's approve right hides it here.
+    public List<Role> ApproverRoles { get; set; } = new();
+    public List<Role> AllRoles { get; set; } = new();
     public static readonly string[] Priorities = { "Low", "Medium", "High", "Critical" };
 }
 
@@ -49,6 +53,8 @@ public class WfStepFormVM
 {
     public int StepLevel { get; set; }
     public int? ApproverUserId { get; set; }
+    public int? ApproverRoleId { get; set; }
     public string ApproverRole { get; set; } = "";
     public bool IsAutoAssignDeptManager { get; set; }
+    public List<int> NotificationRoleIds { get; set; } = new();
 }

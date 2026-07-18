@@ -34,6 +34,7 @@ public class UserService : IUserService
             {
                 UserId = u.UserId,
                 FullName = u.FullName,
+                Username = u.Username,
                 Email = u.Email,
                 RoleName = u.Role.RoleName,
                 BadgeColor = u.Role.BadgeColor,
@@ -62,6 +63,7 @@ public class UserService : IUserService
         if (u == null) return vm;
         vm.UserId = u.UserId;
         vm.FullName = u.FullName;
+        vm.Username = u.Username;
         vm.Email = u.Email;
         vm.RoleId = u.RoleId;
         vm.WhatsAppNumber = u.WhatsAppNumber;
@@ -72,14 +74,22 @@ public class UserService : IUserService
 
     public async Task<(bool ok, string? err)> SaveAsync(UserFormVM vm)
     {
+        // Normalize: username is stored trimmed; email is optional (blank => "").
+        var username = (vm.Username ?? "").Trim();
+        var email = (vm.Email ?? "").Trim();
+
         if (vm.UserId == 0)
         {
             if (string.IsNullOrEmpty(vm.Password)) return (false, "Password is required.");
-            if (await _db.Users.AnyAsync(u => u.Email == vm.Email)) return (false, "Email already in use.");
+            if (await _db.Users.AnyAsync(u => u.Username == username))
+                return (false, "This username is already in use.");
+            if (email.Length > 0 && await _db.Users.AnyAsync(u => u.Email == email))
+                return (false, "Email already in use.");
             var u = new User
             {
                 FullName = vm.FullName,
-                Email = vm.Email,
+                Username = username,
+                Email = email,
                 RoleId = vm.RoleId,
                 PasswordHash = BCrypt.Net.BCrypt.HashPassword(vm.Password, 12),
                 AvatarInitials = string.Concat(vm.FullName.Split(' ').Take(2).Select(n => n[0])).ToUpper(),
@@ -99,7 +109,16 @@ public class UserService : IUserService
                 .Include(u => u.UserLocations).Include(u => u.UserDepartments)
                 .FirstOrDefaultAsync(u => u.UserId == vm.UserId);
             if (u == null) return (false, "User not found.");
-            u.FullName = vm.FullName; u.Email = vm.Email; u.RoleId = vm.RoleId;
+            // Username may be changed only by an Administrator (CanEditUsername).
+            if (vm.CanEditUsername && username != u.Username)
+            {
+                if (await _db.Users.AnyAsync(x => x.Username == username && x.UserId != u.UserId))
+                    return (false, "This username is already in use.");
+                u.Username = username;
+            }
+            if (email.Length > 0 && await _db.Users.AnyAsync(x => x.Email == email && x.UserId != u.UserId))
+                return (false, "Email already in use.");
+            u.FullName = vm.FullName; u.Email = email; u.RoleId = vm.RoleId;
             u.WhatsAppNumber = vm.WhatsAppNumber;
             if (!string.IsNullOrEmpty(vm.Password))
                 u.PasswordHash = BCrypt.Net.BCrypt.HashPassword(vm.Password, 12);

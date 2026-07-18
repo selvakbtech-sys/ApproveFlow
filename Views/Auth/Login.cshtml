@@ -1,20 +1,29 @@
 @model LoginVM
 @{ Layout = null; }
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="login-bg">
 <head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
 <title>Sign In — ApproveFlow</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <link rel="stylesheet" href="~/css/site.css"/>
+<link rel="stylesheet" href="~/css/login.css"/>
 </head>
 <body>
+<video id="bgVideo" autoplay muted loop playsinline preload="auto">
+  <source src="~/videos/206315.mp4" type="video/mp4"/>
+</video>
+<div class="video-overlay"></div>
+
 <div class="auth-page">
-  <div class="auth-panel">
+  <div class="auth-panel login-card">
     <div class="auth-logo">
-      <div class="auth-logo-icon" style="background:#fff;padding:0px;overflow:hidden">
-        <img src="~/images/bnr-logo.jpg" alt="BNR" style="width:160%;height:100%;object-fit:contain"/>
+      <div class="auth-logo-icon">
+        <img src="~/images/bnr-logo.jpg" alt="BNR"/>
       </div>
-                <div class="auth-title">BNR FLOW</div>
+      <div class="auth-title">BNR FLOW</div>
      @*  <div class="auth-sub">BNR - ApproveFlow — Workflow </div> *@
     </div>
 
@@ -23,33 +32,87 @@
     <form asp-controller="Auth" asp-action="Login" method="post">
       @Html.AntiForgeryToken()
       <input type="hidden" asp-for="ReturnUrl"/>
-      <div class="form-group" style="margin-bottom:14px">
-        <label class="lbl">Email address <span class="req">*</span></label>
-        <input asp-for="Email" type="email" class="inp" placeholder="you@company.com" autocomplete="email"/>
-        <span asp-validation-for="Email" class="field-validation-error"></span>
+      <div class="form-group lf-field">
+        <label class="lbl">Username <span class="req">*</span></label>
+        <input asp-for="Username" type="text" class="inp" placeholder="Enter username" autocomplete="username" autocapitalize="none" spellcheck="false"/>
+        <span asp-validation-for="Username" class="field-validation-error"></span>
       </div>
-      <div class="form-group" style="margin-bottom:18px">
+      <div class="form-group lf-field">
         <label class="lbl">Password <span class="req">*</span></label>
         <input asp-for="Password" type="password" class="inp" placeholder="••••••••"/>
         <span asp-validation-for="Password" class="field-validation-error"></span>
       </div>
-      <div style="margin-bottom:20px">
-        <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer">
-          <input asp-for="RememberMe" type="checkbox" style="width:14px;height:14px;accent-color:var(--pri)"/>
-          Remember me for 8 hours
-        </label>
-      </div>
-      <button type="submit" class="btn btn-pri" style="width:100%;justify-content:center;padding:10px">
+      <label class="lf-remember">
+        <input asp-for="RememberMe" type="checkbox" class="lf-check"/>
+        <span>Remember me for 8 hours</span>
+      </label>
+      <button type="submit" class="btn btn-pri lf-btn">
         Sign in
       </button>
     </form>
-            <div style="margin-top:16px;padding:10px;background:var(--bg);border-radius:var(--r);text-align:center;font-size:11px;color:var(--txt3)">
-                Forgot Password
-            </div>
+    <div id="forgotPwLink" role="button" tabindex="0" aria-haspopup="dialog" class="lf-forgot">
+      Forgot Password
+    </div>
     @* <div style="margin-top:16px;padding:10px;background:var(--bg);border-radius:var(--r);text-align:center;font-size:11px;color:var(--txt3)">
       Demo credentials: <strong style="color:var(--txt2)">admin@gmail.com</strong> / <strong style="color:var(--txt2)">Admin@123</strong>
     </div> *@
   </div>
 </div>
+
+<!-- Password Reset info dialog (self-contained, no dependencies) -->
+<div id="forgotPwModal" role="dialog" aria-modal="true" aria-labelledby="forgotPwTitle"
+     style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(15,23,42,.45);
+            align-items:center;justify-content:center;padding:16px">
+  <div style="background:var(--card);border:1px solid var(--bdr);border-radius:var(--rl);
+              box-shadow:var(--shm);max-width:380px;width:100%;padding:22px 22px 18px;text-align:center">
+    <div id="forgotPwTitle" style="font-size:16px;font-weight:700;color:var(--txt);margin-bottom:8px">Password Reset</div>
+    <div style="font-size:13px;color:var(--txt2);line-height:1.5;margin-bottom:18px">
+      Please contact your system administrator to reset your password.
+    </div>
+    <button type="button" id="forgotPwOk" class="btn btn-pri" style="min-width:96px;justify-content:center">OK</button>
+  </div>
+</div>
+
+<script>
+  // Ensure the background video plays (some mobile browsers pause muted autoplay).
+  // Honors reduced-motion: if the user prefers reduced motion, leave the video stopped
+  // so the CSS static-background fallback is shown instead.
+  (function () {
+    var v = document.getElementById('bgVideo');
+    if (!v) return;
+    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduce) { v.pause(); return; }
+    function play() { var p = v.play(); if (p && p.catch) p.catch(function () {}); }
+    play();
+    // Resume when the tab becomes visible again (avoids reloading the video).
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden) play();
+    });
+  })();
+</script>
+
+<script>
+  (function () {
+    var link = document.getElementById('forgotPwLink');
+    var modal = document.getElementById('forgotPwModal');
+    var okBtn = document.getElementById('forgotPwOk');
+    if (!link || !modal || !okBtn) return;
+
+    function open(e) { if (e) e.preventDefault(); modal.style.display = 'flex'; okBtn.focus(); }
+    function close() { modal.style.display = 'none'; link.focus(); }
+
+    link.addEventListener('click', open);
+    link.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ') open(e);
+    });
+    okBtn.addEventListener('click', close);
+    // Close when clicking the dark backdrop (but not the dialog itself)
+    modal.addEventListener('click', function (e) { if (e.target === modal) close(); });
+    // Close on Escape
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && modal.style.display === 'flex') close();
+    });
+  })();
+</script>
 </body>
 </html>

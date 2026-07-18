@@ -8,6 +8,8 @@ public interface IUserMappingService
     Task<(bool ok, string? err)> DeleteAsync(int userId, int deletedBy);
     Task<(bool ok, string? err)> ToggleStatusAsync(int userId, bool isActive);
     Task<List<RequestType>> GetAllowedRequestTypesAsync(int userId);
+    Task<List<RequestType>> GetMappedRequestTypesAsync(int userId);
+    Task<bool> IsRequestTypeAllowedAsync(int userId, int requestTypeId);
     Task<bool> UserMappingExistsAsync(int userId);
     Task<int?> GetMappedUserIdAsync(int userId);  // returns userId if mapping exists (for edit URL)
 }
@@ -272,6 +274,43 @@ public class UserMappingService : IUserMappingService
     // can build the Edit URL without an extra DB round-trip.
     public async Task<int?> GetMappedUserIdAsync(int userId) =>
         await UserMappingExistsAsync(userId) ? userId : null;
+
+    // STRICT mapped request types for a user — used by the New Request / Edit form and
+    // by server-side Save/Submit validation. Unlike GetAllowedRequestTypesAsync, this
+    // returns an EMPTY list when the user has no active mapping (no backward-compatible
+    // fallback), so an unmapped user cannot raise any request type.
+    public async Task<List<RequestType>> GetMappedRequestTypesAsync(int userId)
+    {
+        if (userId <= 0) return new List<RequestType>();
+
+        var mappedIds = await _db.UserRequestTypeMappings
+            .AsNoTracking()
+            .Where(m => m.UserId == userId && !m.SoftDeleted && m.IsActive)
+            .Select(m => m.RequestTypeId)
+            .ToListAsync();
+
+        if (!mappedIds.Any()) return new List<RequestType>();
+
+        return await _db.RequestTypes
+            .AsNoTracking()
+            .Where(t => t.IsActive && mappedIds.Contains(t.RequestTypeId))
+            .OrderBy(t => t.TypeName)
+            .ToListAsync();
+    }
+
+    // STRICT server-side check: the given request type must be an active type that is
+    // actively mapped to the user. Never trust a posted RequestTypeId without this.
+    public async Task<bool> IsRequestTypeAllowedAsync(int userId, int requestTypeId)
+    {
+        if (userId <= 0 || requestTypeId <= 0) return false;
+
+        return await _db.UserRequestTypeMappings
+            .AsNoTracking()
+            .AnyAsync(m => m.UserId == userId
+                        && m.RequestTypeId == requestTypeId
+                        && !m.SoftDeleted && m.IsActive
+                        && m.RequestType.IsActive);
+    }
 
     // Returns the allowed request types for a user.
     // If the user has active mappings → return only mapped types.

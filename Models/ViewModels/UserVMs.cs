@@ -12,6 +12,7 @@ public class UserItemVM
 {
     public int UserId { get; set; }
     public string FullName { get; set; } = "";
+    public string Username { get; set; } = "";
     public string Email { get; set; } = "";
     public string RoleName { get; set; } = "";
     public string BadgeColor { get; set; } = "";
@@ -27,7 +28,20 @@ public class UserFormVM
 {
     public int UserId { get; set; }
     [Required, MaxLength(200)] public string FullName { get; set; } = "";
-    [Required, EmailAddress]   public string Email { get; set; } = "";
+
+    [Required(ErrorMessage = "Username is required")]
+    [StringLength(30, MinimumLength = 4, ErrorMessage = "Username must be 4 to 30 characters")]
+    [RegularExpression(@"^[A-Za-z0-9_.]+$",
+        ErrorMessage = "Username may contain only letters, numbers, underscore (_) and period (.).")]
+    [Display(Name = "Username")]
+    public string Username { get; set; } = "";
+
+    // Optional — used for notifications only, no longer used for login.
+    [EmailAddress, MaxLength(256)] public string? Email { get; set; }
+
+    // Whether the Username field may be edited (Administrator only, on edit).
+    public bool CanEditUsername { get; set; } = true;
+
     [MaxLength(20)] public string? WhatsAppNumber { get; set; }
     [MinLength(8, ErrorMessage = "Min 8 characters")]
     public string? Password { get; set; }

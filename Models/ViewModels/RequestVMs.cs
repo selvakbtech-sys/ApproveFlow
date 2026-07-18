@@ -38,13 +38,18 @@ public class ReqListItemVM
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
     public int AgeDays => IstClock.DaysSince(UpdatedAt);
+    // True when the logged-in user is this request's owner — set server-side so the grid
+    // can show the requester-only Clarification action on a Clarification Needed request.
+    public bool IsRequester { get; set; }
 }
 
 public class RequestFormVM
 {
     public int RequestId { get; set; }
     [Required, MaxLength(500)] public string Title { get; set; } = "";
+    [MaxLength(500, ErrorMessage = "Description / Justification cannot exceed 500 characters")]
     public string? Description { get; set; }
+    [MaxLength(500, ErrorMessage = "Additional Notes cannot exceed 500 characters")]
     public string? Notes { get; set; }
     [Required(ErrorMessage = "Please select a request type")]
     public int RequestTypeId { get; set; }
@@ -62,6 +67,10 @@ public class RequestFormVM
     public string? MatchedWorkflowName { get; set; }
     public bool CanAct { get; set; }
     public int? CurrentActingStep { get; set; }
+    // Clarification Response flow: the requester (owner) of a "Clarification Needed"
+    // request replies with remarks/attachment instead of editing the original request.
+    public bool CanSubmitClarification { get; set; }
+    public string? LatestClarificationComment { get; set; }
     public string ActiveTab { get; set; } = "details";
     public List<ApproverStepVM> ApprovalChain { get; set; } = new();
     public List<ActionLogVM> ActionLog { get; set; } = new();
@@ -101,6 +110,9 @@ public class ActionLogVM
     public int? StepLevel { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public List<HistoryAttachmentVM> Attachments { get; set; } = new();
+    // True when this action originated from a WhatsApp reply/button (derived from
+    // WhatsAppMessageHistory), so the timeline can show a "via WhatsApp" indicator.
+    public bool IsWhatsApp { get; set; }
 }
 
 public class HistoryAttachmentVM
@@ -108,6 +120,9 @@ public class HistoryAttachmentVM
     public int Id { get; set; }
     public string FileName { get; set; } = "";
     public string AttachmentType { get; set; } = "";
+    // Direct URL for statically-served files (WhatsApp reply attachments). Null for
+    // controller-served attachments (Requestor/Approval), which use their download actions.
+    public string? Url { get; set; }
 }
 
 public class DocumentVM
@@ -132,6 +147,9 @@ public class ApprovalAttachmentVM
     public string? ContentType { get; set; }
     public DateTimeOffset UploadedAt { get; set; }
     public string UploadedByName { get; set; } = "";
+    // Set for statically-served WhatsApp reply attachments (linked directly). Null
+    // for controller-served approval attachments (use the DownloadApproval action).
+    public string? Url { get; set; }
     public string FormattedSize =>
         FileSizeBytes > 1_048_576 ? $"{FileSizeBytes / 1_048_576.0:F1} MB" : $"{FileSizeBytes / 1024} KB";
 }

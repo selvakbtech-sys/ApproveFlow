@@ -16,4 +16,5 @@ public class WorkflowDefinition
     public virtual RequestType? RequestType { get; set; }
     public virtual Department? Department { get; set; }
     public virtual ICollection<WorkflowStep> Steps { get; set; } = new List<WorkflowStep>();
+    public virtual ICollection<WorkflowNotificationRole> NotificationRoles { get; set; } = new List<WorkflowNotificationRole>();
 }

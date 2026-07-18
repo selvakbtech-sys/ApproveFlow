@@ -9,6 +9,7 @@ global using System.ComponentModel.DataAnnotations.Schema;
 global using System.Security.Claims;
 
 global using ApproveFlow.MVC.Data;
+global using ApproveFlow.MVC.Models;
 global using ApproveFlow.MVC.Models.Domain;
 global using ApproveFlow.MVC.Models.ViewModels;
 global using ApproveFlow.MVC.Services;

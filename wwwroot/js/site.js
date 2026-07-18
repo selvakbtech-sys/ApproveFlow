@@ -15,7 +15,6 @@ function initMs(wrap) {
   const pills   = wrap.querySelector('.ms-pills');
   const chev    = wrap.querySelector('.ms-chev');
   const cbs     = wrap.querySelectorAll('.ms-opt input[type=checkbox]');
-  const name    = wrap.dataset.name;
   const ph      = wrap.dataset.placeholder || 'Select…';
   const txt     = trigger.querySelector('.ms-txt');
 
@@ -23,6 +22,10 @@ function initMs(wrap) {
     [...cbs].filter(c => c.checked).map(c => ({ v: c.value, l: c.dataset.label || c.value }));
 
   const render = () => {
+    // Read data-name live (not captured once) so callers can safely rename this
+    // wrap's bound field (e.g. renumbering "Steps[i].NotificationRoleIds" rows)
+    // without needing to re-run initMs and risk double-binding event listeners.
+    const name = wrap.dataset.name;
     const sel = getSelected();
     // Pills
     pills.innerHTML = '';
@@ -41,8 +44,9 @@ function initMs(wrap) {
     });
     // Trigger text
     if (txt) txt.textContent = sel.length === 0 ? ph : sel.length === 1 ? sel[0].l : `${sel.length} selected`;
-    // Hidden inputs
-    wrap.querySelectorAll(`input[type=hidden][name="${name}"]`).forEach(h => h.remove());
+    // Hidden inputs — a wrap only ever holds hidden inputs it created itself,
+    // so it's safe to clear all of them regardless of what name they were given.
+    wrap.querySelectorAll(':scope > input[type=hidden]').forEach(h => h.remove());
     sel.forEach(({ v }) => {
       const h = document.createElement('input');
       h.type = 'hidden'; h.name = name; h.value = v;
@@ -61,6 +65,7 @@ function initMs(wrap) {
   });
   cbs.forEach(cb => cb.addEventListener('change', render));
   render();
+  wrap._msRefresh = render; // exposed so external code can force a refresh after renaming data-name
 }
 
 // Workflow step builder helpers used by Workflows/Form.cshtml

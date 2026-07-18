@@ -3,6 +3,9 @@
 	bool isEdit = Model.RequestId > 0;
 	ViewData["Title"] = isEdit ? "Edit Request" : "New Request";
 	ViewData["NavPage"] = isEdit ? "requests" : "newrequest";
+	// Part 2 — only request types mapped to the logged-in user are loaded. When none
+	// are mapped, block request creation/submission from the UI (server also enforces).
+	bool noRequestTypes = !Model.RequestTypes.Any();
 }
 <div class="pg-hdr">
 	<div>
@@ -17,7 +20,7 @@
 	<input type="hidden" asp-for="RequestId" />
 	@* LocationId and DepartmentId are posted via dropdowns in the form grid below *@
 
-	<div style="display:grid;grid-template-columns:1fr 320px;gap:18px;align-items:start">
+	<div class="m-collapse" style="display:grid;grid-template-columns:1fr 320px;gap:18px;align-items:start">
 		<div style="display:flex;flex-direction:column;gap:14px">
 			<div class="card">
 				<div class="card-hdr">
@@ -34,11 +37,21 @@
 						</div>
 						<div class="form-group">
 							<label class="lbl">Request Type <span class="req">*</span></label>
-							<select asp-for="RequestTypeId" id="rtSelect" class="inp"
-									asp-items="@(new SelectList(Model.RequestTypes, "RequestTypeId", "TypeName", Model.RequestTypeId))">
-								<option value="">— Select —</option>
-							</select>
-							<span asp-validation-for="RequestTypeId" class="field-validation-error"></span>
+							@if (noRequestTypes)
+							{
+								<input type="hidden" asp-for="RequestTypeId" />
+								<div class="alert alert-err" style="font-size:12px;margin:0;padding:8px 10px">
+									No Request Types assigned. Please contact Administrator.
+								</div>
+							}
+							else
+							{
+								<select asp-for="RequestTypeId" id="rtSelect" class="inp"
+										asp-items="@(new SelectList(Model.RequestTypes, "RequestTypeId", "TypeName", Model.RequestTypeId))">
+									<option value="">— Select —</option>
+								</select>
+								<span asp-validation-for="RequestTypeId" class="field-validation-error"></span>
+							}
 						</div>
 						<div class="form-group">
 							<label class="lbl">Amount / Value (₹)</label>
@@ -109,14 +122,16 @@
 						</div>
 						<div class="form-group">
 							<label class="lbl">Description / Justification</label>
-							<textarea asp-for="Description" class="inp" rows="2" placeholder="Provide context and business justification…"></textarea>
+							<textarea asp-for="Description" class="inp" rows="2" maxlength="500" placeholder="Provide context and business justification…"></textarea>
+							<span asp-validation-for="Description" class="field-validation-error"></span>
 						</div>
 
 					</div>
 
 					<div class="form-group">
 						<label class="lbl">Additional Notes</label>
-						<textarea asp-for="Notes" class="inp" rows="2" placeholder="Any additional notes for approvers…"></textarea>
+						<textarea asp-for="Notes" class="inp" rows="2" maxlength="500" placeholder="Any additional notes for approvers…"></textarea>
+						<span asp-validation-for="Notes" class="field-validation-error"></span>
 					</div>
 				</div>
 			</div>
@@ -206,14 +221,14 @@
 
 			<div class="card">
 				<div class="card-body" style="display:flex;flex-direction:column;gap:8px">
-					<button type="submit" name="saveAction" value="draft" class="btn btn-sec" style="justify-content:center">
+					<button type="submit" name="saveAction" value="draft" class="btn btn-sec" style="justify-content:center" disabled="@(noRequestTypes)">
 						<svg viewBox="0 0 24 24" style="width:15px;height:15px">
 							<path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z" />
 							<polyline points="17,21 17,13 7,13 7,21" />
 						</svg>
 						Save as Draft
 					</button>
-					<button type="submit" name="saveAction" value="submit" class="btn btn-pri" style="justify-content:center">
+					<button type="submit" name="saveAction" value="submit" class="btn btn-pri" style="justify-content:center" disabled="@(noRequestTypes)">
 						<svg viewBox="0 0 24 24" style="width:15px;height:15px">
 							<line x1="22" y1="2" x2="11" y2="13" />
 							<polygon points="22,2 15,22 11,13 2,9" />
@@ -235,8 +250,13 @@
 		async function loadWf() {
 		  const tid = rtSel?.value; const pri = prioSel?.value || 'Medium';
 		  if (!tid) return;
+		  // Send the values SELECTED on the form. querySelector by name works for both the
+		  // dropdown (single user with many options) and the hidden-input single-value case.
+		  const loc  = document.querySelector('[name="LocationId"]')?.value || 0;
+		  const dept = document.querySelector('[name="DepartmentId"]')?.value || 0;
+		  const amt  = document.querySelector('[name="Amount"]')?.value || '';
 		  try {
-			const r = await fetch(`/Requests/WfPreview?requestTypeId=${tid}&priority=${pri}`);
+			const r = await fetch(`/Requests/WfPreview?requestTypeId=${tid}&priority=${pri}&locationId=${loc}&departmentId=${dept}&amount=${amt}`);
 			const d = await r.json();
 			if (!d.matched) { prev.innerHTML='<div class="alert alert-wa" style="font-size:12px;margin:0">No workflow matched for this combination. Contact Admin.</div>'; return; }
 			const nodes = d.steps.map((s,i) => `<div class="wf-node"><div class="wf-num">${s.stepLevel}</div><div><div style="font-size:12px;font-weight:600">${s.name}</div><div style="font-size:10px;color:var(--txt3)">Level ${s.stepLevel}</div></div></div>${i<d.steps.length-1?'<span class="wf-arrow">→</span>':''}`).join('');

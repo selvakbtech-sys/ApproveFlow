@@ -8,6 +8,7 @@ public class DashboardController : BaseCtrl
 
     public async Task<IActionResult> Index()
     {
+        if (DenyIfNoPerm("Dashboard") is { } rp) return rp;
         bool isAdmin = UserRole == "Admin";
         bool isApprover = !isAdmin && await _db.RequestApprovers.AnyAsync(a => a.ApproverUserId == UserId);
         ViewBag.IsAdmin = isAdmin;
@@ -19,6 +20,7 @@ public class DashboardController : BaseCtrl
     [HttpGet]
     public async Task<IActionResult> TabData(string tab)
     {
+        if (DenyIfNoPerm("Dashboard") is { } rp) return rp;
         return tab switch
         {
             "approvals" => PartialView("_ApprovalsTab", await _svc.GetMyApprovalsTabAsync(UserId)),

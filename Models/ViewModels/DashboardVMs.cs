@@ -150,6 +150,18 @@ public class MyRecentRequestItemVM
     public int? CurrentStepLevel { get; set; }
 }
 
+// Carrier for the six "My Approvals" KPI counts, produced by
+// DashboardService.GetMyApprovalSummaryAsync so the KPI cards, summary tables
+// and queue all draw from one calculation.
+public class MyApprovalSummaryVM
+{
+    public int AssignedTotal { get; set; }
+    public int PendingMyAction { get; set; }
+    public int ApprovedByMe { get; set; }
+    public int RejectedByMe { get; set; }
+    public int ClarificationByMe { get; set; }
+}
+
 public class MyApprovalsTabVM
 {
     public int AssignedTotal { get; set; }

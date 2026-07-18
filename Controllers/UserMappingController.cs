@@ -14,7 +14,7 @@ public class UserMappingController : BaseCtrl
     [HttpGet]
     public async Task<IActionResult> Create()
     {
-        if (DenyIfNoPerm("User Mapping") is { } r) return r;
+        if (DenyIfNoPerm("User Mapping", Perm.Create) is { } r) return r;
         var vm = await _svc.BuildFormAsync(null);
         vm.IsCreate = true;
         return View("Form", vm);
@@ -24,6 +24,7 @@ public class UserMappingController : BaseCtrl
     [HttpGet]
     public async Task<IActionResult> CheckUser(int userId)
     {
+        if (DenyIfNoPerm("User Mapping") is { } r) return r;
         if (userId <= 0) return Json(new { exists = false, editUrl = (string?)null });
         var exists = await _svc.UserMappingExistsAsync(userId);
         var editUrl = exists ? Url.Action("Edit", "UserMapping", new { userId }) : null;
@@ -33,7 +34,7 @@ public class UserMappingController : BaseCtrl
     [HttpGet]
     public async Task<IActionResult> Edit(int userId)
     {
-        if (DenyIfNoPerm("User Mapping") is { } r) return r;
+        if (DenyIfNoPerm("User Mapping", Perm.Edit) is { } r) return r;
         var vm = await _svc.BuildFormAsync(userId);
         if (vm.UserId == 0) { Err("Mapping not found."); return RedirectToAction("Index"); }
         return View("Form", vm);
@@ -51,6 +52,10 @@ public class UserMappingController : BaseCtrl
     [HttpPost, ValidateAntiForgeryToken]
     public async Task<IActionResult> Save(UserMappingFormVM vm)
     {
+        // Creating a new mapping needs Create; updating an existing one needs Edit.
+        bool isEdit = await _svc.UserMappingExistsAsync(vm.UserId);
+        if (DenyIfNoPerm("User Mapping", isEdit ? Perm.Edit : Perm.Create) is { } dr) return dr;
+
         if (vm.UserId <= 0)
             ModelState.AddModelError("UserId", "Please select a user.");
         if (!vm.SelectedRequestTypeIds.Any())
@@ -83,7 +88,7 @@ public class UserMappingController : BaseCtrl
     [HttpPost, ValidateAntiForgeryToken]
     public async Task<IActionResult> Delete(int userId)
     {
-        if (DenyIfNoPerm("User Mapping") is { } r) return r;
+        if (DenyIfNoPerm("User Mapping", Perm.Delete) is { } r) return r;
         var (ok, err) = await _svc.DeleteAsync(userId, UserId);
         if (ok) Ok("Mapping deleted."); else Err(err!);
         return RedirectToAction("Index");
@@ -92,7 +97,7 @@ public class UserMappingController : BaseCtrl
     [HttpPost, ValidateAntiForgeryToken]
     public async Task<IActionResult> ToggleStatus(int userId, bool isActive)
     {
-        if (DenyIfNoPerm("User Mapping") is { } r) return r;
+        if (DenyIfNoPerm("User Mapping", Perm.Edit) is { } r) return r;
         var (ok, err) = await _svc.ToggleStatusAsync(userId, isActive);
         if (ok) Ok(isActive ? "Mapping activated." : "Mapping deactivated.");
         else Err(err!);

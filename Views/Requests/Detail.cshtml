@@ -6,9 +6,9 @@
     string Pc(string p) => p switch{"Critical"=>"badge-red","High"=>"badge-amber","Medium"=>"badge-blue",_=>"badge-gray"};
     string Ds(string s) => s == "Open" ? "Pending Approval" : s;
     string SCls(string s) => s switch{"approved"=>"sn-ok","rejected"=>"sn-ng","pending"=>"sn-wa","clarification"=>"sn-cl",_=>"sn-wait"};
-    string TlCls(string a) => a switch{"approved"=>"tl-approved","rejected"=>"tl-rejected","clarification"=>"tl-clarification","submitted"=>"tl-submitted",_=>"tl-saved_draft"};
-    string TlIco(string a) => a switch{"approved"=>"✓","rejected"=>"✕","clarification"=>"?","submitted"=>"↑",_=>"·"};
-    string TlLbl(string a) => a switch{"approved"=>"approved the request","rejected"=>"rejected the request","clarification"=>"requested clarification","submitted"=>"submitted for approval","saved_draft"=>"saved as draft","deleted"=>"deleted the request",_=>a};
+    string TlCls(string a) => a switch{"approved"=>"tl-approved","rejected"=>"tl-rejected","clarification"=>"tl-clarification","clarification_response"=>"tl-submitted","submitted"=>"tl-submitted",_=>"tl-saved_draft"};
+    string TlIco(string a) => a switch{"approved"=>"✓","rejected"=>"✕","clarification"=>"?","clarification_response"=>"↩","submitted"=>"↑",_=>"·"};
+    string TlLbl(string a) => a switch{"approved"=>"approved the request","rejected"=>"rejected the request","clarification"=>"requested clarification","clarification_response"=>"responded to clarification","submitted"=>"submitted for approval","saved_draft"=>"saved as draft","deleted"=>"deleted the request",_=>a};
     var tab = Model.ActiveTab ?? "details";
 }
 
@@ -23,7 +23,7 @@
   </div>
   <div class="pg-actions">
     <a asp-action="Index" class="btn btn-sec btn-sm">← Back</a>
-    @if (Model.Status == "Draft" || Model.Status == "Clarification Needed")
+    @if (Model.Status == "Draft")
     {
       <a asp-action="Edit" asp-route-id="@Model.RequestId" class="btn btn-sec btn-sm">Edit</a>
       <form asp-action="Submit" asp-route-id="@Model.RequestId" method="post" style="display:inline">
@@ -67,17 +67,17 @@
 
 @if (tab == "details")
 {
-  <div style="display:grid;grid-template-columns:1fr 320px;gap:16px;align-items:start">
+  <div class="m-collapse" style="display:grid;grid-template-columns:1fr 320px;gap:16px;align-items:start">
     <div class="card">
       <div style="padding:16px 18px;border-bottom:1px solid var(--bdr)">
         <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--txt3);margin-bottom:14px">Request Information</div>
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:16px">
+        <div class="m-collapse-2" style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:16px">
           <div><div class="info-lbl">Amount</div><div class="info-val" style="font-size:15px;font-weight:700">@(Model.Amount.HasValue?"₹"+Model.Amount.Value.ToString("N2"):"—")</div></div>
           <div><div class="info-lbl">Request Type</div><div class="info-val">@Model.RequestTypeName</div></div>
           <div><div class="info-lbl">Department</div><div class="info-val">@Model.DeptName</div></div>
           <div><div class="info-lbl">Location</div><div class="info-val">@Model.LocationName</div></div>
         </div>
-        <div style="border-top:1px solid var(--bg2);padding-top:14px;display:grid;grid-template-columns:repeat(4,1fr);gap:16px">
+        <div class="m-collapse-2" style="border-top:1px solid var(--bg2);padding-top:14px;display:grid;grid-template-columns:repeat(4,1fr);gap:16px">
           <div><div class="info-lbl">Requestor</div><div class="info-val">@Model.RequestorName</div></div>
           <div><div class="info-lbl">Requested On</div><div class="info-val">@Model.CreatedAt.ToString("dd MMM yyyy hh:mm tt")</div></div>
         </div>
@@ -99,6 +99,89 @@
     </div>
 
     <div>
+      @if (Model.CanSubmitClarification)
+      {
+        <div class="card" id="clarificationPanel" style="border:2px solid var(--wa);margin-bottom:14px">
+          <div class="card-hdr" style="background:var(--wa-bg);border-bottom-color:var(--wa-bdr)">
+            <svg viewBox="0 0 24 24" style="stroke:var(--wa)"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" stroke-width="2"/></svg>
+            <span style="color:var(--wa)">Clarification Requested</span>
+          </div>
+          <div class="card-body">
+            <style>
+              textarea.readonly-remark {
+                resize:none; overflow:hidden; min-height:70px; max-height:250px; width:100%;
+                font-family:inherit; font-size:13px; line-height:1.6; color:var(--txt2);
+                background:var(--wa-bg); border:1px solid var(--wa-bdr); border-radius:var(--r); padding:10px 13px;
+              }
+            </style>
+            @if (!string.IsNullOrEmpty(Model.LatestClarificationComment))
+            {
+              <div class="form-group" style="margin-bottom:14px">
+                <textarea id="prevClarRemark" class="readonly-remark" readonly>@Model.LatestClarificationComment</textarea>
+              </div>
+            }
+            <form id="clarificationForm" asp-action="SubmitClarification" asp-route-id="@Model.RequestId" method="post" enctype="multipart/form-data">
+              @Html.AntiForgeryToken()
+              <div class="form-group" style="margin-bottom:12px">
+                <label class="lbl">Clarification Remarks <span style="color:var(--ng)">*</span></label>
+                <textarea id="clarificationRemarks" name="clarificationRemarks" class="inp" rows="3" maxlength="500" placeholder="Type your clarification response for the approver…" style="resize:none;overflow:hidden;min-height:70px;max-height:250px"></textarea>
+                <div style="text-align:right;font-size:11px;color:var(--txt3);margin-top:4px"><span id="clarRemarksCount">0</span> / 500</div>
+              </div>
+              <div class="form-group" style="margin-bottom:12px">
+                <label class="lbl">Attachment <span style="font-weight:400;color:var(--txt3)">(Optional)</span></label>
+                <input type="file" name="clarificationFile" class="inp" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png" />
+                <div class="hint">PDF, Word, Excel, JPG/PNG — max 20 MB</div>
+              </div>
+              <button type="submit" class="btn btn-acc" style="justify-content:center;width:100%"
+                onclick="return clarRequireRemarks(this)">
+                <svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22,2 15,22 11,13 2,9 22,2"/></svg>
+                Submit Clarification
+              </button>
+            </form>
+            <script>
+              (function () {
+                // Grow a textarea to fit its content (70–250px; scroll only if content
+                // would exceed the max height).
+                function autoGrow(ta) {
+                  if (!ta) return;
+                  ta.style.height = 'auto';
+                  if (ta.scrollHeight > 250) { ta.style.height = '250px'; ta.style.overflowY = 'auto'; }
+                  else { ta.style.height = ta.scrollHeight + 'px'; ta.style.overflowY = 'hidden'; }
+                }
+                // Read-only previous-remark: size once on load.
+                autoGrow(document.getElementById('prevClarRemark'));
+                // Editable Clarification Remarks: auto-grow while typing + live counter.
+                var remarks = document.getElementById('clarificationRemarks');
+                var counter = document.getElementById('clarRemarksCount');
+                if (remarks) {
+                  var upd = function () {
+                    if (counter) counter.textContent = remarks.value.length;
+                    autoGrow(remarks);
+                  };
+                  remarks.addEventListener('input', upd);
+                  upd();
+                }
+              })();
+
+              function clarRequireRemarks(btn) {
+                var ta = btn.closest('form').querySelector('textarea[name="clarificationRemarks"]');
+                if (!ta || ta.value.trim() === '') {
+                  alert('Clarification Remarks are required.');
+                  if (ta) ta.focus();
+                  return false;
+                }
+                if (ta.value.length > 500) {
+                  alert('Clarification Remarks cannot exceed 500 characters.');
+                  ta.focus();
+                  return false;
+                }
+                return true;
+              }
+            </script>
+          </div>
+        </div>
+      }
+
       @if (Model.CanAct)
       {
         <div class="card" style="border:2px solid var(--wa);margin-bottom:14px">
@@ -112,7 +195,7 @@
             </span>
           </div>
           <div class="card-body">
-            <form asp-action="Action" asp-route-id="@Model.RequestId" method="post" enctype="multipart/form-data">
+            <form id="approvalActionForm" asp-action="Action" asp-route-id="@Model.RequestId" method="post" enctype="multipart/form-data">
               @Html.AntiForgeryToken()
               <div class="form-group" style="margin-bottom:12px">
                 <label class="lbl">Comment</label>
@@ -127,15 +210,53 @@
                 <button type="submit" name="action" value="approved" class="btn btn-ok" style="justify-content:center">
                   <svg viewBox="0 0 24 24"><polyline points="20,6 9,17 4,12" stroke-width="2.5"/></svg>Approve
                 </button>
-                <button type="submit" name="action" value="clarification" class="btn btn-wa" style="justify-content:center">
+                <button type="submit" name="action" value="clarification" class="btn btn-wa" style="justify-content:center"
+                  onclick="return wfRequireComment(this,'Clarification remarks are required.')">
                   <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>Request Clarification
                 </button>
                 <button type="submit" name="action" value="rejected" class="btn btn-ng" style="justify-content:center"
-                  onclick="return confirm('Reject this request?')">
+                  onclick="return wfRequireComment(this,'Rejection remarks are required.') &amp;&amp; confirm('Reject this request?')">
                   <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" stroke-width="2.5"/><line x1="6" y1="6" x2="18" y2="18" stroke-width="2.5"/></svg>Reject
                 </button>
               </div>
             </form>
+            @* Approve = comment optional; Reject & Clarification = comment mandatory (same rules as WhatsApp). *@
+            <script>
+              function wfRequireComment(btn, msg) {
+                var ta = btn.closest('form').querySelector('textarea[name="comment"]');
+                if (!ta || ta.value.trim() === '') {
+                  alert(msg);
+                  if (ta) ta.focus();
+                  return false;
+                }
+                return true;
+              }
+              // Enforce a single action per request on the client: once any button is
+              // pressed (and its inline validation passed), disable ALL action buttons,
+              // show a loading indicator, and block any repeat submit / double-click.
+              // The server still validates independently — this is only UX.
+              (function () {
+                var form = document.getElementById('approvalActionForm');
+                if (!form) return;
+                form.addEventListener('submit', function (e) {
+                  if (form.dataset.submitting === '1') { e.preventDefault(); return; }
+                  // Disabled buttons are not posted, so carry the chosen action in a
+                  // hidden field before disabling the button that was clicked.
+                  var submitter = e.submitter || document.activeElement;
+                  var action = (submitter && submitter.name === 'action') ? submitter.value : null;
+                  if (action) {
+                    var hid = document.createElement('input');
+                    hid.type = 'hidden'; hid.name = 'action'; hid.value = action;
+                    form.appendChild(hid);
+                  }
+                  form.dataset.submitting = '1';
+                  form.querySelectorAll('button[type="submit"]').forEach(function (b) { b.disabled = true; });
+                  if (submitter && submitter.tagName === 'BUTTON') {
+                    submitter.innerHTML = '<span class="spin"></span> Processing…';
+                  }
+                });
+              })();
+            </script>
           </div>
         </div>
       }
@@ -217,6 +338,13 @@
                 <div class="tl-actor">@log.ActorName</div>
                 <div class="tl-meta">
                   @TlLbl(log.Action)
+                  @if (log.IsWhatsApp)
+                  {
+                    <span title="Action received via WhatsApp" style="display:inline-flex;align-items:center;gap:3px;color:#25D366;font-weight:600">
+                      <svg viewBox="0 0 24 24" style="width:13px;height:13px;fill:#25D366" aria-hidden="true"><path d="M17.5 14.4c-.3-.15-1.7-.84-2-.94-.26-.1-.45-.14-.64.15-.19.28-.73.94-.9 1.13-.16.19-.33.21-.61.07-.3-.15-1.24-.46-2.36-1.46-.87-.78-1.46-1.73-1.63-2.02-.17-.29-.02-.44.13-.59.13-.13.29-.33.44-.5.15-.17.19-.29.29-.48.1-.19.05-.36-.02-.5-.08-.15-.64-1.55-.88-2.12-.23-.55-.47-.48-.64-.49h-.55c-.19 0-.5.07-.76.36s-1 .98-1 2.38 1.02 2.76 1.17 2.95c.14.19 2.01 3.08 4.88 4.32.68.29 1.21.47 1.63.6.68.22 1.31.19 1.8.12.55-.08 1.7-.69 1.94-1.36.24-.67.24-1.24.17-1.36-.07-.12-.26-.19-.55-.34zM12 2a10 10 0 00-8.6 15.06L2 22l5.05-1.32A10 10 0 1012 2z"/></svg>
+                      via WhatsApp
+                    </span>
+                  }
                   @if (log.StepLevel.HasValue) { <span> · Step @log.StepLevel</span> }
                   · @log.CreatedAt.ToString("dd MMM yyyy, hh:mm tt") IST
                 </div>
@@ -234,6 +362,10 @@
                         @if (att.AttachmentType == "Requestor")
                         {
                           <a asp-action="Download" asp-route-id="@Model.RequestId" asp-route-docId="@att.Id" class="btn btn-sec btn-sm" style="padding:2px 8px;font-size:11px">Download</a>
+                        }
+                        else if (att.AttachmentType == "Reply")
+                        {
+                          <a href="@att.Url" target="_blank" rel="noopener" class="btn btn-sec btn-sm" style="padding:2px 8px;font-size:11px">View / Download</a>
                         }
                         else
                         {
@@ -255,7 +387,7 @@
 @if (tab == "documents")
 {
   <div style="max-width:640px;display:flex;flex-direction:column;gap:14px">
-    @if (Model.Status == "Draft" || Model.Status == "Clarification Needed")
+    @if (Model.Status == "Draft")
     {
       <div class="card">
         <div class="card-hdr">
@@ -295,7 +427,7 @@
             </div>
             <div style="display:flex;gap:6px">
               <a asp-action="Download" asp-route-id="@Model.RequestId" asp-route-docId="@doc.DocumentId" class="btn btn-sec btn-sm">Download</a>
-              @if (Model.Status == "Draft" || Model.Status == "Clarification Needed")
+              @if (Model.Status == "Draft")
               {
                 <form asp-action="DeleteDoc" asp-route-id="@Model.RequestId" asp-route-docId="@doc.DocumentId" method="post" style="display:inline">
                   @Html.AntiForgeryToken()
@@ -327,13 +459,37 @@
                 <span class="badge @(att.ActionType switch{"approved"=>"badge-green","rejected"=>"badge-red",_=>"badge-amber"})" style="font-size:10px;padding:1px 6px">
                   @(att.ActionType switch{"approved"=>"Approved","rejected"=>"Rejected","clarification"=>"Clarification",_=>att.ActionType})
                 </span>
-                · @att.FormattedSize · @att.UploadedAt.ToString("dd MMM yyyy") · @att.UploadedByName
+                @if (att.Url != null)
+                {
+                  <span title="Received via WhatsApp" style="color:#25D366;font-weight:600"> · via WhatsApp</span>
+                }
+                @if (att.FileSizeBytes > 0) { <text> · @att.FormattedSize</text> }
+                · @att.UploadedAt.ToString("dd MMM yyyy") · @att.UploadedByName
               </div>
             </div>
-            <a asp-action="DownloadApproval" asp-route-id="@Model.RequestId" asp-route-attachmentId="@att.AttachmentId" class="btn btn-sec btn-sm">Download</a>
+            @if (att.Url != null)
+            {
+              <a href="@att.Url" target="_blank" rel="noopener" class="btn btn-sec btn-sm">View / Download</a>
+            }
+            else
+            {
+              <a asp-action="DownloadApproval" asp-route-id="@Model.RequestId" asp-route-attachmentId="@att.AttachmentId" class="btn btn-sec btn-sm">Download</a>
+            }
           </div>
         }
       </div>
     </div>
   </div>
+}
+
+@if (ViewBag.ClarificationMode == true)
+{
+  @* Opened via the grid's Clarification action (?mode=clarification) — bring the
+     Submit Clarification panel into view. *@
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      var el = document.getElementById('clarificationPanel');
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  </script>
 }

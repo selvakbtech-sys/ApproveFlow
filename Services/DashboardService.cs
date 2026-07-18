@@ -6,6 +6,14 @@ public interface IDashboardService
     Task<MyRequestsTabVM> GetMyRequestsTabAsync(int userId);
     Task<MyApprovalsTabVM> GetMyApprovalsTabAsync(int userId);
     Task<MyTerritoryTabVM> GetMyTerritoryTabAsync(int userId);
+
+    // ── My Approvals — reusable building blocks (all scoped to the logged-in approver) ──
+    Task<MyApprovalSummaryVM> GetMyApprovalSummaryAsync(int userId);
+    Task<List<DashboardSummaryDto>> GetMyApprovalByRequestTypeAsync(int userId);
+    Task<List<DashboardSummaryDto>> GetMyApprovalByPriorityAsync(int userId);
+    Task<List<DashboardSummaryDto>> GetMyApprovalByLocationAsync(int userId);
+    Task<List<DashboardSummaryDto>> GetMyApprovalByDepartmentAsync(int userId);
+    Task<List<ApprovalQueueItemVM>> GetRecentApprovalQueueAsync(int userId);
     Task<List<DashboardSummaryDto>> GetRequestTypeSummaryAsync();
     Task<List<DashboardSummaryDto>> GetPrioritySummaryAsync();
     Task<List<DashboardSummaryDto>> GetLocationSummaryAsync();
@@ -305,25 +313,73 @@ public class DashboardService : IDashboardService
         return vm;
     }
 
+    // ── My Approvals tab ──────────────────────────────────────
+    // Thin composition root: every KPI card, summary table and the queue is built
+    // from the reusable, single-source methods below so the numbers can never drift
+    // apart. All of them filter through MyApprovalScope / the pending predicate, so
+    // nothing loads unrelated requests into memory and every query runs AsNoTracking.
     public async Task<MyApprovalsTabVM> GetMyApprovalsTabAsync(int userId)
     {
-        var vm = new MyApprovalsTabVM
+        var summary = await GetMyApprovalSummaryAsync(userId);
+        return new MyApprovalsTabVM
         {
-            AssignedTotal    = await _db.RequestApprovers.CountAsync(a => a.ApproverUserId == userId
-                                   && (a.Status == "pending" || a.Status == "approved" || a.Status == "rejected" || a.Status == "clarification")),
-            PendingMyAction  = await _db.RequestApprovers.CountAsync(a => a.ApproverUserId == userId && a.Status == "pending"),
-            ApprovedByMe     = await _db.RequestApprovers.CountAsync(a => a.ApproverUserId == userId && a.Status == "approved"),
-            RejectedByMe     = await _db.RequestApprovers.CountAsync(a => a.ApproverUserId == userId && a.Status == "rejected"),
-            ClarificationByMe = await _db.RequestApprovers.CountAsync(a => a.ApproverUserId == userId && a.Status == "clarification"),
-            Escalated        = 0,
+            AssignedTotal       = summary.AssignedTotal,
+            PendingMyAction     = summary.PendingMyAction,
+            ApprovedByMe        = summary.ApprovedByMe,
+            RejectedByMe        = summary.RejectedByMe,
+            ClarificationByMe   = summary.ClarificationByMe,
+            Escalated           = 0,
+            ByTypeSummary       = await GetMyApprovalByRequestTypeAsync(userId),
+            ByPrioritySummary   = await GetMyApprovalByPriorityAsync(userId),
+            ByLocationSummary   = await GetMyApprovalByLocationAsync(userId),
+            ByDepartmentSummary = await GetMyApprovalByDepartmentAsync(userId),
+            Queue               = await GetRecentApprovalQueueAsync(userId),
         };
+    }
 
-        var mySteps = _db.RequestApprovers.AsNoTracking()
-            .Where(a => a.ApproverUserId == userId &&
-                        (a.Status == "pending" || a.Status == "approved" ||
-                         a.Status == "rejected" || a.Status == "clarification"));
+    // ── My Approvals — shared filtered dataset ────────────────
+    // The DISTINCT set of requests "assigned to" the logged-in approver, matching the
+    // My-Approvals KPI rules. A request qualifies when my approver row is:
+    //   • pending        → the request currently awaits MY action (I am the current
+    //                       approver — only the CurrentStepLevel row is ever "pending").
+    //   • rejected       → I rejected it.
+    //   • clarification  → I asked the requester for clarification.
+    //   • approved + the request reached final "Approved" → I completed my approval and
+    //                       the workflow finished.
+    // Requests I approved that are still progressing through higher levels — or were
+    // later rejected/clarified by a DIFFERENT approver — now belong to another approver
+    // and are deliberately excluded (Dashboard Rule §6: only current-approver requests,
+    // no previous/future levels). Deleted requests are never counted. Because the four
+    // qualifying states are mutually exclusive per request, the buckets partition the
+    // set exactly, so Total == Pending + Approved + Rejected + Clarification always
+    // reconciles, and every summary table sums back to the same totals.
+    private IQueryable<RequestApprover> MyApprovalScope(int userId) =>
+        _db.RequestApprovers
+            .AsNoTracking()
+            .Where(a => a.ApproverUserId == userId
+                     && a.Request.Status != "Deleted"
+                     && (a.Status == "pending"
+                         || a.Status == "rejected"
+                         || a.Status == "clarification"
+                         || (a.Status == "approved" && a.Request.Status == "Approved")));
 
-        vm.ByTypeSummary = await mySteps
+    public async Task<MyApprovalSummaryVM> GetMyApprovalSummaryAsync(int userId)
+    {
+        var scope = MyApprovalScope(userId);
+        // DISTINCT RequestId everywhere so a request can never be counted twice, even
+        // in the rare case where the same user approves at more than one level.
+        return new MyApprovalSummaryVM
+        {
+            AssignedTotal     = await scope.Select(a => a.RequestId).Distinct().CountAsync(),
+            PendingMyAction   = await scope.Where(a => a.Status == "pending").Select(a => a.RequestId).Distinct().CountAsync(),
+            ApprovedByMe      = await scope.Where(a => a.Status == "approved").Select(a => a.RequestId).Distinct().CountAsync(),
+            RejectedByMe      = await scope.Where(a => a.Status == "rejected").Select(a => a.RequestId).Distinct().CountAsync(),
+            ClarificationByMe = await scope.Where(a => a.Status == "clarification").Select(a => a.RequestId).Distinct().CountAsync(),
+        };
+    }
+
+    public async Task<List<DashboardSummaryDto>> GetMyApprovalByRequestTypeAsync(int userId)
+        => await MyApprovalScope(userId)
             .GroupBy(a => a.Request.RequestType.TypeName)
             .Select(g => new DashboardSummaryDto
             {
@@ -335,8 +391,10 @@ public class DashboardService : IDashboardService
             })
             .OrderBy(x => x.CategoryName).ToListAsync();
 
-        var priOrder2 = new[] { "Critical", "High", "Medium", "Low" };
-        var rawPri2 = await mySteps
+    public async Task<List<DashboardSummaryDto>> GetMyApprovalByPriorityAsync(int userId)
+    {
+        var order = new[] { "Critical", "High", "Medium", "Low" };
+        var rows = await MyApprovalScope(userId)
             .GroupBy(a => a.Request.Priority)
             .Select(g => new DashboardSummaryDto
             {
@@ -347,11 +405,13 @@ public class DashboardService : IDashboardService
                 ClarificationCount = g.Count(a => a.Status == "clarification"),
             })
             .ToListAsync();
-        vm.ByPrioritySummary = rawPri2
-            .OrderBy(r => { var i = Array.IndexOf(priOrder2, r.CategoryName); return i >= 0 ? i : 99; })
+        return rows
+            .OrderBy(r => { var i = Array.IndexOf(order, r.CategoryName); return i >= 0 ? i : 99; })
             .ToList();
+    }
 
-        vm.ByLocationSummary = await mySteps
+    public async Task<List<DashboardSummaryDto>> GetMyApprovalByLocationAsync(int userId)
+        => await MyApprovalScope(userId)
             .GroupBy(a => a.Request.Location.LocationName)
             .Select(g => new DashboardSummaryDto
             {
@@ -363,7 +423,8 @@ public class DashboardService : IDashboardService
             })
             .OrderBy(x => x.CategoryName).ToListAsync();
 
-        vm.ByDepartmentSummary = await mySteps
+    public async Task<List<DashboardSummaryDto>> GetMyApprovalByDepartmentAsync(int userId)
+        => await MyApprovalScope(userId)
             .GroupBy(a => a.Request.Department.DeptName)
             .Select(g => new DashboardSummaryDto
             {
@@ -375,12 +436,22 @@ public class DashboardService : IDashboardService
             })
             .OrderBy(x => x.CategoryName).ToListAsync();
 
+    // Recent Approval Queue: ONLY requests where I am the current approver (my row is
+    // "pending") and the request is still awaiting the workflow (Pending Approval /
+    // Partial Approved / legacy Open). Oldest pending first. Row count here equals the
+    // Pending KPI, because only the current level ever holds a "pending" row.
+    public async Task<List<ApprovalQueueItemVM>> GetRecentApprovalQueueAsync(int userId)
+    {
         var now = IstClock.Now;
-        vm.Queue = await _db.RequestApprovers
+        var queue = await _db.RequestApprovers
             .AsNoTracking()
-            .Where(a => a.ApproverUserId == userId && a.Status == "pending")
-            .OrderBy(a => a.Request.SubmittedAt)
-            .Take(20)
+            .Where(a => a.ApproverUserId == userId
+                     && a.Status == "pending"
+                     && a.Request.Status != "Deleted"
+                     && (a.Request.Status == "Pending Approval"
+                         || a.Request.Status == "Open"
+                         || a.Request.Status == "Partial Approved"))
+            .OrderBy(a => a.Request.SubmittedAt)   // oldest pending first
             .Select(a => new ApprovalQueueItemVM
             {
                 RequestId       = a.RequestId,
@@ -392,12 +463,12 @@ public class DashboardService : IDashboardService
             })
             .ToListAsync();
 
-        foreach (var q in vm.Queue)
+        foreach (var q in queue)
             q.PendingDays = q.SubmittedAt.HasValue
                 ? (int)(now - q.SubmittedAt.Value).TotalDays
                 : 0;
 
-        return vm;
+        return queue;
     }
 
     public async Task<MyTerritoryTabVM> GetMyTerritoryTabAsync(int userId)

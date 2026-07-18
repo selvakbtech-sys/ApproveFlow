@@ -4,9 +4,10 @@
     ViewData["Title"] = isEdit ? "Edit Workflow" : "New Workflow";
     ViewData["NavPage"] = "workflows";
 
-    // Build distinct role list from all active users — shows all roles including newly created ones
-    var distinctRoles = Model.Approvers
-        .Select(u => u.Role.RoleName)
+    // Approval Steps role list comes from Roles & Permissions (roles with the
+    // "Approve Request" permission), NOT from users or the ApprovalSteps table.
+    var distinctRoles = Model.ApproverRoles
+        .Select(r => r.RoleName)
         .Distinct()
         .OrderBy(r => r)
         .ToList();
@@ -16,7 +17,7 @@
 <form asp-action="Save" method="post" id="wfForm">
   @Html.AntiForgeryToken()
   <input type="hidden" asp-for="WorkflowId"/>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start">
+  <div class="wf-form-grid">
 
     <div class="card">
       <div class="card-hdr"><svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22,4 12,14.01 9,11.01"/></svg>Matching Criteria</div>
@@ -137,6 +138,42 @@
         </button>
       </div>
     </div>
+
+    <div class="card">
+      <div class="card-hdr"><svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>Notification Alert</div>
+      <div class="card-body">
+        <div class="alert alert-in" style="font-size:12px;margin-bottom:12px">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+          Each approval level can notify its own set of observer roles (WhatsApp + in-app) when that level is approved. They cannot approve, reject, request clarification, edit, or upload anything.
+        </div>
+        <div id="notifLevelContainer">
+          @for (int i = 0; i < Model.Steps.Count; i++)
+          {
+            var step = Model.Steps[i];
+            <div class="form-group notif-level-row" style="margin-bottom:14px">
+              <label class="lbl notif-level-lbl">Level @step.StepLevel Notification Roles <span style="font-weight:400;color:var(--txt3)">(optional)</span></label>
+              <div class="ms-wrap" data-name="Steps[@i].NotificationRoleIds" data-placeholder="Select Notification Roles">
+                <div class="ms-trigger" tabindex="0">
+                  <span class="ms-txt">Select Notification Roles</span>
+                  <svg class="ms-chev" viewBox="0 0 24 24"><polyline points="6,9 12,15 18,9"/></svg>
+                </div>
+                <div class="ms-drop">
+                  @foreach (var role in Model.AllRoles)
+                  {
+                    <label class="ms-opt">
+                      <input type="checkbox" value="@role.RoleId" data-label="@role.RoleName"
+                        @(step.NotificationRoleIds.Contains(role.RoleId)?"checked":"")/>
+                      @role.RoleName
+                    </label>
+                  }
+                </div>
+                <div class="ms-pills"></div>
+              </div>
+            </div>
+          }
+        </div>
+      </div>
+    </div>
   </div>
 
   <div style="margin-top:16px;display:flex;gap:10px">
@@ -155,6 +192,10 @@ const roleOptions = [
   }
 ];
 
+// Notification Roles master list — same Role master used throughout the app
+const notifRoleOptions = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(
+    Model.AllRoles.Select(r => new { id = r.RoleId, label = r.RoleName })));
+
 function buildRoleOptions(selectedRole) {
   let html = '<option value="">— Select role —</option>';
   roleOptions.forEach(r => {
@@ -162,6 +203,12 @@ function buildRoleOptions(selectedRole) {
     html += `<option value="${r.value}"${sel}>${r.label}</option>`;
   });
   return html;
+}
+
+function buildNotifRoleCheckboxes() {
+  return notifRoleOptions.map(r =>
+    `<label class="ms-opt"><input type="checkbox" value="${r.id}" data-label="${r.label}"/>${r.label}</label>`
+  ).join('');
 }
 
 function getLevelLabel(lvl) {
@@ -185,10 +232,26 @@ function renumberSteps() {
     const delBtn = row.querySelector('.step-del-btn');
     if (delBtn) delBtn.style.display = i > 0 ? '' : 'none';
   });
+
+  // Keep the Notification Alert card's per-level sections in sync with Approval Steps
+  document.querySelectorAll('#notifLevelContainer .notif-level-row').forEach((row, i) => {
+    const lvl   = i + 1;
+    const lblEl = row.querySelector('.notif-level-lbl');
+    const wrap  = row.querySelector('.ms-wrap');
+    if (lblEl) lblEl.childNodes[0].nodeValue = `Level ${lvl} Notification Roles `;
+    if (wrap) {
+      wrap.dataset.name = `Steps[${i}].NotificationRoleIds`;
+      if (wrap._msRefresh) wrap._msRefresh(); // re-bind hidden inputs to the new name, no re-init needed
+    }
+  });
 }
 
 function removeStep(btn) {
+  const rows = [...document.querySelectorAll('#stepContainer .step-row')];
+  const idx = rows.indexOf(btn.closest('.step-row'));
   btn.closest('.step-row').remove();
+  const notifRows = document.querySelectorAll('#notifLevelContainer .notif-level-row');
+  if (idx >= 0 && notifRows[idx]) notifRows[idx].remove();
   renumberSteps();
 }
 
@@ -218,6 +281,23 @@ document.getElementById('addStepBtn')?.addEventListener('click', () => {
       </button>
     </div>`;
   document.getElementById('stepContainer').appendChild(div);
+
+  // Add the matching Notification Alert section for this new level
+  const notifRow = document.createElement('div');
+  notifRow.className = 'form-group notif-level-row';
+  notifRow.style.marginBottom = '14px';
+  notifRow.innerHTML = `
+    <label class="lbl notif-level-lbl">Level ${lvl} Notification Roles <span style="font-weight:400;color:var(--txt3)">(optional)</span></label>
+    <div class="ms-wrap" data-name="Steps[${idx}].NotificationRoleIds" data-placeholder="Select Notification Roles">
+      <div class="ms-trigger" tabindex="0">
+        <span class="ms-txt">Select Notification Roles</span>
+        <svg class="ms-chev" viewBox="0 0 24 24"><polyline points="6,9 12,15 18,9"/></svg>
+      </div>
+      <div class="ms-drop">${buildNotifRoleCheckboxes()}</div>
+      <div class="ms-pills"></div>
+    </div>`;
+  document.getElementById('notifLevelContainer').appendChild(notifRow);
+  initMs(notifRow.querySelector('.ms-wrap'));
 });
 
 // Validate no duplicate roles across steps before submit

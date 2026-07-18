@@ -5,8 +5,27 @@ public class MastersController : BaseCtrl
     private readonly AppDbContext _db;
     public MastersController(AppDbContext db) { _db = db; }
 
+    // Maps the master "type" route value to its Roles & Permissions screen name.
+    private static string? ScreenFor(string? type) => type switch
+    {
+        "locations"    => "Locations",
+        "departments"  => "Departments",
+        "requesttypes" => "Request Types",
+        _              => null
+    };
+
+    // Resolves the screen for a type and enforces the given action permission.
+    // Returns a 403 result when denied (or NotFound for an unknown type); null when allowed.
+    private IActionResult? Guard(string? type, string action)
+    {
+        var screen = ScreenFor(type);
+        if (screen == null) return NotFound();
+        return DenyIfNoPerm(screen, action);
+    }
+
     public async Task<IActionResult> Index(string type)
     {
+        if (Guard(type, Perm.View) is { } g) return g;
         ViewBag.Type = type;
         return type switch
         {
@@ -17,11 +36,16 @@ public class MastersController : BaseCtrl
         };
     }
 
-    [HttpGet] public IActionResult Create(string type) => View("Form", new MasterFormVM { EntityType = type });
+    [HttpGet] public IActionResult Create(string type)
+    {
+        if (Guard(type, Perm.Create) is { } g) return g;
+        return View("Form", new MasterFormVM { EntityType = type });
+    }
 
     [HttpGet]
     public async Task<IActionResult> Edit(string type, int id)
     {
+        if (Guard(type, Perm.Edit) is { } g) return g;
         var vm = await LoadVmAsync(type, id);
         if (vm == null) { Err("Not found."); return RedirectToAction("Index", new { type }); }
         return View("Form", vm);
@@ -30,6 +54,7 @@ public class MastersController : BaseCtrl
     [HttpPost, ValidateAntiForgeryToken]
     public async Task<IActionResult> Save(MasterFormVM vm)
     {
+        if (Guard(vm.EntityType, vm.Id == 0 ? Perm.Create : Perm.Edit) is { } g) return g;
         if (!ModelState.IsValid) return View("Form", vm);
         if (vm.Id == 0)
         {
@@ -66,6 +91,7 @@ public class MastersController : BaseCtrl
     [HttpPost, ValidateAntiForgeryToken]
     public async Task<IActionResult> Delete(string type, int id)
     {
+        if (Guard(type, Perm.Delete) is { } g) return g;
         var sp = type switch
         {
             "locations" => "EXEC dbo.sp_DeleteLocation @LocationId={0}",
@@ -82,6 +108,7 @@ public class MastersController : BaseCtrl
     [HttpPost, ValidateAntiForgeryToken]
     public async Task<IActionResult> Toggle(string type, int id)
     {
+        if (Guard(type, Perm.Edit) is { } g) return g;
         switch (type)
         {
             case "locations":

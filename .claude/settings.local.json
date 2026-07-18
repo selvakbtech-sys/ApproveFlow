@@ -7,7 +7,9 @@
       "Bash(dotnet build *)",
       "Bash(dotnet ef *)",
       "PowerShell(Get-ChildItem -Path \"C:\\\\Source\\\\Final Source\\\\ApproveFlow.MVC\" -Force | Format-Table Name, @{Name=\"Type\";Expression={if\\($_.PSIsContainer\\){\"Folder\"}else{\"File\"}}})",
-      "PowerShell(cd \"C:\\\\Source\\\\Final Source\\\\ApproveFlow.MVC\"; dotnet build --no-restore 2>&1 | Where-Object { $_ -match 'error CS|error RZ|Build succeeded' } | Select-Object -First 10)"
+      "PowerShell(cd \"C:\\\\Source\\\\Final Source\\\\ApproveFlow.MVC\"; dotnet build --no-restore 2>&1 | Where-Object { $_ -match 'error CS|error RZ|Build succeeded' } | Select-Object -First 10)",
+      "Bash(git rm *)",
+      "Bash(awk '{print $1\" files will be removed from tracking\"}')"
     ]
   }
 }

@@ -28,6 +28,7 @@ public class RolesController : BaseCtrl
     [HttpGet]
     public IActionResult Create()
     {
+        if (DenyIfNoPerm("Roles & Permissions", Perm.Create) is { } r) return r;
         var vm = new RoleFormVM();
         vm.Permissions = RoleFormVM.AllScreens.Select(s => new PermRowVM { ScreenName = s }).ToList();
         return View("Form", vm);
@@ -36,6 +37,7 @@ public class RolesController : BaseCtrl
     [HttpGet]
     public async Task<IActionResult> Edit(int id)
     {
+        if (DenyIfNoPerm("Roles & Permissions", Perm.Edit) is { } dr) return dr;
         var role = await _db.Roles.Include(r => r.Permissions).FirstOrDefaultAsync(r => r.RoleId == id);
         if (role == null) { Err("Not found."); return RedirectToAction("Index"); }
         var vm = new RoleFormVM
@@ -65,6 +67,7 @@ public class RolesController : BaseCtrl
     [HttpPost, ValidateAntiForgeryToken]
     public async Task<IActionResult> Save(RoleFormVM vm)
     {
+        if (DenyIfNoPerm("Roles & Permissions", vm.RoleId == 0 ? Perm.Create : Perm.Edit) is { } dr) return dr;
         if (!ModelState.IsValid) return View("Form", vm);
         if (vm.Permissions == null || vm.Permissions.Count == 0)
             vm.Permissions = RoleFormVM.AllScreens.Select(s => new PermRowVM { ScreenName = s }).ToList();
@@ -130,6 +133,7 @@ public class RolesController : BaseCtrl
     [HttpPost, ValidateAntiForgeryToken]
     public async Task<IActionResult> Delete(int id)
     {
+        if (DenyIfNoPerm("Roles & Permissions", Perm.Delete) is { } dr) return dr;
         try { await _db.Database.ExecuteSqlRawAsync("EXEC dbo.sp_DeleteRole @RoleId={0}", id); Ok("Role deleted."); }
         catch (Exception ex) { Err(ex.Message); }
         return RedirectToAction("Index");
