@@ -14,7 +14,12 @@ public interface IWhatsAppService
     Task SendClarificationToCreatorAsync(int requestId, int actingApproverId, string comment);
     Task SendRejectionToCreatorAsync(int requestId, int actingApproverId, string comment);
     Task SendAgingReminderAsync();
-    Task SendClarificationPromptAsync(string toPhone, int requestId, int approverId);
+    Task SendActionPromptAsync(string toPhone, int requestId, int approverId, string action);
+    Task<string?> SendApproveReplyPromptAsync(string toPhone, int requestId, int approverId, int windowSeconds);
+    Task SendNotificationRoleAlertAsync(int requestId, int userId, string eventLabel, string inOfficeUrl, string outOfOfficeUrl, int approvedLevel);
+    Task LogInboundMessageAsync(int requestId, string mobileNumber, string messageType, string messageText, string? messageId = null, int? approverUserId = null);
+    Task SendPlainTextAsync(string toPhone, string message);
+    Task<(bool ok, byte[]? bytes, string? mime, string? err)> DownloadInboundMediaAsync(string mediaId);
 }
 
 public class WhatsAppService : IWhatsAppService
@@ -37,6 +42,73 @@ public class WhatsAppService : IWhatsAppService
         if (System.IO.Path.IsPathRooted(configured))
             return configured;
         return System.IO.Path.Combine(_env.ContentRootPath, configured);
+    }
+
+    // The Meta templates new_approval_request1 / approval_required_level2 REQUIRE a
+    // DOCUMENT header. When a request has no user attachment we must still supply one,
+    // or Meta rejects the entire send with error 132012 and the approver is never
+    // notified. We fall back to a generated one-page "Request Summary" PDF so the
+    // notification (and its Approve/Reject/Clarification buttons) still goes out.
+    private RequestDocument GetHeaderDocOrDefault(Request r, RequestDocument? doc)
+    {
+        if (doc != null) return doc;
+        var path = GetStoragePath();
+        var stored = $"_summary_{r.RequestId}.pdf";
+        try
+        {
+            Directory.CreateDirectory(path);
+            File.WriteAllBytes(System.IO.Path.Combine(path, stored), BuildRequestSummaryPdf(r));
+        }
+        catch (Exception ex) { _log.LogError(ex, "WA-DOC: Failed to build summary PDF RequestId={Id}", r.RequestId); }
+        return new RequestDocument { StoredFileName = stored, FileName = $"{r.RequestNumber}.pdf", ContentType = "application/pdf" };
+    }
+
+    // Minimal, self-contained single-page PDF (correct xref offsets) — no external
+    // library. Used only as the WhatsApp header when a request has no attachment.
+    private static byte[] BuildRequestSummaryPdf(Request r)
+    {
+        static string Esc(string? s) => (s ?? "").Replace("\\", "\\\\").Replace("(", "\\(").Replace(")", "\\)");
+        var amount = r.Amount.HasValue ? r.Amount.Value.ToString("N0") : "0";
+        var lines = new (string t, int size)[]
+        {
+            ("Request Summary", 18),
+            ($"Request No : {r.RequestNumber}", 12),
+            ($"Type       : {r.RequestType?.TypeName}", 12),
+            ($"Title      : {r.Title}", 12),
+            ($"Amount     : {amount}", 12),
+            ($"Priority   : {r.Priority}", 12),
+            ($"Raised By  : {r.Requestor?.FullName}", 12),
+            ("Note: No file attachment was provided with this request.", 11),
+        };
+        var content = new StringBuilder();
+        int y = 800;
+        foreach (var (t, size) in lines)
+        {
+            content.Append($"BT /F1 {size} Tf 50 {y} Td ({Esc(t)}) Tj ET\n");
+            y -= 26;
+        }
+        var stream = content.ToString();
+        var objs = new List<string>
+        {
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+            "<< /Length " + Encoding.ASCII.GetByteCount(stream) + " >>\nstream\n" + stream + "endstream",
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"
+        };
+        var pdf = new StringBuilder("%PDF-1.4\n");
+        var offsets = new int[objs.Count + 1];
+        for (int i = 0; i < objs.Count; i++)
+        {
+            offsets[i + 1] = Encoding.ASCII.GetByteCount(pdf.ToString());
+            pdf.Append((i + 1) + " 0 obj\n" + objs[i] + "\nendobj\n");
+        }
+        int xref = Encoding.ASCII.GetByteCount(pdf.ToString());
+        pdf.Append("xref\n0 " + (objs.Count + 1) + "\n0000000000 65535 f \n");
+        for (int i = 1; i <= objs.Count; i++)
+            pdf.Append(offsets[i].ToString("D10") + " 00000 n \n");
+        pdf.Append("trailer\n<< /Size " + (objs.Count + 1) + " /Root 1 0 R >>\nstartxref\n" + xref + "\n%%EOF");
+        return Encoding.ASCII.GetBytes(pdf.ToString());
     }
 
     // ── 1. New Request → L1 Approver ─────────────────────────
@@ -72,19 +144,16 @@ public class WhatsAppService : IWhatsAppService
             : r.RequestType.TypeName;
 
         // Pass doc so it is embedded as a header inside the template message
+        // new_approval_request1 (6): {{1}}=Type {{2}}=ID {{3}}=Title {{4}}=Priority {{5}}=RaisedBy {{6}}=Description
         await SendTemplateWithButtonsAsync(phone, "new_approval_request1", new[]
         {
-            requestTypeLabel,            // {{1}} Request Type (prefixed with "Re-submitted" if applicable)
+            requestTypeLabel,            // {{1}} Request Type
             r.RequestNumber,             // {{2}} ID
             r.Title,                     // {{3}} Title
-            amount,                      // {{4}} Amount
-            priority,                    // {{5}} Priority
-            raisedBy,                    // {{6}} Raised By
-            dateTime,                    // {{7}} Date & Time
-            r.Description ?? r.Title,    // {{8}} Justification
-            lastRemark,                  // {{9}} Latest Remarks
-            attachmentText               // {{10}} Attachments
-        }, requestId, l1.ApproverUserId, doc, docs);
+            priority,                    // {{4}} Priority
+            raisedBy,                    // {{5}} Raised By
+            r.Description ?? r.Title      // {{6}} Description
+        }, requestId, l1.ApproverUserId, GetHeaderDocOrDefault(r, doc), docs);
     }
 
     // ── 1b. Re-submission after clarification → Approver at CurrentStepLevel ──
@@ -97,61 +166,53 @@ public class WhatsAppService : IWhatsAppService
         var phone = await GetPhoneAsync(approverId);
         if (string.IsNullOrEmpty(phone)) return;
 
-        var lastRemark = GetLastRemark(r);
-        var dateTime   = FormatDateTime(r.SubmittedAt ?? r.CreatedAt);
         var raisedBy   = $"{r.Requestor.FullName} ({r.Department.DeptName})";
         var priority   = FormatPriority(r.Priority);
-        var amount     = r.Amount.HasValue ? r.Amount.Value.ToString("N0") : "0";
         var docs = await _db.RequestDocuments.AsNoTracking()
                         .Where(d => d.RequestId == requestId)
                         .OrderBy(d => d.DocumentId)
                         .ToListAsync();
         var doc = docs.FirstOrDefault();
-        var attachmentText = docs.Any()
-            ? string.Join(", ", docs.Select(d => $"📎 {d.FileName}"))
-            : "No attachments";
 
-        var requestTypeLabel = $"Re-submitted {r.RequestType.TypeName}";
+        // The requester's resubmission remark — their "clarification_response" action-log
+        // entry, written by RequestService.SubmitClarificationResponseAsync. It gets its own
+        // Remarks line ({{8}}) on this card. A resubmission can carry no remark (the
+        // edit-then-submit path), and Meta rejects an empty template parameter, so it falls
+        // back to a visible placeholder.
+        var resubmitRemark = r.ActionLogs?
+            .Where(l => l.Action == "clarification_response" && !string.IsNullOrWhiteSpace(l.Comment))
+            .OrderByDescending(l => l.CreatedAt)
+            .Select(l => l.Comment)
+            .FirstOrDefault();
+        var remarks = string.IsNullOrWhiteSpace(resubmitRemark) ? "No remarks" : resubmitRemark!.Trim();
 
-        _log.LogInformation("WA-RESUBMIT: RequestId={Id} StepLevel={Level} ApproverId={Aid}",
-            requestId, stepLevel, approverId);
+        var latestAction = $"Resubmitted by {r.Requestor.FullName} | {FormatDateTime(IstClock.Now)}";
 
-        if (stepLevel == 1)
+        _log.LogInformation("WA-RESUBMIT: RequestId={Id} StepLevel={Level} ApproverId={Aid} HasRemark={HasRemark}",
+            requestId, stepLevel, approverId, !string.IsNullOrWhiteSpace(resubmitRemark));
+
+        // request_resubmitted (8): {{1}}=Type {{2}}=ID {{3}}=Title {{4}}=Priority
+        // {{5}}=RaisedBy {{6}}=Description {{7}}=LatestAction {{8}}=Remarks.
+        //
+        // A dedicated template for resubmissions, replacing BOTH previous branches:
+        // new_approval_request1 (L1) and approval_required_level2 (L2+). Those carry Meta's
+        // STATIC "A new {{1}} has been submitted…", which forced the awkward "A new
+        // Re-submitted Budget Approval…" — unfixable from code, since editing the shared
+        // template would also change the New Request card. This template says "has been
+        // Resubmitted" statically, so {{1}} is the PLAIN type name (no "Re-submitted"
+        // prefix, which would now read twice), and it has no Level field, so one card
+        // serves every level.
+        await SendTemplateWithButtonsAsync(phone, "request_resubmitted", new[]
         {
-            // L1 template: {{1}}=Type {{2}}=ID {{3}}=Title {{4}}=Amount {{5}}=Priority
-            // {{6}}=RaisedBy {{7}}=DateTime {{8}}=Justification {{9}}=Remarks {{10}}=Attachments
-            await SendTemplateWithButtonsAsync(phone, "new_approval_request1", new[]
-            {
-                requestTypeLabel,
-                r.RequestNumber,
-                r.Title,
-                amount,
-                priority,
-                raisedBy,
-                dateTime,
-                r.Description ?? r.Title,
-                lastRemark,
-                attachmentText
-            }, requestId, approverId, doc, docs);
-        }
-        else
-        {
-            // L2+ template: {{1}}=Level {{2}}=Type {{3}}=ID ... (one extra param for level)
-            await SendTemplateWithButtonsAsync(phone, "approval_required_level2", new[]
-            {
-                stepLevel.ToString(),
-                requestTypeLabel,
-                r.RequestNumber,
-                r.Title,
-                amount,
-                priority,
-                raisedBy,
-                dateTime,
-                r.Description ?? r.Title,
-                lastRemark,
-                attachmentText
-            }, requestId, approverId, doc, docs);
-        }
+            r.RequestType.TypeName,          // {{1}} Type (plain — "Resubmitted" is static)
+            r.RequestNumber,                 // {{2}} ID
+            r.Title,                         // {{3}} Title
+            priority,                        // {{4}} Priority
+            raisedBy,                        // {{5}} Raised By
+            r.Description ?? r.Title,        // {{6}} Description — the ORIGINAL request text
+            latestAction,                    // {{7}} Latest Action
+            remarks                          // {{8}} Remarks — the requester's resubmission note
+        }, requestId, approverId, GetHeaderDocOrDefault(r, doc), docs);
     }
 
     // ── 2. Approved → Creator + Next Approver ────────────────
@@ -180,51 +241,41 @@ public class WhatsAppService : IWhatsAppService
         _log.LogInformation("WA-PROGRESS: RequestId={Id} Status={Status} docs={Count}",
             requestId, r.Status, docs.Count);
 
-        // Notify creator
+        // Notify the requester (approval notification). ONLY the FINAL approval sends a
+        // WhatsApp template — request_fully_approved — which is the genuine approval
+        // notification. Intermediate (partial) approvals deliberately send NOTHING here:
+        // the only "progress" template available is approval_progress_update, which in Meta
+        // is the clarification-worded, buttoned "Request - Clarification Provided" card, and
+        // it must NEVER be emitted by an approve. Removing the call (not guarding it after a
+        // send) is the root-cause fix. On a partial approve the requester is still informed
+        // by the in-app notification raised in ProcessActionAsync.
         var creatorPhone = await GetPhoneAsync(r.RequestorId);
-        if (!string.IsNullOrEmpty(creatorPhone))
+        if (!string.IsNullOrEmpty(creatorPhone) && r.Status == "Approved")
         {
-            if (r.Status == "Approved")
+            // Final Approval — request_fully_approved (8) has a TEXT header in Meta, so no doc.
+            // {{1}}=Type {{2}}=ID {{3}}=Title {{4}}=Priority {{5}}=RaisedBy {{6}}=Description {{7}}=LatestAction {{8}}=Remarks
+            var latestAction = $"Approved by {actingStep.ApproverUser?.FullName ?? "Approver"} (L{actingStep.StepLevel}) | {FormatDateTime(DateTimeOffset.UtcNow)}";
+            await SendTemplateAsync(creatorPhone, "request_fully_approved", new[]
             {
-                // Use Case 5: Final Approval
-                await SendTemplateAsync(creatorPhone, "request_fully_approved", new[]
-                {
-                    r.RequestType.TypeName,      // {{1}} Request Type
-                    r.RequestNumber,             // {{2}} ID
-                    r.Title,                     // {{3}} Title
-                    amount,                      // {{4}} Amount
-                    priority,                    // {{5}} Priority
-                    raisedBy,                    // {{6}} Raised By
-                    dateTime,                    // {{7}} Date & Time
-                    r.Description ?? r.Title,    // {{8}} Justification
-                    lastRemark,                  // {{9}} Latest Remarks
-                    attachmentText               // {{10}} Attachments
-                }, doc, docs);
-            }
-            else
-            {
-                // Progress update to creator
-                await SendTemplateAsync(creatorPhone, "approval_progress_update", new[]
-                {
-                    r.RequestType.TypeName,      // {{1}} Request Type
-                    r.RequestNumber,             // {{2}} ID
-                    r.Title,                     // {{3}} Title
-                    amount,                      // {{4}} Amount
-                    priority,                    // {{5}} Priority
-                    raisedBy,                    // {{6}} Raised By
-                    dateTime,                    // {{7}} Date & Time
-                    r.Description ?? r.Title,    // {{8}} Justification
-                    lastRemark,                  // {{9}} Latest Remarks
-                    attachmentText               // {{10}} Attachments
-                }, doc, docs);
-            }
+                r.RequestType.TypeName,      // {{1}} Type
+                r.RequestNumber,             // {{2}} ID
+                r.Title,                     // {{3}} Title
+                priority,                    // {{4}} Priority
+                raisedBy,                    // {{5}} Raised By
+                r.Description ?? r.Title,     // {{6}} Description
+                latestAction,                // {{7}} Latest Action
+                lastRemark                   // {{8}} Latest Remarks
+            }, ctx: new WaMsgContext(requestId, r.WorkflowId, "approved", $"Fully approved — {lastRemark}", actingStep.StepLevel, actingApproverId));
         }
 
-        // Notify next approver with buttons + actual document
+        // ── Multi-level progression: notify the NEXT-level approver ───────────────────
+        // When an intermediate level approves, ProcessActionAsync has already advanced the
+        // next approver to "pending". Send THAT approver the approval request so the chain
+        // continues automatically through L2, L3, … until final approval. This uses
+        // new_approval_request1 (the genuine "Approval Request" template with Approve/Reject/
+        // Clarification buttons) — NEVER the clarification-worded approval_required_level2.
         if (r.Status != "Approved")
         {
-            // Find the next pending approver — check "pending" status (set by ProcessActionAsync)
-            // If not found by status, fall back to next step level (handles EF tracker timing)
             var nextStep = r.Approvers
                 .Where(a => a.StepLevel > actingStep.StepLevel && a.Status == "pending")
                 .OrderBy(a => a.StepLevel).FirstOrDefault()
@@ -232,32 +283,35 @@ public class WhatsAppService : IWhatsAppService
                    .Where(a => a.StepLevel > actingStep.StepLevel)
                    .OrderBy(a => a.StepLevel).FirstOrDefault();
 
+            _log.LogInformation(
+                "WA-PROGRESS: RequestId={Id} CurrentLevel=L{CurLvl} CurrentApprover={CurAppr} NextLevel={NextLvl} NextApprover={NextAppr}",
+                requestId, actingStep.StepLevel, actingApproverId,
+                nextStep is null ? "none" : $"L{nextStep.StepLevel}",
+                nextStep?.ApproverUserId.ToString() ?? "none");
+
             if (nextStep != null)
             {
                 var nextPhone = await GetPhoneAsync(nextStep.ApproverUserId);
-                if (!string.IsNullOrEmpty(nextPhone))
+                if (string.IsNullOrEmpty(nextPhone))
                 {
-                    // Use Case 2: Mid-Level Approval
-                    // Detect re-submission after clarification
-                    var isResubmitL2 = r.ActionLogs?.Any(l => l.Action == "clarification") == true;
-                    var requestTypeLabelL2 = isResubmitL2
-                        ? $"Re-submitted {r.RequestType.TypeName}"
-                        : r.RequestType.TypeName;
-
-                    await SendTemplateWithButtonsAsync(nextPhone, "approval_required_level2", new[]
+                    _log.LogWarning("WA-PROGRESS: L{Lvl} approver (User={Uid}) has no WhatsApp number — cannot send approval request. RequestId={Id}",
+                        nextStep.StepLevel, nextStep.ApproverUserId, requestId);
+                }
+                else
+                {
+                    // new_approval_request1 (6): {{1}}=Type {{2}}=ID {{3}}=Title {{4}}=Priority {{5}}=RaisedBy {{6}}=Description
+                    var sent = await SendTemplateWithButtonsAsync(nextPhone, "new_approval_request1", new[]
                     {
-                        actingStep.StepLevel.ToString(),     // {{1}} Level
-                        requestTypeLabelL2,                  // {{2}} Request Type
-                        r.RequestNumber,                     // {{3}} ID
-                        r.Title,                             // {{4}} Title
-                        amount,                              // {{5}} Amount
-                        priority,                            // {{6}} Priority
-                        raisedBy,                            // {{7}} Raised By
-                        dateTime,                            // {{8}} Date & Time
-                        r.Description ?? r.Title,            // {{9}} Justification
-                        lastRemark,                          // {{10}} Latest Remarks
-                        attachmentText                       // {{11}} Attachments
-                    }, requestId, nextStep.ApproverUserId, doc, docs);
+                        r.RequestType.TypeName,      // {{1}} Type
+                        r.RequestNumber,             // {{2}} ID
+                        r.Title,                     // {{3}} Title
+                        priority,                    // {{4}} Priority
+                        raisedBy,                    // {{5}} Raised By
+                        r.Description ?? r.Title      // {{6}} Description
+                    }, requestId, nextStep.ApproverUserId, GetHeaderDocOrDefault(r, doc), docs);
+
+                    _log.LogInformation("WA-PROGRESS: L{Lvl} approval request to User={Uid} Phone={Phone} Sent={Sent} RequestId={Id}",
+                        nextStep.StepLevel, nextStep.ApproverUserId, nextPhone, sent, requestId);
                 }
             }
         }
@@ -285,20 +339,20 @@ public class WhatsAppService : IWhatsAppService
         // do NOT pass any doc/attachment here or Meta rejects with error 132012.
         // Requestor just needs the updated remark, not the file again.
 
-        // Use Case 3: Clarification
+        // Use Case 3: Clarification — clarification_needed (8)
+        // {{1}}=Type {{2}}=ID {{3}}=Title {{4}}=Priority {{5}}=RaisedBy {{6}}=Justification {{7}}=LatestAction {{8}}=Remarks
+        var latestAction = $"Clarification Requested by {approverName} | {FormatDateTime(DateTimeOffset.UtcNow)}";
         await SendTemplateAsync(creatorPhone, "clarification_needed", new[]
         {
-            r.RequestType.TypeName,      // {{1}} Request Type
+            r.RequestType.TypeName,      // {{1}} Type
             r.RequestNumber,             // {{2}} ID
             r.Title,                     // {{3}} Title
-            amount,                      // {{4}} Amount
-            priority,                    // {{5}} Priority
-            raisedBy,                    // {{6}} Raised By
-            dateTime,                    // {{7}} Date & Time
-            r.Description ?? r.Title,    // {{8}} Justification
-            remark,                      // {{9}} Latest Remarks
-            "N/A"                        // {{10}} Attachments — not applicable for clarification
-        });
+            priority,                    // {{4}} Priority
+            raisedBy,                    // {{5}} Raised By
+            r.Description ?? r.Title,     // {{6}} Justification
+            latestAction,                // {{7}} Latest Action
+            comment                      // {{8}} Latest Remarks
+        }, ctx: new WaMsgContext(requestId, r.WorkflowId, "clarification", remark, actingStep?.StepLevel, actingApproverId));
     }
 
     // ── 4. Rejection → Creator ────────────────────────────────
@@ -320,42 +374,135 @@ public class WhatsAppService : IWhatsAppService
         var remark = $"{comment} — {approverName}";
         var docsRej = await _db.RequestDocuments.AsNoTracking()
             .Where(d => d.RequestId == requestId).OrderBy(d => d.DocumentId).ToListAsync();
-        var doc = docsRej.FirstOrDefault();
         var attachmentText = docsRej.Any()
             ? string.Join(", ", docsRej.Select(d => $"📎 {d.FileName}"))
             : "No attachments";
 
-        // Use Case 6: Rejected
+        // Use Case 6: Rejected — request_rejected (8) has a TEXT header in Meta — do NOT attach a
+        // document or Meta rejects the send with 132012 when the request has an attachment.
+        // {{1}}=Type {{2}}=Status {{3}}=ID {{4}}=Title {{5}}=Priority {{6}}=RaisedBy {{7}}=Description {{8}}=Remarks
+        var maxLevel = r.Approvers.Any() ? r.Approvers.Max(a => a.StepLevel) : (actingStep?.StepLevel ?? 1);
+        var rejectStatus = (actingStep?.StepLevel ?? 0) >= maxLevel ? "Rejected" : $"Rejected at Level {actingStep?.StepLevel}";
         await SendTemplateAsync(creatorPhone, "request_rejected", new[]
         {
-            r.RequestType.TypeName,      // {{1}} Request Type
-            r.RequestNumber,             // {{2}} ID
-            r.Title,                     // {{3}} Title
-            amount,                      // {{4}} Amount
+            r.RequestType.TypeName,      // {{1}} Type
+            rejectStatus,                // {{2}} Status
+            r.RequestNumber,             // {{3}} ID
+            r.Title,                     // {{4}} Title
             priority,                    // {{5}} Priority
             raisedBy,                    // {{6}} Raised By
-            dateTime,                    // {{7}} Date & Time
-            r.Description ?? r.Title,    // {{8}} Justification
-            remark,                      // {{9}} Latest Remarks
-            attachmentText               // {{10}} Attachments
-        }, doc, docsRej);
+            r.Description ?? r.Title,     // {{7}} Description
+            comment                      // {{8}} Latest Remarks
+        }, ctx: new WaMsgContext(requestId, r.WorkflowId, "rejected", remark, actingStep?.StepLevel, actingApproverId));
     }
 
-    // ── 5. Clarification Prompt → Approver ───────────────────
-    public async Task SendClarificationPromptAsync(string toPhone, int requestId, int approverId)
+    // ── 5. Action Reply Prompt → Approver ────────────────────
+    // Opens the "reply screen" for any workflow action (Approve / Reject / Clarification)
+    // at any level. The approver's next text reply is captured by the webhook and routed
+    // to ProcessActionAsync via the pending record's Action.
+    public async Task SendActionPromptAsync(string toPhone, int requestId, int approverId, string action)
     {
         if (requestId == 0) return; // confirmation call, skip
 
         var r = await LoadRequestAsync(requestId);
         if (r == null) return;
 
-        await SendTextAsync(toPhone,
-            $"💬 *Clarification Required*\n\n" +
-            $"Request No : *{r.RequestNumber}*\n" +
-            $"Title      : {r.Title}\n\n" +
-            $"Please type your clarification comment and send it as a reply.\n" +
-            $"Your message will be automatically saved and sent to the requestor.");
+        var level = r.Approvers.FirstOrDefault(a => a.ApproverUserId == approverId)?.StepLevel;
+        var reqLabel = $"*{r.RequestNumber}*-{r.Title}";
+
+        var body = action switch
+        {
+            "approved" =>
+                $"✅ You have approved ({reqLabel}) this request. Type an optional message to notify the requester.",
+            "rejected" =>
+                $"❌ You have rejected ({reqLabel}) this request. Please type a reason for rejection to notify the requester.",
+            _ =>
+                $"💬 You have sent ({reqLabel}) this request back for clarification. Type a message to notify the requester."
+        };
+
+        await SendTextAsync(toPhone, body,
+            ctx: new WaMsgContext(requestId, r.WorkflowId, $"prompt:{action}", body, level, approverId));
     }
+
+    // ── 5b. Deferred-Approve Reply Prompt → Approver ─────────
+    // Opens the optional-remark window after an APPROVE tap. Returns the wamid of the
+    // prompt so the caller can store it on that request's pending session: a swipe-reply
+    // arrives carrying this id as context.id, which is what resolves the reply back to
+    // THIS request when several approve sessions are open at once. Approve-only —
+    // Reject / Clarification keep using SendActionPromptAsync unchanged.
+    public async Task<string?> SendApproveReplyPromptAsync(string toPhone, int requestId, int approverId, int windowSeconds)
+    {
+        if (requestId == 0) return null;
+
+        var r = await LoadRequestAsync(requestId);
+        if (r == null) return null;
+
+        var level = r.Approvers.FirstOrDefault(a => a.ApproverUserId == approverId)?.StepLevel;
+        var reqLabel = $"*{r.RequestNumber}*-{r.Title}";
+
+        var body =
+            $"✅ Approval selected for ({reqLabel}).\n\n" +
+            $"Reply to this message within {windowSeconds} seconds to add an optional remark for the requester.\n\n" +
+            "If no reply is received, the request will be approved automatically.";
+
+        return await SendTextAsync(toPhone, body,
+            ctx: new WaMsgContext(requestId, r.WorkflowId, "prompt:approved", body, level, approverId));
+    }
+
+    // ── Notification Alert → Observer Role Users ──────────────
+    // Sent as the APPROVED "notification_alert" Meta template, NOT as free-form text.
+    // This is the whole point: WhatsApp only delivers free-form messages inside the
+    // 24-hour customer-service window, which opens when the recipient messages the
+    // business. Observers never message the bot, so their window is always shut and a
+    // text alert is accepted by the Graph API (200 + wamid) yet never delivered —
+    // indistinguishable from success. A template has no such restriction and always
+    // reaches the recipient.
+    //
+    // notification_alert (9): {{1}}=ID {{2}}=Title {{3}}=Priority {{4}}=RaisedBy
+    // {{5}}=Description {{6}}=LatestAction {{7}}=Remarks {{8}}=In-Office/HO link
+    // {{9}}=Out-of-Office/Mobile link. Every parameter must be non-empty — Meta rejects
+    // a blank one and the whole send fails — so each falls back to a placeholder.
+    public async Task SendNotificationRoleAlertAsync(
+        int requestId, int userId, string eventLabel, string inOfficeUrl, string outOfOfficeUrl, int approvedLevel)
+    {
+        var r = await LoadRequestAsync(requestId);
+        if (r == null) return;
+
+        var phone = await GetPhoneAsync(userId);
+        if (string.IsNullOrEmpty(phone)) return;
+
+        var priority = FormatPriority(r.Priority);
+        var raisedBy = $"{r.Requestor.FullName} ({r.Department.DeptName}) {FormatDateTime(r.SubmittedAt ?? r.CreatedAt)}";
+
+        // Latest action = the most recent action-log entry (this alert only fires on approve).
+        var lastLog = r.ActionLogs?.OrderByDescending(l => l.CreatedAt).FirstOrDefault();
+        var actor = lastLog?.ActorUser?.FullName ?? "Approver";
+        var actionDate = FormatDateTime(lastLog?.CreatedAt ?? DateTimeOffset.UtcNow);
+        var latestAction = $"Approved by {actor} | {actionDate}";
+        var remarks = string.IsNullOrWhiteSpace(lastLog?.Comment) ? "No remarks" : lastLog!.Comment;
+
+        await SendTemplateAsync(phone, "notification_alert", new[]
+        {
+            Param(r.RequestNumber,            "-"),
+            Param(r.Title,                    "-"),
+            Param(priority,                   "-"),
+            Param(raisedBy,                   "-"),
+            Param(r.Description ?? r.Title,   "-"),
+            Param(latestAction,               "-"),
+            Param(remarks,                    "No remarks"),
+            Param(inOfficeUrl,                "(link unavailable)"),
+            Param(outOfOfficeUrl,             "(link unavailable)")
+        },
+        ctx: new WaMsgContext(requestId, r.WorkflowId, "template:notification_alert", $"Notification Alert: {r.RequestNumber}", approvedLevel, userId));
+
+        _log.LogInformation("WA-ALERT: notification_alert template sent RequestId={Id} UserId={Uid} Level={Lvl} Event={Event}",
+            requestId, userId, approvedLevel, eventLabel);
+    }
+
+    // Meta rejects an empty template parameter and fails the entire message, so every
+    // body value gets a visible placeholder rather than being sent blank.
+    private static string Param(string? value, string fallback) =>
+        string.IsNullOrWhiteSpace(value) ? fallback : value;
 
     // ── 6. Aging Reminder ─────────────────────────────────────
     public async Task SendAgingReminderAsync()
@@ -382,30 +529,30 @@ public class WhatsAppService : IWhatsAppService
             var items = grp.OrderByDescending(a =>
                 IstClock.DaysSince(a.Request.SubmittedAt ?? a.Request.CreatedAt)).ToList();
 
+            // pending_approval_reminder (2): {{1}}=Approver name  {{2}}=Pending count
             await SendTemplateAsync(phone, "pending_approval_reminder", new[]
             {
-                approverName,
-                items.Count.ToString(),
-                grp.Key.StepLevel.ToString()
+                approverName,             // {{1}} Approver name
+                items.Count.ToString()    // {{2}} Pending count
             });
         }
     }
 
     // ── Send Template WITH 3 Buttons ─────────────────────────
     // Sends template (body + buttons), then file as separate message for all formats.
-    private async Task SendTemplateWithButtonsAsync(
+    private async Task<bool> SendTemplateWithButtonsAsync(
         string toPhone, string templateName, string[] parameters,
         int requestId, int approverId, RequestDocument? doc = null,
-        IList<RequestDocument>? allDocs = null)
+        IList<RequestDocument>? allDocs = null, WaMsgContext? ctx = null)
     {
         var token = _cfg["WhatsApp:BearerToken"];
         var phoneNumId = _cfg["WhatsApp:PhoneNumberId"];
         var apiVersion = _cfg["WhatsApp:ApiVersion"] ?? "v19.0";
         var language = _cfg["WhatsApp:TemplateLanguage"] ?? "en";
 
-        if (string.IsNullOrEmpty(token) || string.IsNullOrEmpty(phoneNumId)) return;
+        if (string.IsNullOrEmpty(token) || string.IsNullOrEmpty(phoneNumId)) return false;
 
-        var normalised = toPhone.Replace(" ", "").Replace("-", "").TrimStart('+');
+        var normalised = NormalisePhone(toPhone);
 
         // Upload doc to get media_id — embed as header inside template
         string? mediaId = null;
@@ -448,10 +595,10 @@ public class WhatsAppService : IWhatsAppService
             components.Add(new
             {
                 type = "header",
-                parameters = new[] { new { type = "document", document = new { id = mediaId, filename = doc!.FileName } } }
+                parameters = new[] { new { type = "document", document = new { id = mediaId, filename = SanitizeParam(doc!.FileName) } } }
             });
         }
-        components.Add(new { type = "body", parameters = parameters.Select(p => new { type = "text", text = p }).ToArray() });
+        components.Add(new { type = "body", parameters = parameters.Select(p => new { type = "text", text = SanitizeParam(p) }).ToArray() });
         components.Add(new
         {
             type = "button",
@@ -487,7 +634,12 @@ public class WhatsAppService : IWhatsAppService
             }
         };
 
-        await PostToWhatsAppAsync(normalised, payload, token, phoneNumId, apiVersion);
+        // Attribute the outbound approval notification to the approver it was sent to
+        // (CreatedBy = approverId). This is what lets an incoming REPLY-COMMAND resolve
+        // context.id → this history row → RequestId + ApproverId, so the reply can be
+        // routed to the correct approval. Does not affect the interactive-button flow.
+        var (ok, _) = await PostToWhatsAppAsync(normalised, payload, token, phoneNumId, apiVersion,
+            ctx ?? new WaMsgContext(requestId, null, $"template:{templateName}", "", null, approverId));
 
         // Send remaining documents (2nd, 3rd...) as separate messages after template
         if (allDocs != null && allDocs.Count > 1)
@@ -495,12 +647,14 @@ public class WhatsAppService : IWhatsAppService
             foreach (var extraDoc in allDocs.Skip(1))
                 await SendDocumentAsync(normalised, extraDoc);
         }
+
+        return ok;
     }
 
     // ── Send Template WITHOUT Buttons ─────────────────────────
     // Sends template (body only), then file as separate message for all formats.
     private async Task SendTemplateAsync(string toPhone, string templateName, string[] parameters,
-        RequestDocument? doc = null, IList<RequestDocument>? allDocs = null)
+        RequestDocument? doc = null, IList<RequestDocument>? allDocs = null, WaMsgContext? ctx = null)
     {
         var token = _cfg["WhatsApp:BearerToken"];
         var phoneNumId = _cfg["WhatsApp:PhoneNumberId"];
@@ -509,7 +663,7 @@ public class WhatsAppService : IWhatsAppService
 
         if (string.IsNullOrEmpty(token) || string.IsNullOrEmpty(phoneNumId)) return;
 
-        var normalised = toPhone.Replace(" ", "").Replace("-", "").TrimStart('+');
+        var normalised = NormalisePhone(toPhone);
 
         // Upload doc to get media_id — embed as header inside template
         string? mediaId = null;
@@ -549,10 +703,10 @@ public class WhatsAppService : IWhatsAppService
             components.Add(new
             {
                 type = "header",
-                parameters = new[] { new { type = "document", document = new { id = mediaId, filename = doc!.FileName } } }
+                parameters = new[] { new { type = "document", document = new { id = mediaId, filename = SanitizeParam(doc!.FileName) } } }
             });
         }
-        components.Add(new { type = "body", parameters = parameters.Select(p => new { type = "text", text = p }).ToArray() });
+        components.Add(new { type = "body", parameters = parameters.Select(p => new { type = "text", text = SanitizeParam(p) }).ToArray() });
 
         var payload = new
         {
@@ -567,7 +721,8 @@ public class WhatsAppService : IWhatsAppService
             }
         };
 
-        await PostToWhatsAppAsync(normalised, payload, token, phoneNumId, apiVersion);
+        await PostToWhatsAppAsync(normalised, payload, token, phoneNumId, apiVersion,
+            ctx ?? new WaMsgContext(null, null, $"template:{templateName}", ""));
 
         // Send remaining documents (2nd, 3rd...) as separate messages after template
         if (allDocs != null && allDocs.Count > 1)
@@ -577,29 +732,72 @@ public class WhatsAppService : IWhatsAppService
         }
     }
 
+    // Public plain-text confirmation sender (e.g. the deferred-approve timeout notice
+    // fired from the background sweep). Wraps the internal text sender; like the webhook's
+    // own confirmation messages, these transient notices are not written to history.
+    public Task SendPlainTextAsync(string toPhone, string message) => SendTextAsync(toPhone, message);
+
     // ── Send Plain Text ───────────────────────────────────────
-    private async Task SendTextAsync(string toPhone, string message)
+    // Returns the wamid of the sent message (null when not sent), so callers that need
+    // to correlate a later swipe-reply back to this exact message can store it.
+    private async Task<string?> SendTextAsync(string toPhone, string message, bool previewUrl = false, WaMsgContext? ctx = null)
     {
         var token = _cfg["WhatsApp:BearerToken"];
         var phoneNumId = _cfg["WhatsApp:PhoneNumberId"];
         var apiVersion = _cfg["WhatsApp:ApiVersion"] ?? "v19.0";
 
-        if (string.IsNullOrEmpty(token) || string.IsNullOrEmpty(phoneNumId)) return;
+        if (string.IsNullOrEmpty(token) || string.IsNullOrEmpty(phoneNumId)) return null;
 
-        var normalised = toPhone.Replace(" ", "").Replace("-", "").TrimStart('+');
+        var normalised = NormalisePhone(toPhone);
         var payload = new
         {
             messaging_product = "whatsapp",
             to = normalised,
             type = "text",
-            text = new { preview_url = false, body = message }
+            text = new { preview_url = previewUrl, body = message }
         };
 
-        await PostToWhatsAppAsync(normalised, payload, token, phoneNumId, apiVersion);
+        var (_, messageId) = await PostToWhatsAppAsync(normalised, payload, token, phoneNumId, apiVersion,
+            ctx ?? new WaMsgContext(null, null, "text", message));
+        return messageId;
     }
 
+    // ── Phone normalisation for the WhatsApp Cloud API ────────
+    // Meta needs the full international number (country code + subscriber number) and
+    // digits only. It ACCEPTS a bare national number — returning 200 and a wamid — but
+    // never delivers it, so a missing country code looks like a successful send that the
+    // recipient never gets. Numbers are entered by hand in the Users screen, so they
+    // arrive here in mixed shapes: "+91 98765-43210", "09876543210", "9876543210".
+    // Anything already carrying a country code (longer than the national length) is left
+    // exactly as-is, so this cannot corrupt a correct number.
+    private string NormalisePhone(string toPhone)
+    {
+        var digits = new string((toPhone ?? "").Where(char.IsDigit).ToArray());
+        if (digits.Length == 0) return digits;
+
+        var cc = _cfg["WhatsApp:DefaultCountryCode"] ?? "91";
+        var nationalLen = int.TryParse(_cfg["WhatsApp:NationalNumberLength"], out var nl) ? nl : 10;
+
+        // Trunk prefix: "0" before the national number (e.g. 09876543210).
+        if (digits.Length == nationalLen + 1 && digits.StartsWith("0"))
+            digits = digits.Substring(1);
+
+        // Bare national number → prepend the country code.
+        if (digits.Length == nationalLen)
+            digits = cc + digits;
+
+        return digits;
+    }
+
+    // Lightweight context so a single save path can record who/what a message was about.
+    // Passed through the send wrappers to PostToWhatsAppAsync where the API response
+    // (message id + status) becomes available. Null = don't log (e.g. raw doc uploads).
+    private sealed record WaMsgContext(int? RequestId, int? WorkflowId, string MessageType, string MessageText, int? WorkflowLevel = null, int? CreatedBy = null);
+
     // ── Core HTTP Post ────────────────────────────────────────
-    private async Task PostToWhatsAppAsync(string normalised, object payload, string token, string phoneNumId, string apiVersion)
+    // Returns the send result and the wamid Meta assigned to the message (null when the
+    // send failed or the response carried no id).
+    private async Task<(bool ok, string? messageId)> PostToWhatsAppAsync(string normalised, object payload, string token, string phoneNumId, string apiVersion, WaMsgContext? ctx = null)
     {
         var json = JsonSerializer.Serialize(payload);
         var content = new StringContent(json, Encoding.UTF8, "application/json");
@@ -613,14 +811,136 @@ public class WhatsAppService : IWhatsAppService
         {
             var resp = await client.PostAsync(url, content);
             var body = await resp.Content.ReadAsStringAsync();
-            if (!resp.IsSuccessStatusCode)
-                _log.LogError("WhatsApp API error {Code}: {Body}", (int)resp.StatusCode, body);
+            var ok = resp.IsSuccessStatusCode;
+            if (!ok)
+                _log.LogError("WhatsApp API error {Code}: {Body} | Payload sent: {Payload}", (int)resp.StatusCode, body, json);
             else
                 _log.LogInformation("WhatsApp message sent to {Phone}.", normalised);
+
+            var messageId = ExtractMessageId(ok ? body : null);
+
+            // Central outbound history save — every Approve / Reject / Clarification
+            // (and other) notification funnels through here, so there is exactly one
+            // save path and no per-action duplication.
+            if (ctx != null)
+                await SaveMessageHistoryAsync(ctx, normalised, "Outbound", messageId, ok ? "Sent" : "Failed");
+
+            return (ok, messageId);
         }
         catch (Exception ex)
         {
             _log.LogError(ex, "WhatsApp send failed for {Phone}.", normalised);
+            if (ctx != null)
+                await SaveMessageHistoryAsync(ctx, normalised, "Outbound", null, "Failed");
+            return (false, null);
+        }
+    }
+
+    // Pulls messages[0].id (wamid...) out of a successful Graph API response body.
+    private static string? ExtractMessageId(string? body)
+    {
+        if (string.IsNullOrEmpty(body)) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (doc.RootElement.TryGetProperty("messages", out var msgs) &&
+                msgs.ValueKind == JsonValueKind.Array && msgs.GetArrayLength() > 0 &&
+                msgs[0].TryGetProperty("id", out var idEl))
+                return idEl.GetString();
+        }
+        catch { /* non-JSON / error body — leave id null */ }
+        return null;
+    }
+
+    // ── Shared Message-History Save (outbound + inbound) ──────
+    // Single writer for the WhatsAppMessageHistory table. Never throws — a history
+    // failure must never break an approval or a webhook.
+    private async Task SaveMessageHistoryAsync(WaMsgContext ctx, string mobileNumber, string direction, string? messageId, string status)
+    {
+        try
+        {
+            _db.WhatsAppMessageHistories.Add(new WhatsAppMessageHistory
+            {
+                RequestId     = ctx.RequestId,
+                WorkflowId    = ctx.WorkflowId,
+                WorkflowLevel = ctx.WorkflowLevel,
+                CreatedBy     = ctx.CreatedBy,
+                MessageId     = messageId,
+                MobileNumber  = mobileNumber,
+                Direction     = direction,
+                MessageType   = ctx.MessageType,
+                MessageText   = ctx.MessageText,
+                Status        = status,
+                CreatedDate   = IstClock.Now
+            });
+            await _db.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "WA-HISTORY: Failed to save {Direction} message RequestId={Id}", direction, ctx.RequestId);
+        }
+    }
+
+    // ── Inbound (webhook) history save ────────────────────────
+    // Called by the webhook when an approver taps a button or replies with text, so
+    // the reply is persisted in the same WhatsAppMessageHistory table as outbound.
+    public async Task LogInboundMessageAsync(int requestId, string mobileNumber, string messageType, string messageText, string? messageId = null, int? approverUserId = null)
+    {
+        var workflowId = await _db.Requests.AsNoTracking()
+            .Where(r => r.RequestId == requestId)
+            .Select(r => r.WorkflowId)
+            .FirstOrDefaultAsync();
+        int? level = approverUserId == null ? null : await _db.RequestApprovers.AsNoTracking()
+            .Where(a => a.RequestId == requestId && a.ApproverUserId == approverUserId)
+            .Select(a => (int?)a.StepLevel)
+            .FirstOrDefaultAsync();
+        await SaveMessageHistoryAsync(
+            new WaMsgContext(requestId, workflowId, messageType, messageText, level, approverUserId),
+            mobileNumber, "Inbound", messageId, "Received");
+    }
+
+    // Downloads an inbound WhatsApp media item (document/image the approver sent).
+    // Two-step per Meta Cloud API: (1) resolve the media id to a temporary URL,
+    // (2) download the bytes (both calls require the Bearer token).
+    public async Task<(bool ok, byte[]? bytes, string? mime, string? err)> DownloadInboundMediaAsync(string mediaId)
+    {
+        try
+        {
+            var token = _cfg["WhatsApp:BearerToken"];
+            var apiVersion = _cfg["WhatsApp:ApiVersion"] ?? "v19.0";
+            if (string.IsNullOrEmpty(token)) return (false, null, null, "WhatsApp token not configured.");
+
+            using var client = new System.Net.Http.HttpClient();
+            client.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+            // Step 1: media id → download URL
+            var metaResp = await client.GetAsync($"https://graph.facebook.com/{apiVersion}/{mediaId}");
+            var metaBody = await metaResp.Content.ReadAsStringAsync();
+            if (!metaResp.IsSuccessStatusCode)
+            {
+                _log.LogError("WA-MEDIA: lookup failed {Code}: {Body}", (int)metaResp.StatusCode, metaBody);
+                return (false, null, null, $"Media lookup failed ({(int)metaResp.StatusCode}).");
+            }
+            using var metaJson = System.Text.Json.JsonDocument.Parse(metaBody);
+            var url = metaJson.RootElement.TryGetProperty("url", out var urlEl) ? urlEl.GetString() : null;
+            var mime = metaJson.RootElement.TryGetProperty("mime_type", out var mimeEl) ? mimeEl.GetString() : null;
+            if (string.IsNullOrEmpty(url)) return (false, null, null, "Media URL missing.");
+
+            // Step 2: download the binary
+            var fileResp = await client.GetAsync(url);
+            if (!fileResp.IsSuccessStatusCode)
+            {
+                _log.LogError("WA-MEDIA: download failed {Code}", (int)fileResp.StatusCode);
+                return (false, null, null, $"Media download failed ({(int)fileResp.StatusCode}).");
+            }
+            var bytes = await fileResp.Content.ReadAsByteArrayAsync();
+            return (true, bytes, mime, null);
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "WA-MEDIA: download exception mediaId={Id}", mediaId);
+            return (false, null, null, ex.Message);
         }
     }
 
@@ -647,17 +967,27 @@ public class WhatsAppService : IWhatsAppService
         return user?.WhatsAppNumber;
     }
 
+    // Latest Remarks for notification templates. Binds the actual remark the approver
+    // typed on the most recent action; when there is no remark it returns a clean
+    // "No remarks" instead of a fabricated "Action: approved — actor | date" line, which
+    // otherwise just duplicated the Latest Action field. Actor/date are intentionally NOT
+    // repeated here — they already appear in the Latest Action line.
     private string GetLastRemark(Request r)
     {
-        var last = r.ActionLogs?
+        var lastComment = r.ActionLogs?
             .OrderByDescending(l => l.CreatedAt)
-            .FirstOrDefault();
-        if (last == null) return "No remarks yet";
-        var actor = last.ActorUser?.FullName ?? "System";
-        var date = FormatDateTime(last.CreatedAt);
-        return string.IsNullOrEmpty(last.Comment)
-            ? $"Action: {last.Action} — {actor} | {date}"
-            : $"{last.Comment} — {actor} | {date}";
+            .FirstOrDefault()?.Comment;
+        return string.IsNullOrWhiteSpace(lastComment) ? "No remarks" : lastComment.Trim();
+    }
+
+    // WhatsApp rejects template body params containing new-line/tab characters or
+    // more than 4 consecutive spaces (Meta error #132018). User-entered text
+    // (comments, descriptions, filenames) can contain any of these, so every body
+    // parameter is normalised: all whitespace runs collapse to a single space.
+    private static string SanitizeParam(string? p)
+    {
+        if (string.IsNullOrEmpty(p)) return p ?? "";
+        return System.Text.RegularExpressions.Regex.Replace(p, @"\s+", " ").Trim();
     }
 
     // Returns the text summary for the template parameter ({{10}} Attachments)
@@ -697,7 +1027,7 @@ public class WhatsAppService : IWhatsAppService
             var apiVersion = _cfg["WhatsApp:ApiVersion"] ?? "v19.0";
             if (string.IsNullOrEmpty(token) || string.IsNullOrEmpty(phoneNumId)) return;
 
-            var normalised = toPhone.Replace(" ", "").Replace("-", "").TrimStart('+');
+            var normalised = NormalisePhone(toPhone);
             var mimeType = doc.ContentType ?? GetMimeType(doc.FileName);
             var fileBytes = await File.ReadAllBytesAsync(fullPath);
 

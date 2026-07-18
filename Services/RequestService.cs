@@ -3,17 +3,24 @@ namespace ApproveFlow.MVC.Services;
 public interface IRequestService
 {
     Task<RequestListVM> GetListAsync(RequestListVM filter, int page, int pageSize, int? filterUserId = null, int loggedInUserId = 0);
-    Task<RequestListVM> GetMyApprovalsAsync(int approverUserId, RequestListVM filter, int page, int pageSize);
+    Task<RequestListVM> GetMyApprovalsAsync(int approverUserId, RequestListVM filter, int page, int pageSize, string? statusToken = null);
     Task<RequestFormVM?> GetDetailAsync(int id, int curUserId);
     Task<RequestFormVM> BuildFormAsync(int userId);
     Task<(bool ok, string? err, int id)> CreateAsync(RequestFormVM vm, int userId);
     Task<(bool ok, string? err)> UpdateAsync(RequestFormVM vm, int userId);
     Task<(bool ok, string? err)> SubmitAsync(int requestId, int userId);
     Task<(bool ok, string? err)> ProcessActionAsync(int requestId, int userId, string action, string? comment, IFormFile? approvalFile = null, string? storagePath = null, int maxFileMb = 20);
+    Task<(bool ok, string? err)> SubmitClarificationResponseAsync(int requestId, int userId, string remarks, IFormFile? file = null, string? storagePath = null, int maxFileMb = 20);
+    Task<(bool ok, string? err)> AttachApprovalRemarkAsync(int requestId, int userId, string remark);
+    Task<(bool claimed, bool ok, string? err)> TryExecuteDeferredApproveAsync(int pendingId, int requestId, int approverId, string? remark);
+    Task<(bool ok, string? err)> AttachApprovalReplyAsync(int requestId, int userId, string? remark, string? attachmentFileName, string? attachmentUrl, string? waMsgId);
     Task<(bool ok, string? err)> DeleteAsync(int requestId, int userId, string userRole = "");
-    Task<AgingReportVM> GetAgingAsync(AgingReportVM filter);
-    Task<WorkflowDefinition?> MatchWorkflowAsync(int locId, int typeId, string priority, int deptId);
-    Task<List<ReqListItemVM>> GetAllForExportAsync(RequestListVM filter);
+    Task<AgingReportVM> GetAgingAsync(AgingReportVM filter, int? scopeUserId = null);
+    Task<WorkflowDefinition?> MatchWorkflowAsync(int locId, int typeId, string priority, int deptId, int userId = 0, decimal? amount = null);
+    Task<List<ReqListItemVM>> GetAllForExportAsync(RequestListVM filter, int? scopeUserId = null);
+    // Authorization: can this user open/download this specific request? Admin = any;
+    // otherwise only the requestor (creator) or an assigned approver.
+    Task<bool> CanAccessRequestAsync(int requestId, int userId, string userRole);
 }
 
 public class RequestService : IRequestService
@@ -22,10 +29,12 @@ public class RequestService : IRequestService
     private readonly IWhatsAppService _wa;
     private readonly ILogger<RequestService> _log;
     private readonly IUserMappingService _mapping;
-    public RequestService(AppDbContext db, IWhatsAppService wa, ILogger<RequestService> log, IUserMappingService mapping)
-    { _db = db; _wa = wa; _log = log; _mapping = mapping; }
+    private readonly IConfiguration _cfg;
+    private readonly IApplicationUrlService _urlSvc;
+    public RequestService(AppDbContext db, IWhatsAppService wa, ILogger<RequestService> log, IUserMappingService mapping, IConfiguration cfg, IApplicationUrlService urlSvc)
+    { _db = db; _wa = wa; _log = log; _mapping = mapping; _cfg = cfg; _urlSvc = urlSvc; }
 
-    public async Task<List<ReqListItemVM>> GetAllForExportAsync(RequestListVM filter)
+    public async Task<List<ReqListItemVM>> GetAllForExportAsync(RequestListVM filter, int? scopeUserId = null)
     {
         var q = _db.Requests
             .Where(r => r.Status != "Deleted")
@@ -35,6 +44,10 @@ public class RequestService : IRequestService
             .Include(r => r.RequestType)
             .Include(r => r.Documents)
             .AsQueryable();
+
+        // Non-admins may only export their OWN requests (scopeUserId set by caller).
+        if (scopeUserId.HasValue)
+            q = q.Where(r => r.RequestorId == scopeUserId.Value);
 
         if (!string.IsNullOrEmpty(filter.SearchTerm))
             q = q.Where(r =>
@@ -125,6 +138,7 @@ public class RequestService : IRequestService
                 DocumentCount = r.Documents.Count,
                 CreatedAt = r.CreatedAt,
                 UpdatedAt = r.UpdatedAt,
+                IsRequester = r.RequestorId == loggedInUserId,
             }).ToListAsync();
 
         f.Items = items; f.TotalCount = total; f.PageNumber = page; f.PageSize = size;
@@ -134,20 +148,32 @@ public class RequestService : IRequestService
         return f;
     }
 
-    public async Task<RequestListVM> GetMyApprovalsAsync(int approverUserId, RequestListVM f, int page, int size)
+    // Approval Requests grid for the logged-in approver. The base set is IDENTICAL to
+    // DashboardService.MyApprovalScope so the grid totals always equal the dashboard KPI
+    // counts: requests where my approver row is pending / rejected / clarification, or
+    // approved on a request that reached final "Approved" — never a Deleted request, and
+    // deduplicated to the distinct parent requests. The friendly ?status= token from the
+    // KPI cards is mapped (via ApprovalStatusFilter) to the request statuses it covers:
+    //   (none) → All 12 · Pending → Open+Pending Approval+Partial Approved · Approved →
+    //   Approved · Rejected → Rejected · Clarification → Clarification Needed.
+    public async Task<RequestListVM> GetMyApprovalsAsync(int approverUserId, RequestListVM f, int page, int size, string? statusToken = null)
     {
         var q = _db.RequestApprovers
             .AsNoTracking()
-            .Include(a => a.Request).ThenInclude(r => r.Requestor)
-            .Include(a => a.Request).ThenInclude(r => r.Location)
-            .Include(a => a.Request).ThenInclude(r => r.Department)
-            .Include(a => a.Request).ThenInclude(r => r.RequestType)
-            .Include(a => a.Request).ThenInclude(r => r.Documents)
-            .Where(a => a.ApproverUserId == approverUserId && a.Status == "pending")
+            .Where(a => a.ApproverUserId == approverUserId
+                     && a.Request.Status != RequestStatus.Deleted
+                     && (a.Status == "pending"
+                         || a.Status == "rejected"
+                         || a.Status == "clarification"
+                         || (a.Status == "approved" && a.Request.Status == RequestStatus.Approved)))
             .Select(a => a.Request)
-            .AsQueryable();
+            .Distinct();
 
-        if (!string.IsNullOrEmpty(f.FilterStatus)) q = q.Where(r => r.Status == f.FilterStatus);
+        // Status filter comes from the KPI-card token, NOT f.FilterStatus, so a single
+        // "Pending" click can span both Pending Approval and Partial Approved.
+        var statuses = ApprovalStatusFilter.Map(statusToken);
+        if (statuses != null) q = q.Where(r => statuses.Contains(r.Status));
+
         if (f.FilterLocationId.HasValue) q = q.Where(r => r.LocationId == f.FilterLocationId);
         if (f.FilterDeptId.HasValue) q = q.Where(r => r.DepartmentId == f.FilterDeptId);
         if (f.FilterTypeId.HasValue) q = q.Where(r => r.RequestTypeId == f.FilterTypeId);
@@ -179,6 +205,7 @@ public class RequestService : IRequestService
                 DocumentCount = r.Documents.Count,
                 CreatedAt = r.CreatedAt,
                 UpdatedAt = r.UpdatedAt,
+                IsRequester = r.RequestorId == approverUserId,
             }).ToListAsync();
 
         f.Items = items; f.TotalCount = total; f.PageNumber = page; f.PageSize = size;
@@ -186,6 +213,18 @@ public class RequestService : IRequestService
         f.Departments = await _db.Departments.Where(d => d.IsActive).OrderBy(d => d.DeptName).ToListAsync();
         f.RequestTypes = await _mapping.GetAllowedRequestTypesAsync(approverUserId);
         return f;
+    }
+
+    // Authorization gate for opening/downloading a single request. Admin sees any;
+    // everyone else may only access requests they created OR are an assigned approver on.
+    // Returns false for non-existent requests too (no existence leak / no access).
+    public async Task<bool> CanAccessRequestAsync(int requestId, int userId, string userRole)
+    {
+        if (string.Equals(userRole, "Admin", StringComparison.OrdinalIgnoreCase))
+            return await _db.Requests.AnyAsync(r => r.RequestId == requestId);
+
+        return await _db.Requests.AnyAsync(r => r.RequestId == requestId &&
+            (r.RequestorId == userId || r.Approvers.Any(a => a.ApproverUserId == userId)));
     }
 
     public async Task<RequestFormVM?> GetDetailAsync(int id, int curUserId)
@@ -208,6 +247,53 @@ public class RequestService : IRequestService
             .OrderBy(a => a.StepLevel).ThenBy(a => a.UploadedAt)
             .ToListAsync();
 
+        // WhatsApp post-approval reply attachments, mapped to their approved step
+        // so they render under the matching "approved" history entry.
+        var replies = await _db.ApprovalReplies
+            .Where(a => a.RequestId == id && a.AttachmentUrl != null)
+            .ToListAsync();
+        var stepByApprovalId = r.Approvers.ToDictionary(a => a.ApproverId, a => a.StepLevel);
+        var nameByUserId = r.Approvers
+            .GroupBy(a => a.ApproverUserId)
+            .ToDictionary(g => g.Key, g => g.First().ApproverUser.FullName);
+
+        // Inbound WhatsApp actions for this request — used to flag which history
+        // entries originated from WhatsApp (approve/reject/clarification via chat).
+        var waInbound = await _db.WhatsAppMessageHistories
+            .Where(w => w.RequestId == id && w.Direction == "Inbound"
+                     && (w.MessageType == "approved" || w.MessageType == "rejected" || w.MessageType == "clarification"))
+            .Select(w => new { w.MessageType, w.WorkflowLevel, w.CreatedBy })
+            .ToListAsync();
+
+        bool CameViaWhatsApp(RequestActionLog l) =>
+            waInbound.Any(w => w.MessageType == l.Action && w.CreatedBy == l.ActorUserId
+                            && (w.WorkflowLevel == null || w.WorkflowLevel == l.StepLevel));
+
+        List<HistoryAttachmentVM> BuildLogAttachments(RequestActionLog l)
+        {
+            if (l.Action == "submitted" || l.Action == "saved_draft")
+                return r.Documents.Select(d => new HistoryAttachmentVM
+                    { Id = d.DocumentId, FileName = d.FileName, AttachmentType = "Requestor" }).ToList();
+
+            var list = approvalAtts
+                .Where(a => a.StepLevel == l.StepLevel && a.ActionType == l.Action)
+                .Select(a => new HistoryAttachmentVM
+                    { Id = a.AttachmentId, FileName = a.FileName, AttachmentType = "Approval" }).ToList();
+
+            if (l.Action == "approved")
+                foreach (var rep in replies.Where(rp =>
+                    stepByApprovalId.TryGetValue(rp.ApprovalId, out var sl) && sl == l.StepLevel))
+                    list.Add(new HistoryAttachmentVM
+                    {
+                        Id = rep.ApprovalReplyId,
+                        FileName = rep.AttachmentFileName ?? "Attachment",
+                        AttachmentType = "Reply",
+                        Url = rep.AttachmentUrl
+                    });
+
+            return list;
+        }
+
         return new RequestFormVM
         {
             RequestId = r.RequestId,
@@ -229,6 +315,14 @@ public class RequestService : IRequestService
             MatchedWorkflowName = r.Workflow?.WorkflowName,
             CanAct = actStep != null,
             CurrentActingStep = actStep?.StepLevel,
+            // The requester (and only the requester) responds to a "Clarification Needed"
+            // request via the dedicated Submit Clarification panel — not by editing.
+            CanSubmitClarification = r.Status == "Clarification Needed" && r.RequestorId == curUserId,
+            LatestClarificationComment = r.ActionLogs
+                .Where(l => l.Action == "clarification")
+                .OrderByDescending(l => l.CreatedAt)
+                .Select(l => l.Comment)
+                .FirstOrDefault(),
             ApprovalChain = r.Approvers.OrderBy(a => a.StepLevel).Select(a => new ApproverStepVM
             {
                 StepLevel = a.StepLevel,
@@ -247,13 +341,8 @@ public class RequestService : IRequestService
                 Comment = l.Comment,
                 StepLevel = l.StepLevel,
                 CreatedAt = l.CreatedAt,
-                Attachments = (l.Action == "submitted" || l.Action == "saved_draft")
-                    ? r.Documents.Select(d => new HistoryAttachmentVM
-                        { Id = d.DocumentId, FileName = d.FileName, AttachmentType = "Requestor" }).ToList()
-                    : approvalAtts
-                        .Where(a => a.StepLevel == l.StepLevel && a.ActionType == l.Action)
-                        .Select(a => new HistoryAttachmentVM
-                            { Id = a.AttachmentId, FileName = a.FileName, AttachmentType = "Approval" }).ToList(),
+                Attachments = BuildLogAttachments(l),
+                IsWhatsApp = CameViaWhatsApp(l),
             }).ToList(),
             Documents = r.Documents.Select(d => new DocumentVM
             {
@@ -264,6 +353,9 @@ public class RequestService : IRequestService
                 UploadedAt = d.UploadedAt,
                 UploadedByName = d.UploadedByUser.FullName,
             }).ToList(),
+            // Approval Attachments = web/WhatsApp approval-time files (ApprovalAttachments)
+            // + optional WhatsApp reply files (ApprovalReplies). Distinct sources, so no
+            // duplication. Reply files carry a direct Url; approval files use the download action.
             ApprovalAttachments = approvalAtts.Select(a => new ApprovalAttachmentVM
             {
                 AttachmentId = a.AttachmentId,
@@ -274,7 +366,19 @@ public class RequestService : IRequestService
                 ContentType = a.ContentType,
                 UploadedAt = a.UploadedAt,
                 UploadedByName = a.UploadedByUser.FullName,
-            }).ToList(),
+            })
+            .Concat(replies.Select(rep => new ApprovalAttachmentVM
+            {
+                AttachmentId = 0,
+                StepLevel = stepByApprovalId.TryGetValue(rep.ApprovalId, out var sl) ? sl : 0,
+                ActionType = "approved",
+                FileName = rep.AttachmentFileName ?? "Attachment",
+                FileSizeBytes = 0,
+                UploadedAt = rep.CreatedDate,
+                UploadedByName = nameByUserId.TryGetValue(rep.CreatedBy, out var nm) ? nm : "",
+                Url = rep.AttachmentUrl,
+            }))
+            .OrderBy(a => a.StepLevel).ThenBy(a => a.UploadedAt).ToList(),
             RequestTypes = await _mapping.GetAllowedRequestTypesAsync(curUserId),
         };
     }
@@ -302,7 +406,9 @@ public class RequestService : IRequestService
             DeptName = defaultDept?.DeptName ?? "",
             RequestorName = user.FullName,
             Status = "Draft",
-            RequestTypes = await _mapping.GetAllowedRequestTypesAsync(userId),
+            // New Request form: STRICT mapped types only (empty when unmapped) so the
+            // user can only raise request types assigned via User Mapping.
+            RequestTypes = await _mapping.GetMappedRequestTypesAsync(userId),
             Locations = userLocations,
             Departments = userDepartments,
             AllDeptNames = userDepartments.Select(d => d.DeptName).ToList(),
@@ -323,7 +429,7 @@ public class RequestService : IRequestService
         int locId = userLocIds.Contains(vm.LocationId) ? vm.LocationId : (userLocIds.FirstOrDefault());
         int deptId = userDeptIds.Contains(vm.DepartmentId) ? vm.DepartmentId : (userDeptIds.FirstOrDefault());
 
-        var wf = await MatchWorkflowAsync(locId, vm.RequestTypeId, vm.Priority, deptId);
+        var wf = await MatchWorkflowAsync(locId, vm.RequestTypeId, vm.Priority, deptId, userId, vm.Amount);
 
         var entity = new Request
         {
@@ -383,7 +489,7 @@ public class RequestService : IRequestService
             if (!r.WorkflowId.HasValue)
             {
                 var matchedWf = await MatchWorkflowAsync(
-                    r.LocationId, r.RequestTypeId, r.Priority, r.DepartmentId);
+                    r.LocationId, r.RequestTypeId, r.Priority, r.DepartmentId, userId, r.Amount);
                 if (matchedWf != null)
                 {
                     r.WorkflowId = matchedWf.WorkflowId;
@@ -404,33 +510,62 @@ public class RequestService : IRequestService
                 .Where(x => x.RoleName == "Manager")
                 .Select(x => x.RoleId)
                 .FirstOrDefaultAsync();
-            var mgrCandidates = wf.Steps.Any(s => s.IsAutoAssignDeptManager)
-                ? await _db.Users
-                    .AsNoTracking()
-                    .Where(u => u.RoleId == mgrRoleId && u.Status == "active")
-                    .Select(u => new
-                    {
-                        u.UserId,
-                        DeptIds = u.UserDepartments.Select(d => d.DepartmentId).ToList(),
-                        LocIds = u.UserLocations.Select(l => l.LocationId).ToList()
-                    })
-                    .ToListAsync()
-                : null;
+            // Load active user candidates for every role referenced by the workflow
+            // (role-based steps) plus Manager (auto-assign steps), with their dept/
+            // location scope so the most relevant approver can be picked per request.
+            var neededRoleIds = wf.Steps
+                .Where(s => s.ApproverRoleId.HasValue)
+                .Select(s => s.ApproverRoleId!.Value)
+                .ToList();
+            if (wf.Steps.Any(s => s.IsAutoAssignDeptManager) && mgrRoleId != 0)
+                neededRoleIds.Add(mgrRoleId);
+            neededRoleIds = neededRoleIds.Distinct().ToList();
+
+            var candidates = await _db.Users
+                .AsNoTracking()
+                .Where(u => neededRoleIds.Contains(u.RoleId) && u.Status == "active")
+                .Select(u => new
+                {
+                    u.UserId,
+                    u.RoleId,
+                    DeptIds = u.UserDepartments.Select(d => d.DepartmentId).ToList(),
+                    LocIds = u.UserLocations.Select(l => l.LocationId).ToList()
+                })
+                .ToListAsync();
+
+            // Pick the best-matching active holder of a role for this request:
+            // same dept + location first, then same dept, then any active holder.
+            int ResolveByRole(int roleId)
+            {
+                var pool = candidates.Where(u => u.RoleId == roleId).ToList();
+                var pick = pool.FirstOrDefault(u => u.DeptIds.Contains(r.DepartmentId) && u.LocIds.Contains(r.LocationId))
+                         ?? pool.FirstOrDefault(u => u.DeptIds.Contains(r.DepartmentId))
+                         ?? pool.FirstOrDefault();
+                return pick?.UserId ?? 0;
+            }
 
             foreach (var step in wf.Steps.OrderBy(s => s.StepLevel))
             {
-                int appId = step.ApproverUserId ?? 0;
+                int appId;
                 if (step.IsAutoAssignDeptManager)
                 {
-                    var mgr = mgrCandidates!.FirstOrDefault(u =>
-                        u.DeptIds.Contains(r.DepartmentId) &&
-                        u.LocIds.Contains(r.LocationId));
-                    if (mgr == null)
-                        mgr = mgrCandidates!.FirstOrDefault(u =>
-                            u.DeptIds.Contains(r.DepartmentId));
-                    if (mgr == null) return (false, "Cannot auto-assign: no active Manager found for this department and location.");
-                    appId = mgr.UserId;
+                    appId = ResolveByRole(mgrRoleId);
+                    if (appId == 0) return (false, "Cannot auto-assign: no active Manager found for this department and location.");
                 }
+                else if (step.ApproverRoleId.HasValue)
+                {
+                    appId = ResolveByRole(step.ApproverRoleId.Value);
+                    if (appId == 0)
+                        return (false, $"No active user is assigned to the approver role for Step {step.StepLevel}. Assign a user to that role, or edit the workflow.");
+                }
+                else
+                {
+                    // Legacy user-pinned workflow (created before role-based steps)
+                    appId = step.ApproverUserId ?? 0;
+                    if (appId == 0)
+                        return (false, $"Step {step.StepLevel} has no approver configured. Edit the workflow and select an approver role.");
+                }
+
                 var alreadyAdded = _db.RequestApprovers.Local
                     .Any(a => a.RequestId == requestId && a.ApproverUserId == appId);
                 if (alreadyAdded)
@@ -508,6 +643,10 @@ public class RequestService : IRequestService
             _log.LogError(ex, "SubmitAsync: WhatsApp notification failed for RequestId={Id} IsResubmit={Resubmit}", requestId, isResubmit);
         }
 
+        // Notification Alert is intentionally NOT sent on submission/resubmission — per spec,
+        // observer roles are only notified starting from the first approval action onward
+        // (see ProcessActionAsync), never at request creation.
+
         return (true, null);
     }
 
@@ -515,8 +654,11 @@ public class RequestService : IRequestService
         int requestId, int userId, string action, string? comment,
         IFormFile? approvalFile = null, string? storagePath = null, int maxFileMb = 20)
     {
-        if ((action == "rejected" || action == "clarification") && string.IsNullOrWhiteSpace(comment))
-            return (false, "A comment is required for rejection or clarification.");
+        // Comment rules (identical for every level): Approve optional, Reject & Clarification mandatory.
+        if (action == "rejected" && string.IsNullOrWhiteSpace(comment))
+            return (false, "Rejection remarks are required.");
+        if (action == "clarification" && string.IsNullOrWhiteSpace(comment))
+            return (false, "Clarification remarks are required.");
 
         var r = await _db.Requests.Include(r => r.Approvers)
             .FirstOrDefaultAsync(x => x.RequestId == requestId);
@@ -562,13 +704,16 @@ public class RequestService : IRequestService
         if (acting == null) return (false, "Approver record not found.");
 
         string newStatus;
+        int? notifExcludeUserId = null;
         if (action == "rejected")
         {
             newStatus = "Rejected";
+            notifExcludeUserId = userId;
         }
         else if (action == "clarification")
         {
             newStatus = "Clarification Needed";
+            notifExcludeUserId = userId;
         }
         else
         {
@@ -580,6 +725,7 @@ public class RequestService : IRequestService
                 next.Status = "pending";
                 r.CurrentStepLevel = next.StepLevel;
                 newStatus = "Partial Approved";
+                notifExcludeUserId = next.ApproverUserId;
                 await _db.Notifications
                     .Where(n => n.UserId == next.ApproverUserId
                              && n.RequestId == requestId
@@ -596,7 +742,34 @@ public class RequestService : IRequestService
                     Message = $"Request {r.RequestNumber} requires your approval (Step {next.StepLevel})."
                 });
             }
-            else newStatus = "Approved";
+            else { newStatus = "Approved"; notifExcludeUserId = userId; }
+        }
+
+        // Notification Alert is only ever sent after a SUCCESSFUL Approve action (Level
+        // Approved or Final Approved) — Reject and Clarification must never trigger it.
+        // It's also a pure observer add-on: any failure here must never block the core
+        // approval transaction.
+        var notifEventLabel = newStatus == "Approved" ? "Final Approved / Workflow Completed" : "Level Approved";
+        var notifRoleUsers = new List<User>();
+        string? notifViewToken = null;
+        if (action == "approved")
+        {
+            try
+            {
+                notifRoleUsers = await ResolveNotificationRoleUsersAsync(r.WorkflowId, acting.StepLevel, notifExcludeUserId);
+                if (notifRoleUsers.Count > 0)
+                {
+                    notifViewToken = await GetOrCreateViewTokenAsync(requestId);
+                    QueueNotificationRoleAlerts(requestId, r.RequestNumber, notifRoleUsers, notifEventLabel,
+                        _urlSvc.GetRequestViewLinksText(notifViewToken));
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.LogError(ex, "ProcessAction: Notification Alert resolution failed RequestId={Id} Action={Action}", requestId, action);
+                notifRoleUsers = new List<User>();
+                notifViewToken = null;
+            }
         }
 
         r.Status = newStatus;
@@ -651,6 +824,16 @@ public class RequestService : IRequestService
                 await _wa.SendClarificationToCreatorAsync(requestId, userId, comment!);
             else if (action == "rejected")
                 await _wa.SendRejectionToCreatorAsync(requestId, userId, comment!);
+
+            if (notifRoleUsers.Count > 0 && notifViewToken != null)
+            {
+                // Both links come from the same token — the template needs them as two
+                // separate parameters ({{8}} / {{9}}), not as one newline-joined block.
+                var (inOfficeUrl, outOfOfficeUrl) = _urlSvc.GetRequestViewUrlPair(notifViewToken);
+                foreach (var u in notifRoleUsers)
+                    await _wa.SendNotificationRoleAlertAsync(
+                        requestId, u.UserId, notifEventLabel, inOfficeUrl, outOfOfficeUrl, acting.StepLevel);
+            }
         }
         catch (Exception ex)
         {
@@ -662,6 +845,237 @@ public class RequestService : IRequestService
 
         return (true, null);
     }
+
+    // ── Requester's Clarification Response ─────────────────────
+    // The requester replies to an approver's clarification request WITHOUT editing the
+    // original request. The remarks (+ optional file) are appended as a NEW audit record
+    // ("clarification_response"); nothing is overwritten. The step that asked for
+    // clarification is returned to "pending" and the request goes back to "Pending
+    // Approval" so the SAME approver can now act. The approver is notified via the
+    // existing resubmit path (in-app + WhatsApp "Re-submitted" card) — no new message.
+    public async Task<(bool ok, string? err)> SubmitClarificationResponseAsync(
+        int requestId, int userId, string remarks, IFormFile? file = null,
+        string? storagePath = null, int maxFileMb = 20)
+    {
+        if (string.IsNullOrWhiteSpace(remarks))
+            return (false, "Clarification remarks are required.");
+        if (remarks.Length > 500)
+            return (false, "Clarification remarks cannot exceed 500 characters.");
+
+        var r = await _db.Requests.Include(x => x.Approvers)
+            .FirstOrDefaultAsync(x => x.RequestId == requestId);
+        if (r == null) return (false, "Not found.");
+
+        // Only the request's owner may respond, and only while it awaits clarification.
+        if (r.RequestorId != userId) return (false, "Only the requester can respond to clarification.");
+        if (r.Status != "Clarification Needed") return (false, "This request is not awaiting clarification.");
+
+        // The step that requested clarification (current level) — send it back to pending.
+        var targetApprover = r.Approvers
+            .Where(a => a.StepLevel == r.CurrentStepLevel)
+            .FirstOrDefault(a => a.Status == "clarification")
+            ?? r.Approvers.FirstOrDefault(a => a.StepLevel == r.CurrentStepLevel);
+        if (targetApprover == null)
+            return (false, "No approver is currently assigned to this request.");
+
+        targetApprover.Status = "pending";
+        targetApprover.Comment = null;
+        r.Status = "Pending Approval";
+
+        // Append-only audit record for the requester's response.
+        _db.RequestActionLogs.Add(new RequestActionLog
+        {
+            RequestId = requestId,
+            ActorUserId = userId,
+            Action = "clarification_response",
+            Comment = remarks,
+            StepLevel = r.CurrentStepLevel,
+        });
+
+        // Notify the approver in-app (mark any stale action_required read, then re-raise).
+        await _db.Notifications
+            .Where(n => n.UserId == targetApprover.ApproverUserId
+                     && n.RequestId == requestId
+                     && n.NotificationType == "action_required"
+                     && !n.IsRead)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(n => n.IsRead, true)
+                .SetProperty(n => n.ReadAt, IstClock.Now));
+        _db.Notifications.Add(new Notification
+        {
+            UserId = targetApprover.ApproverUserId,
+            RequestId = requestId,
+            NotificationType = "action_required",
+            Message = $"Clarification provided on {r.RequestNumber} — your approval is required (Step {targetApprover.StepLevel})."
+        });
+
+        await _db.SaveChangesAsync();
+
+        // Store the optional attachment as a clarification_response ApprovalAttachment so
+        // it renders under this response entry in the history timeline (matched by
+        // StepLevel + ActionType). Same storage pattern as approver attachments.
+        if (file != null && file.Length > 0 && !string.IsNullOrEmpty(storagePath))
+        {
+            var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+            var stored = $"{Guid.NewGuid()}{ext}";
+            Directory.CreateDirectory(storagePath);
+            await using var fs = File.Create(Path.Combine(storagePath, stored));
+            await file.CopyToAsync(fs);
+            _db.ApprovalAttachments.Add(new ApprovalAttachment
+            {
+                RequestId = requestId,
+                StepLevel = r.CurrentStepLevel,
+                ActionType = "clarification_response",
+                FileName = file.FileName,
+                StoredFileName = stored,
+                FileSizeBytes = file.Length,
+                ContentType = file.ContentType,
+                UploadedByUserId = userId,
+            });
+            await _db.SaveChangesAsync();
+        }
+
+        // Notify the current approver via the existing resubmit channel (unchanged message).
+        try
+        {
+            await _wa.SendResubmitToApproverAsync(requestId, targetApprover.ApproverUserId, targetApprover.StepLevel);
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "SubmitClarificationResponse: WhatsApp notify failed RequestId={Id}", requestId);
+        }
+
+        return (true, null);
+    }
+
+    // Attaches an OPTIONAL late remark to an approval the approver already completed via the
+    // immediate-approve WhatsApp flow. It does NOT re-run the workflow (status is already
+    // advanced and the next approver already notified) — it only records the remark against
+    // the existing "approved" action log and the approver's chain entry, so it shows in
+    // request history. Reuses the same DbContext; creates no duplicate action/notification.
+    public async Task<(bool ok, string? err)> AttachApprovalRemarkAsync(int requestId, int userId, string remark)
+    {
+        if (string.IsNullOrWhiteSpace(remark)) return (false, "Empty remark.");
+
+        var approver = await _db.RequestApprovers
+            .FirstOrDefaultAsync(a => a.RequestId == requestId && a.ApproverUserId == userId && a.Status == "approved");
+        if (approver == null) return (false, "No approved step found for this approver.");
+
+        approver.Comment = remark;
+
+        var log = await _db.RequestActionLogs
+            .Where(l => l.RequestId == requestId && l.ActorUserId == userId && l.Action == "approved")
+            .OrderByDescending(l => l.CreatedAt)
+            .FirstOrDefaultAsync();
+        if (log != null) log.Comment = remark;
+
+        await _db.SaveChangesAsync();
+        _log.LogInformation("AttachApprovalRemark: RequestId={Id} UserId={Uid} remark saved to approval history", requestId, userId);
+        return (true, null);
+    }
+
+    // Persists a post-approval WhatsApp reply that carries an attachment (and,
+    // optionally, a text caption). The optional caption is stored as the approval
+    // remark exactly like a text-only reply; the file metadata is recorded in the
+    // ApprovalReplies table. The file itself is already saved under
+    // wwwroot/uploads/whatsapp/ by the webhook — only metadata is stored here.
+    public async Task<(bool ok, string? err)> AttachApprovalReplyAsync(
+        int requestId, int userId, string? remark, string? attachmentFileName, string? attachmentUrl, string? waMsgId)
+    {
+        var approver = await _db.RequestApprovers
+            .FirstOrDefaultAsync(a => a.RequestId == requestId && a.ApproverUserId == userId && a.Status == "approved");
+        if (approver == null) return (false, "No approved step found for this approver.");
+
+        // Caption → approval remark (mirrors the text-only reply behaviour).
+        if (!string.IsNullOrWhiteSpace(remark))
+        {
+            approver.Comment = remark;
+            var log = await _db.RequestActionLogs
+                .Where(l => l.RequestId == requestId && l.ActorUserId == userId && l.Action == "approved")
+                .OrderByDescending(l => l.CreatedAt)
+                .FirstOrDefaultAsync();
+            if (log != null) log.Comment = remark;
+        }
+
+        _db.ApprovalReplies.Add(new ApprovalReply
+        {
+            ApprovalId = approver.ApproverId,
+            RequestId = requestId,
+            ReplyMessage = string.IsNullOrWhiteSpace(remark) ? null : remark,
+            AttachmentFileName = attachmentFileName,
+            AttachmentUrl = attachmentUrl,
+            WhatsAppMessageId = waMsgId,
+            CreatedDate = IstClock.Now,
+            CreatedBy = userId
+        });
+
+        await _db.SaveChangesAsync();
+        _log.LogInformation("AttachApprovalReply: RequestId={Id} UserId={Uid} attachment={File} saved", requestId, userId, attachmentFileName);
+        return (true, null);
+    }
+
+    // ── Deferred WhatsApp Approve — exactly-once execution ────
+    // Both the approver's reply (webhook) and the timeout sweep call this. The atomic
+    // single-row UPDATE of the session from "WaitingForReply" to "Completed" is the CLAIM:
+    // SQL Server serialises the two writers on that row, so only the caller whose update
+    // affects the row (claimed=1) proceeds to approve; the loser gets claimed=false and
+    // stops. Combined with ProcessActionAsync's own "pending"-status row guard, this makes
+    // the approval run exactly once despite double taps, duplicate webhooks, a late reply
+    // racing the timeout, or overlapping sweeps. Remark is passed as the approval comment,
+    // so the existing notification templates carry it to the requester / next approver.
+    // The session row is RETAINED (never deleted) as the audit record of the interaction.
+    public async Task<(bool claimed, bool ok, string? err)> TryExecuteDeferredApproveAsync(
+        int pendingId, int requestId, int approverId, string? remark)
+    {
+        var finalRemark = string.IsNullOrWhiteSpace(remark) ? null : remark.Trim();
+        var completedOn = IstClock.Now;
+
+        var claimed = await _db.WhatsAppPendingClarifications
+            .Where(p => p.Id == pendingId && p.Status == "WaitingForReply")
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(p => p.Status, "Completed")
+                .SetProperty(p => p.CompletedOn, completedOn)
+                .SetProperty(p => p.ApprovalRemark, finalRemark));
+        if (claimed == 0)
+        {
+            _log.LogInformation("DeferredApprove: session {PendingId} already claimed — skipping.", pendingId);
+            return (false, false, null);
+        }
+
+        bool ok; string? err;
+        try
+        {
+            (ok, err) = await ProcessActionAsync(requestId, approverId, "approved", finalRemark);
+        }
+        catch
+        {
+            // The claim is already committed but execution blew up, so this session can
+            // never approve. Mark it Expired and rethrow rather than reporting success.
+            // Deliberately terminal: releasing it back would have every sweep retry a
+            // deterministic failure forever. The approval must be completed from the web UI.
+            // Best-effort so a failure here cannot mask the original exception.
+            try { await MarkSessionExpiredAsync(pendingId); } catch { /* original error wins */ }
+            _log.LogError("DeferredApprove: execution threw — session {PendingId} marked Expired; RequestId={Id} still needs approval.",
+                pendingId, requestId);
+            throw;
+        }
+
+        // The claim won but the approval could not execute (e.g. the step was already
+        // actioned through the web UI). Mark the session Expired so "Completed" only ever
+        // means "the approval ran".
+        if (!ok) await MarkSessionExpiredAsync(pendingId);
+
+        _log.LogInformation("DeferredApprove: executed session {PendingId} RequestId={Id} hasRemark={HasRemark} ok={Ok} err={Err}",
+            pendingId, requestId, finalRemark != null, ok, err);
+        return (true, ok, err);
+    }
+
+    // A claimed session that could not approve. "Expired" keeps "Completed" meaning
+    // exactly one thing: the approval ran.
+    private async Task MarkSessionExpiredAsync(int pendingId) =>
+        await _db.WhatsAppPendingClarifications
+            .Where(p => p.Id == pendingId)
+            .ExecuteUpdateAsync(s => s.SetProperty(p => p.Status, "Expired"));
 
     public async Task<(bool ok, string? err)> DeleteAsync(int requestId, int userId, string userRole = "")
     {
@@ -683,13 +1097,17 @@ public class RequestService : IRequestService
         return (true, null);
     }
 
-    public async Task<AgingReportVM> GetAgingAsync(AgingReportVM f)
+    public async Task<AgingReportVM> GetAgingAsync(AgingReportVM f, int? scopeUserId = null)
     {
         var q = _db.Requests
             .Include(r => r.Requestor).Include(r => r.Location)
             .Include(r => r.Department).Include(r => r.RequestType)
             .Where(r => r.Status == "Open" || r.Status == "Pending Approval" || r.Status == "Partial Approved" || r.Status == "Clarification Needed")
             .AsQueryable();
+
+        // Non-admins may only see aging for their OWN requests.
+        if (scopeUserId.HasValue)
+            q = q.Where(r => r.RequestorId == scopeUserId.Value);
 
         if (!string.IsNullOrEmpty(f.FilterStatus)) q = q.Where(r => r.Status == f.FilterStatus);
         if (f.FilterLocationId.HasValue) q = q.Where(r => r.LocationId == f.FilterLocationId);
@@ -738,24 +1156,114 @@ public class RequestService : IRequestService
         return f;
     }
 
-    public async Task<WorkflowDefinition?> MatchWorkflowAsync(
-        int locId, int typeId, string priority, int deptId)
+    // ── Notification Alert (observer roles) ──────────────────
+    // Notification roles are configured per approval level — only the roles mapped to the
+    // specific level that was just approved are notified, not the whole workflow's roles.
+    private async Task<List<User>> ResolveNotificationRoleUsersAsync(int? workflowId, int stepLevel, int? excludeUserId)
     {
-        var candidates = await _db.WorkflowDefinitions.Include(w => w.Steps)
-            .Where(w => w.IsActive
-                && w.Steps.Any()
-                && (w.LocationId == null || w.LocationId == locId)
-                && (w.RequestTypeId == null || w.RequestTypeId == typeId)
-                && (w.Priority == null || w.Priority == priority)
-                && (w.DepartmentId == null || w.DepartmentId == deptId))
+        if (workflowId == null) return new List<User>();
+        var roleIds = await _db.WorkflowNotificationRoles
+            .Where(x => x.WorkflowId == workflowId.Value && x.StepLevel == stepLevel)
+            .Select(x => x.RoleId)
+            .ToListAsync();
+        if (roleIds.Count == 0) return new List<User>();
+        return await _db.Users
+            .Where(u => roleIds.Contains(u.RoleId) && u.Status == "active" && u.UserId != excludeUserId)
+            .ToListAsync();
+    }
+
+    private void QueueNotificationRoleAlerts(int requestId, string requestNumber, List<User> recipients, string eventLabel, string viewLink)
+    {
+        foreach (var u in recipients)
+            _db.Notifications.Add(new Notification
+            {
+                UserId = u.UserId,
+                RequestId = requestId,
+                NotificationType = "fyi",
+                Message = $"{eventLabel}: Request {requestNumber}. View: {viewLink}"
+            });
+    }
+
+    // Returns the request's view TOKEN. Callers turn it into whatever shape they need —
+    // the joined link block for the in-app notification, or the separate In-Office /
+    // Out-of-Office URLs the notification_alert template requires as {{8}} and {{9}}.
+    private async Task<string> GetOrCreateViewTokenAsync(int requestId)
+    {
+        var expiryDays = int.TryParse(_cfg["AppSettings:ViewLinkExpiryDays"], out var d) ? d : 30;
+        var expiresAt = IstClock.Now.AddDays(expiryDays);
+        var existing = await _db.RequestViewTokens.FirstOrDefaultAsync(t => t.RequestId == requestId);
+        string token;
+        if (existing != null) { existing.ExpiresAt = expiresAt; token = existing.Token; }
+        else
+        {
+            token = GenerateSecureToken();
+            _db.RequestViewTokens.Add(new RequestViewToken { RequestId = requestId, Token = token, ExpiresAt = expiresAt });
+        }
+        return token;
+    }
+
+    private static string GenerateSecureToken()
+    {
+        var bytes = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32);
+        return Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+    }
+
+    // Workflow matching is driven ONLY by Location / RequestType / Priority / Department
+    // and is completely independent of User Mapping. userId/amount are accepted for
+    // diagnostic logging only — they do not influence matching.
+    public async Task<WorkflowDefinition?> MatchWorkflowAsync(
+        int locId, int typeId, string priority, int deptId, int userId = 0, decimal? amount = null)
+    {
+        _log.LogInformation(
+            "WorkflowMatch: lookup start UserId={UserId} RequestTypeId={TypeId} DepartmentId={DeptId} LocationId={LocId} Priority={Priority} Amount={Amount}",
+            userId, typeId, deptId, locId, priority, amount);
+
+        // Load all active workflows that have at least one step, then match in memory so
+        // we can report exactly which condition eliminated the candidates. Workflow
+        // definitions are few (admin-configured), so this is inexpensive.
+        var active = await _db.WorkflowDefinitions
+            .Include(w => w.Steps)
+            .Where(w => w.IsActive && w.Steps.Any())
             .ToListAsync();
 
-        return candidates
+        bool LocOk(WorkflowDefinition w)  => w.LocationId    == null || w.LocationId    == locId;
+        bool TypeOk(WorkflowDefinition w) => w.RequestTypeId == null || w.RequestTypeId == typeId;
+        bool PrioOk(WorkflowDefinition w) => w.Priority      == null || w.Priority      == priority;
+        bool DeptOk(WorkflowDefinition w) => w.DepartmentId  == null || w.DepartmentId  == deptId;
+
+        var candidates = active
+            .Where(w => LocOk(w) && TypeOk(w) && PrioOk(w) && DeptOk(w))
+            .ToList();
+
+        _log.LogInformation(
+            "WorkflowMatch: {ActiveCount} active workflow(s) with steps; {CandidateCount} matched the combination.",
+            active.Count, candidates.Count);
+
+        if (candidates.Count == 0)
+        {
+            // Report exactly which condition(s) failed — a condition "FAILED" when no
+            // active workflow satisfied it for the selected values.
+            _log.LogWarning(
+                "WorkflowMatch: NO workflow matched. Conditions → Location={Loc} RequestType={Type} Priority={Prio} Department={Dept}. " +
+                "Passing each individually (of {Active} active): Loc={LocPass}, Type={TypePass}, Prio={PrioPass}, Dept={DeptPass}.",
+                active.All(w => !LocOk(w))  ? "FAILED" : "ok",
+                active.All(w => !TypeOk(w)) ? "FAILED" : "ok",
+                active.All(w => !PrioOk(w)) ? "FAILED" : "ok",
+                active.All(w => !DeptOk(w)) ? "FAILED" : "ok",
+                active.Count,
+                active.Count(LocOk), active.Count(TypeOk), active.Count(PrioOk), active.Count(DeptOk));
+            return null;
+        }
+
+        var best = candidates
             .OrderByDescending(w =>
                 (w.LocationId != null && w.LocationId == locId ? 4 : 0) +
                 (w.DepartmentId != null && w.DepartmentId == deptId ? 4 : 0) +
                 (w.RequestTypeId != null && w.RequestTypeId == typeId ? 2 : 0) +
                 (w.Priority != null && w.Priority == priority ? 1 : 0))
-            .FirstOrDefault();
+            .First();
+
+        _log.LogInformation("WorkflowMatch: matched WorkflowId={WfId} '{WfName}'.", best.WorkflowId, best.WorkflowName);
+        return best;
     }
 }

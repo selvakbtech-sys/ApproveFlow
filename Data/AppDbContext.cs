@@ -26,8 +26,12 @@ public class AppDbContext : DbContext
     public DbSet<RequestDocument> RequestDocuments => Set<RequestDocument>();
     public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<WhatsAppPendingClarification> WhatsAppPendingClarifications => Set<WhatsAppPendingClarification>();
+    public DbSet<WhatsAppMessageHistory> WhatsAppMessageHistories => Set<WhatsAppMessageHistory>();
     public DbSet<ApprovalAttachment> ApprovalAttachments => Set<ApprovalAttachment>();
+    public DbSet<ApprovalReply> ApprovalReplies => Set<ApprovalReply>();
     public DbSet<UserRequestTypeMapping> UserRequestTypeMappings => Set<UserRequestTypeMapping>();
+    public DbSet<WorkflowNotificationRole> WorkflowNotificationRoles => Set<WorkflowNotificationRole>();
+    public DbSet<RequestViewToken> RequestViewTokens => Set<RequestViewToken>();
 
     protected override void OnModelCreating(ModelBuilder mb)
     {
@@ -42,7 +46,11 @@ public class AppDbContext : DbContext
         mb.Entity<RequestType>(e => { e.ToTable("RequestTypes"); e.HasIndex(x => x.Code).IsUnique(); });
         mb.Entity<User>(e => {
             e.ToTable("Users");
-            e.HasIndex(x => x.Email).IsUnique();
+            e.Property(x => x.Username).HasMaxLength(100).IsRequired();
+            e.HasIndex(x => x.Username).IsUnique();
+            // Email is now optional (login uses Username). Filtered so multiple
+            // users may have a blank email while real emails stay unique.
+            e.HasIndex(x => x.Email).IsUnique().HasFilter("[Email] <> ''");
             e.HasOne(x => x.Role).WithMany(r => r.Users).HasForeignKey(x => x.RoleId);
         });
         mb.Entity<UserLocation>(e => {
@@ -67,6 +75,7 @@ public class AppDbContext : DbContext
             e.ToTable("WorkflowSteps");
             e.HasIndex(x => new { x.WorkflowId, x.StepLevel }).IsUnique();
             e.HasOne(x => x.Workflow).WithMany(w => w.Steps).HasForeignKey(x => x.WorkflowId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.ApproverRole).WithMany().HasForeignKey(x => x.ApproverRoleId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.ApproverUser).WithMany().HasForeignKey(x => x.ApproverUserId).OnDelete(DeleteBehavior.Restrict);
         });
         mb.Entity<Request>(e => {
@@ -104,12 +113,49 @@ public class AppDbContext : DbContext
             e.HasOne(x => x.Request).WithMany().HasForeignKey(x => x.RequestId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.UploadedByUser).WithMany().HasForeignKey(x => x.UploadedByUserId).OnDelete(DeleteBehavior.Restrict);
         });
+        mb.Entity<ApprovalReply>(e => {
+            e.ToTable("ApprovalReplies");
+            e.HasOne(x => x.Request).WithMany().HasForeignKey(x => x.RequestId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => x.RequestId);
+            e.HasIndex(x => x.ApprovalId);
+        });
         mb.Entity<UserRequestTypeMapping>(e => {
             e.ToTable("UserRequestTypeMappings");
             e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.RequestType).WithMany().HasForeignKey(x => x.RequestTypeId).OnDelete(DeleteBehavior.Restrict);
             e.HasIndex(x => x.UserId);
             e.HasIndex(x => x.RequestTypeId);
+        });
+        mb.Entity<WorkflowNotificationRole>(e => {
+            e.ToTable("WorkflowNotificationRoles");
+            e.HasIndex(x => new { x.WorkflowId, x.StepLevel, x.RoleId }).IsUnique();
+            e.HasOne(x => x.Workflow).WithMany(w => w.NotificationRoles).HasForeignKey(x => x.WorkflowId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Role).WithMany().HasForeignKey(x => x.RoleId).OnDelete(DeleteBehavior.Restrict);
+        });
+        mb.Entity<RequestViewToken>(e => {
+            e.ToTable("RequestViewTokens");
+            e.HasIndex(x => x.RequestId).IsUnique();
+            e.HasIndex(x => x.Token).IsUnique();
+            e.HasOne(x => x.Request).WithMany().HasForeignKey(x => x.RequestId).OnDelete(DeleteBehavior.Cascade);
+        });
+        mb.Entity<WhatsAppMessageHistory>(e => {
+            e.ToTable("WhatsAppMessageHistory");
+            e.HasIndex(x => x.RequestId);
+            e.Property(x => x.MobileNumber).HasMaxLength(30);
+            e.Property(x => x.Direction).HasMaxLength(10);
+            e.Property(x => x.MessageType).HasMaxLength(60);
+            e.Property(x => x.MessageId).HasMaxLength(200);
+            e.Property(x => x.Status).HasMaxLength(20);
+        });
+        mb.Entity<WhatsAppPendingClarification>(e => {
+            e.ToTable("WhatsAppPendingClarifications");
+            // Deferred-approve sessions are polled by the timeout sweep every few seconds
+            // and resolved by message id on every inbound reply. Completed sessions are
+            // retained as audit records, so both paths need to stay index seeks as the
+            // table grows.
+            e.HasIndex(x => new { x.Action, x.Status, x.ExpiresOn });
+            e.HasIndex(x => x.WhatsAppMessageId);
+            e.HasIndex(x => x.ParentMessageId);
         });
     }
 

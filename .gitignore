@@ -1,8 +1,14 @@
 .vs/
 bin/
 obj/
+publish/
 
 uploads/
+
+# Large media / archives — must never enter git (GitHub rejects >100MB)
+*.mp4
+*.zip
+wwwroot/videos/
 
 *.user
 *.suo
