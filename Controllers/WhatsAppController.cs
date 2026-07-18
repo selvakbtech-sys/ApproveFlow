@@ -370,6 +370,17 @@ public class WhatsAppController : Controller
                     ctxNode.TryGetProperty("id", out var ctxIdNode))
                     contextId = ctxIdNode.GetString();
 
+                // ── 0) Clarification Response via swipe-reply (REQUESTOR) ────────────────
+                // A requestor replying to the "Clarification Needed" card. Resolved by
+                // context.id → the outbound message → RequestId; only fires when the sender
+                // IS that request's requestor. Runs FIRST so a requestor's clarification
+                // response is never mis-handled as an approver reply/command. Reuses the web
+                // Clarification-Submit logic (RequestService.SubmitClarificationResponseAsync).
+                // Returns true only when it has taken ownership of the message.
+                if (!string.IsNullOrEmpty(contextId) &&
+                    await TryHandleClarificationReplyAsync(contextId!, textBody, normPhone, inboundMsgId))
+                    return Ok();
+
                 // ── 1) Deferred-approve reply matched by MESSAGE ID (authoritative) ───────
                 // Any number of approve sessions may be open for this approver, so the request
                 // is resolved from the message id the reply quotes — never from the phone, the
@@ -694,6 +705,113 @@ public class WhatsAppController : Controller
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" => ".xlsx",
         _ => ""
     };
+
+    // ── WhatsApp Clarification-Response handler (Requestor swipe-reply) ────────
+    // Turns a requestor's reply to the "Clarification Needed" WhatsApp card into a
+    // clarification response, IDENTICAL to submitting it from the web app. It contains NO
+    // workflow logic of its own — it resolves the reply back to the request and calls the
+    // EXISTING IRequestService.SubmitClarificationResponseAsync (same method the web
+    // "Submit Clarification" panel uses), which saves the response, appends the
+    // clarification_response history record, resumes the workflow and re-notifies the
+    // current approver (in-app + the WhatsApp resubmit card). One business logic only.
+    //
+    // Returns TRUE when this handler owns the message (processed, rejected, or a duplicate)
+    // so the webhook stops; FALSE when it is NOT a requestor clarification reply, so the
+    // normal approver flow continues untouched.
+    private async Task<bool> TryHandleClarificationReplyAsync(
+        string contextId, string textBody, string normPhone, string? inboundMsgId)
+    {
+        try
+        {
+            // 1) Resolve the replied-to OUTBOUND message → RequestId (authoritative link;
+            //    context.id is the wamid of the clarification card we sent the requestor).
+            var requestId = await _db.WhatsAppMessageHistories.AsNoTracking()
+                .Where(h => h.MessageId == contextId && h.Direction == "Outbound" && h.RequestId != null)
+                .OrderByDescending(h => h.CreatedDate)
+                .Select(h => h.RequestId)
+                .FirstOrDefaultAsync();
+            if (requestId == null || requestId == 0)
+                return false; // not a reply to a tracked request message → not ours
+
+            // 2) Load the request + its requestor's WhatsApp number.
+            var r = await _db.Requests.AsNoTracking()
+                .Where(x => x.RequestId == requestId.Value)
+                .Select(x => new { x.RequestId, x.RequestNumber, x.Status, x.RequestorId, Phone = x.Requestor.WhatsAppNumber })
+                .FirstOrDefaultAsync();
+            if (r == null) return false;
+
+            // 3) SECURITY — the sender MUST be this request's original requestor. If not, this
+            //    is not a clarification response (likely an approver reply) → defer, don't own.
+            //    This blocks anyone else from replying on the requestor's behalf.
+            if (!PhonesMatch(r.Phone, normPhone))
+                return false;
+
+            // From here we OWN the message (it is the requestor replying to their request).
+
+            // 3a) Duplicate guard — the same inbound WhatsApp message id already processed.
+            //     Prevents a duplicate webhook delivery from being handled twice (and avoids a
+            //     confusing "no longer active" reply once the status has already moved on).
+            if (!string.IsNullOrEmpty(inboundMsgId))
+            {
+                var already = await _db.WhatsAppMessageHistories.AsNoTracking()
+                    .AnyAsync(h => h.MessageId == inboundMsgId && h.Direction == "Inbound");
+                if (already)
+                {
+                    _log.LogInformation("WA-CLARIFY: duplicate inbound msg {Mid} ignored RequestId={Id}", inboundMsgId, r.RequestId);
+                    return true;
+                }
+            }
+
+            // 3b) The request must still be awaiting clarification. Any other status
+            //     (Approved / Rejected / Revoked / Deleted / Pending Approval / …) means the
+            //     clarification is no longer active — reject WITHOUT touching the database.
+            if (r.Status != RequestStatus.ClarificationNeeded)
+            {
+                _log.LogInformation("WA-CLARIFY: RequestId={Id} Number={Num} not awaiting clarification (status={Status}) — reply rejected. From={Phone} Ctx={Ctx} InMsg={Mid}",
+                    r.RequestId, r.RequestNumber, r.Status, normPhone, contextId, inboundMsgId);
+                await SendConfirmationAsync(normPhone,
+                    "This clarification request is no longer active or cannot be processed.");
+                return true;
+            }
+
+            // 4) Reuse the EXACT web Clarification-Submit business logic. This saves the
+            //    response, writes the clarification_response history entry, sets the request
+            //    back to Pending Approval, and re-notifies the current approver (in-app +
+            //    WhatsApp resubmit card) — everything the web flow does, no duplication.
+            bool ok; string? err;
+            try
+            {
+                (ok, err) = await _svc.SubmitClarificationResponseAsync(r.RequestId, r.RequestorId, textBody);
+            }
+            catch (Exception ex)
+            {
+                _log.LogError(ex, "WA-CLARIFY: SubmitClarificationResponse threw RequestId={Id}", r.RequestId);
+                await SendConfirmationAsync(normPhone,
+                    "This clarification request is no longer active or cannot be processed.");
+                return true;
+            }
+
+            // 5) Persist the inbound reply as a clarification_response history record
+            //    (Source = WhatsApp). Best-effort — must never block the response.
+            try { await _wa.LogInboundMessageAsync(r.RequestId, normPhone, "clarification_response", textBody, inboundMsgId, r.RequestorId); }
+            catch (Exception logEx) { _log.LogError(logEx, "WA-CLARIFY: inbound log failed (non-fatal) RequestId={Id}", r.RequestId); }
+
+            // 6) Confirm to the requestor.
+            await SendConfirmationAsync(normPhone, ok
+                ? $"✅ Your clarification for *{r.RequestNumber}* has been submitted. The approver has been notified."
+                : $"⚠️ {err}");
+
+            _log.LogInformation("WA-CLARIFY: RequestId={Id} Number={Num} From={Phone} Ctx={Ctx} InMsg={Mid} ok={Ok} err={Err} reply={Reply}",
+                r.RequestId, r.RequestNumber, normPhone, contextId, inboundMsgId, ok, err, textBody);
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "WA-CLARIFY: Unhandled exception handling clarification reply. context.id={Ctx}", contextId);
+            return false;
+        }
+    }
 
     // ── WhatsApp Reply-Command handler ────────────────────────────────────────
     // Executes a workflow action from a text reply the approver sent to an approval

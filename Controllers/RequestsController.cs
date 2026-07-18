@@ -47,6 +47,18 @@ public class RequestsController : BaseCtrl
     public Task<IActionResult> MyApprovals(RequestListVM filter, string? status, int page = 1)
         => Approval(filter, status, page);
 
+    // Territory grid — reached from the dashboard "My Territory" KPI cards as
+    // /Requests/Territory?FilterStatus=… The service scopes to the logged-in user's
+    // department/location (the SAME scope as the territory KPI counts) for EVERY role, so
+    // the grid total always matches the KPI. Renders the shared Index view in territory mode.
+    public async Task<IActionResult> Territory(RequestListVM filter, int page = 1)
+    {
+        if (DenyIfNoPerm("Requests") is { } r1) return r1;
+        ViewBag.UserRole = UserRole;
+        ViewBag.IsTerritory = true;
+        return View("Index", await _svc.GetTerritoryListAsync(UserId, filter, page, 20));
+    }
+
     public async Task<IActionResult> Detail(int id, string tab = "details", string? mode = null)
     {
         if (DenyIfNoPerm("Requests") is { } rd) return rd;
@@ -313,6 +325,20 @@ public class RequestsController : BaseCtrl
         return RedirectToAction("Detail", new { id });
     }
 
+    // Requestor revokes their own request (Pending Approval / Clarification Needed only).
+    // Dedicated flow — independent of Clarification. All rules are enforced server-side in
+    // RequestService.RevokeRequestAsync (owner + status + duplicate guard).
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> Revoke(int id, string revokeRemark)
+    {
+        if (DenyIfNoPerm("Requests") is { } rp) return rp;
+        if (!await _svc.CanAccessRequestAsync(id, UserId, UserRole)) return Deny();
+
+        var (ok, err) = await _svc.RevokeRequestAsync(id, UserId, revokeRemark);
+        if (ok) Ok("Request revoked. The current approver has been notified."); else Err(err!);
+        return RedirectToAction("Detail", new { id });
+    }
+
     public async Task<IActionResult> DownloadApproval(int id, int attachmentId)
     {
         if (DenyIfNoPerm("Requests") is { } rp) return rp;
@@ -506,7 +532,7 @@ public class RequestsController : BaseCtrl
         var sb = new System.Text.StringBuilder();
         sb.Append('﻿');
 
-        sb.AppendLine("Request #,Title,Requestor,Type,Priority,Amount,Status,Department,Location,Created Date,Submitted Date");
+        sb.AppendLine("Request #,Title,Requestor,Type,Priority,Amount,Status,Department,Location,Created Date,Submitted Date,Revoked By,Revoked Date,Revoke Remark");
 
         foreach (var r in allItems)
         {
@@ -521,7 +547,10 @@ public class RequestsController : BaseCtrl
                 $"\"{r.DeptName}\"," +
                 $"\"{r.LocationName}\"," +
                 $"\"{r.CreatedAt:dd-MMM-yyyy}\"," +
-                $"\"{(r.UpdatedAt != default ? r.UpdatedAt.ToString("dd-MMM-yyyy") : "")}\"");
+                $"\"{(r.UpdatedAt != default ? r.UpdatedAt.ToString("dd-MMM-yyyy") : "")}\"," +
+                $"\"{r.RevokedByName}\"," +
+                $"\"{(r.RevokedDate.HasValue ? r.RevokedDate.Value.ToString("dd-MMM-yyyy") : "")}\"," +
+                $"\"{r.RevokedRemark?.Replace("\"", "\"\"")}\"");
         }
 
         var bytes = System.Text.Encoding.UTF8.GetBytes(sb.ToString());

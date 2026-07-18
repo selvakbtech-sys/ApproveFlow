@@ -229,6 +229,7 @@ public class DashboardService : IDashboardService
             MyRejected        = await _db.Requests.CountAsync(r => r.RequestorId == userId && r.Status == "Rejected"),
             MyDraft           = await _db.Requests.CountAsync(r => r.RequestorId == userId && r.Status == "Draft"),
             MyClarification   = await _db.Requests.CountAsync(r => r.RequestorId == userId && r.Status == "Clarification Needed"),
+            MyRevoked         = await _db.Requests.CountAsync(r => r.RequestorId == userId && r.Status == "Revoked"),
         };
 
         var myReqs = _db.Requests.AsNoTracking().Where(r => r.RequestorId == userId && r.Status != "Deleted");

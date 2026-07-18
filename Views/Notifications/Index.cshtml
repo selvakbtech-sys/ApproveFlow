@@ -36,7 +36,9 @@
           @if (!string.IsNullOrEmpty(n.RequestNumber) && n.RequestId.HasValue)
           {
             <span> · </span>
-            <a asp-controller="Requests" asp-action="Detail" asp-route-id="@n.RequestId">@n.DisplayRequestNumber →</a>
+            @* Route through Notifications/Open: it authorizes first (AccessDenied if not
+               permitted, left unread), then marks read and navigates to the request. *@
+            <a asp-controller="Notifications" asp-action="Open" asp-route-id="@n.NotificationId">@n.DisplayRequestNumber →</a>
           }
         </div>
       </div>

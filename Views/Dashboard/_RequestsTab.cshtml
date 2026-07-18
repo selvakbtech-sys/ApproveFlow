@@ -6,7 +6,7 @@
 }
 
 @* ── KPI Cards ── *@
-<div class="metric-row" style="grid-template-columns:repeat(7,1fr)">
+<div class="metric-row" style="grid-template-columns:repeat(8,1fr)">
   <a asp-controller="Requests" asp-action="Index" asp-route-FilterMine="true" class="metric-card" style="--mc:#0f172a">
     <div class="metric-num">@Model.MyTotal</div>
     <div class="metric-lbl">Total Request</div>
@@ -43,6 +43,11 @@
         <div class="metric-lbl">Draft</div>
         <div class="metric-hint">&nbsp;</div>
     </a>
+  <a asp-controller="Requests" asp-action="Index" asp-route-FilterMine="true" asp-route-FilterStatus="Revoked" class="metric-card" style="--mc:#6b7280">
+    <div class="metric-num">@Model.MyRevoked</div>
+    <div class="metric-lbl">Revoked</div>
+    <div class="metric-hint">&nbsp;</div>
+  </a>
 </div>
 
 @* ── Summary Tables ── *@

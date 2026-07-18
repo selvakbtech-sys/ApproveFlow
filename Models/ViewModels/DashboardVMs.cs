@@ -130,6 +130,7 @@ public class MyRequestsTabVM
     public int MyRejected        { get; set; }
     public int MyDraft           { get; set; }
     public int MyClarification   { get; set; }
+    public int MyRevoked         { get; set; }
     public List<DashboardSummaryDto> ByTypeSummary { get; set; } = new();
     public List<DashboardSummaryDto> ByPrioritySummary { get; set; } = new();
     public List<DashboardSummaryDto> ByLocationSummary { get; set; } = new();

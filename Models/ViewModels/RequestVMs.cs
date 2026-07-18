@@ -41,6 +41,15 @@ public class ReqListItemVM
     // True when the logged-in user is this request's owner — set server-side so the grid
     // can show the requester-only Clarification action on a Clarification Needed request.
     public bool IsRequester { get; set; }
+    // Revoke: populated for the export (and available to the grid). RevokedByName is the
+    // full name of the requestor who revoked; the other two mirror the domain fields.
+    public string? RevokedByName { get; set; }
+    public DateTimeOffset? RevokedDate { get; set; }
+    public string? RevokedRemark { get; set; }
+    // The grid shows the Revoke action only to the owner while the request is still
+    // revocable (Pending Approval / Clarification Needed).
+    public bool CanRevoke =>
+        IsRequester && (Status == "Pending Approval" || Status == "Open" || Status == "Clarification Needed");
 }
 
 public class RequestFormVM
@@ -71,6 +80,14 @@ public class RequestFormVM
     // request replies with remarks/attachment instead of editing the original request.
     public bool CanSubmitClarification { get; set; }
     public string? LatestClarificationComment { get; set; }
+    // Revoke flow: the requestor (owner) may withdraw a Pending Approval / Clarification
+    // Needed request. CanRevoke gates the button; the three Revoked* fields render the
+    // read-only "Revoke Information" section once a request has been revoked.
+    public bool CanRevoke { get; set; }
+    public bool IsRevoked { get; set; }
+    public string? RevokedByName { get; set; }
+    public DateTimeOffset? RevokedDate { get; set; }
+    public string? RevokedRemark { get; set; }
     public string ActiveTab { get; set; } = "details";
     public List<ApproverStepVM> ApprovalChain { get; set; } = new();
     public List<ActionLogVM> ActionLog { get; set; } = new();

@@ -21,6 +21,14 @@ public class Request
     public DateTimeOffset? SubmittedAt { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
+    // ── Revoke: a requestor may withdraw their own request before it is processed
+    // further (only while Pending Approval / Clarification Needed). Additive fields —
+    // they never affect any existing flow. See RequestService.RevokeRequestAsync.
+    public bool IsRevoked { get; set; }
+    public int? RevokedByUserId { get; set; }
+    public DateTimeOffset? RevokedDate { get; set; }
+    [MaxLength(500)]
+    public string? RevokedRemark { get; set; }
     public virtual RequestType RequestType { get; set; } = null!;
     public virtual Location Location { get; set; } = null!;
     public virtual Department Department { get; set; } = null!;

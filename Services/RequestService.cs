@@ -4,6 +4,7 @@ public interface IRequestService
 {
     Task<RequestListVM> GetListAsync(RequestListVM filter, int page, int pageSize, int? filterUserId = null, int loggedInUserId = 0);
     Task<RequestListVM> GetMyApprovalsAsync(int approverUserId, RequestListVM filter, int page, int pageSize, string? statusToken = null);
+    Task<RequestListVM> GetTerritoryListAsync(int userId, RequestListVM filter, int page, int pageSize);
     Task<RequestFormVM?> GetDetailAsync(int id, int curUserId);
     Task<RequestFormVM> BuildFormAsync(int userId);
     Task<(bool ok, string? err, int id)> CreateAsync(RequestFormVM vm, int userId);
@@ -11,6 +12,7 @@ public interface IRequestService
     Task<(bool ok, string? err)> SubmitAsync(int requestId, int userId);
     Task<(bool ok, string? err)> ProcessActionAsync(int requestId, int userId, string action, string? comment, IFormFile? approvalFile = null, string? storagePath = null, int maxFileMb = 20);
     Task<(bool ok, string? err)> SubmitClarificationResponseAsync(int requestId, int userId, string remarks, IFormFile? file = null, string? storagePath = null, int maxFileMb = 20);
+    Task<(bool ok, string? err)> RevokeRequestAsync(int requestId, int userId, string remark);
     Task<(bool ok, string? err)> AttachApprovalRemarkAsync(int requestId, int userId, string remark);
     Task<(bool claimed, bool ok, string? err)> TryExecuteDeferredApproveAsync(int pendingId, int requestId, int approverId, string? remark);
     Task<(bool ok, string? err)> AttachApprovalReplyAsync(int requestId, int userId, string? remark, string? attachmentFileName, string? attachmentUrl, string? waMsgId);
@@ -91,7 +93,10 @@ public class RequestService : IRequestService
                 RequestTypeName = r.RequestType.TypeName,
                 DocumentCount = r.Documents.Count,
                 CreatedAt = r.CreatedAt,
-                UpdatedAt = r.UpdatedAt
+                UpdatedAt = r.UpdatedAt,
+                RevokedByName = r.IsRevoked ? r.Requestor.FullName : null,
+                RevokedDate = r.RevokedDate,
+                RevokedRemark = r.RevokedRemark,
             })
             .ToListAsync();
     }
@@ -215,6 +220,78 @@ public class RequestService : IRequestService
         return f;
     }
 
+    // ── My Territory grid ─────────────────────────────────────
+    // Requests in the logged-in user's departments/locations — the SAME dept/location
+    // scope used by DashboardService.GetMyTerritoryTabAsync, so the Territory KPI counts
+    // and this grid can never diverge. Backs the Territory KPI-card click-through for ALL
+    // roles (the previous behaviour routed to /Requests/Index, which is own-only for
+    // non-admins and global for admins — neither equals the territory, so counts never
+    // matched). Deleted requests are excluded, matching the counts.
+    public async Task<RequestListVM> GetTerritoryListAsync(int userId, RequestListVM f, int page, int size)
+    {
+        var myDeptIds = await _db.UserDepartments.AsNoTracking()
+            .Where(ud => ud.UserId == userId).Select(ud => ud.DepartmentId).ToListAsync();
+        var myLocIds = await _db.UserLocations.AsNoTracking()
+            .Where(ul => ul.UserId == userId).Select(ul => ul.LocationId).ToListAsync();
+
+        var q = _db.Requests
+            .AsNoTracking()
+            .Include(r => r.Requestor).Include(r => r.Location)
+            .Include(r => r.Department).Include(r => r.RequestType).Include(r => r.Documents)
+            .Where(r => (myDeptIds.Contains(r.DepartmentId) || myLocIds.Contains(r.LocationId))
+                        && r.Status != "Deleted")
+            .AsQueryable();
+
+        // Status filter. "Pending Approval" also matches the legacy "Open" alias so the
+        // grid total equals the territory Pending KPI (which counts Open + Pending Approval).
+        if (!string.IsNullOrEmpty(f.FilterStatus))
+        {
+            if (f.FilterStatus == RequestStatus.PendingApproval)
+                q = q.Where(r => r.Status == RequestStatus.PendingApproval || r.Status == RequestStatus.Open);
+            else
+                q = q.Where(r => r.Status == f.FilterStatus);
+        }
+        if (f.FilterLocationId.HasValue) q = q.Where(r => r.LocationId == f.FilterLocationId);
+        if (f.FilterDeptId.HasValue) q = q.Where(r => r.DepartmentId == f.FilterDeptId);
+        if (f.FilterTypeId.HasValue) q = q.Where(r => r.RequestTypeId == f.FilterTypeId);
+        if (!string.IsNullOrEmpty(f.FilterPriority)) q = q.Where(r => r.Priority == f.FilterPriority);
+        if (!string.IsNullOrEmpty(f.SearchTerm))
+            q = q.Where(r => r.Title.Contains(f.SearchTerm) ||
+                             r.RequestNumber.Contains(f.SearchTerm) ||
+                             r.Requestor.FullName.Contains(f.SearchTerm));
+        if (!string.IsNullOrEmpty(f.FilterDateFrom) && DateOnly.TryParse(f.FilterDateFrom, out var df))
+            q = q.Where(r => r.CreatedAt.Date >= df.ToDateTime(TimeOnly.MinValue));
+        if (!string.IsNullOrEmpty(f.FilterDateTo) && DateOnly.TryParse(f.FilterDateTo, out var dt))
+            q = q.Where(r => r.CreatedAt.Date <= dt.ToDateTime(TimeOnly.MaxValue));
+
+        var total = await q.CountAsync();
+        var items = await q.OrderByDescending(r => r.UpdatedAt)
+            .Skip((page - 1) * size).Take(size)
+            .Select(r => new ReqListItemVM
+            {
+                RequestId = r.RequestId,
+                RequestNumber = r.RequestNumber,
+                Title = r.Title,
+                Status = r.Status,
+                Priority = r.Priority,
+                Amount = r.Amount,
+                RequestorName = r.Requestor.FullName,
+                LocationName = r.Location.LocationName,
+                DeptName = r.Department.DeptName,
+                RequestTypeName = r.RequestType.TypeName,
+                DocumentCount = r.Documents.Count,
+                CreatedAt = r.CreatedAt,
+                UpdatedAt = r.UpdatedAt,
+                IsRequester = r.RequestorId == userId,
+            }).ToListAsync();
+
+        f.Items = items; f.TotalCount = total; f.PageNumber = page; f.PageSize = size;
+        f.Locations = await _db.Locations.Where(l => l.IsActive).OrderBy(l => l.LocationName).ToListAsync();
+        f.Departments = await _db.Departments.Where(d => d.IsActive).OrderBy(d => d.DeptName).ToListAsync();
+        f.RequestTypes = await _mapping.GetAllowedRequestTypesAsync(userId);
+        return f;
+    }
+
     // Authorization gate for opening/downloading a single request. Admin sees any;
     // everyone else may only access requests they created OR are an assigned approver on.
     // Returns false for non-existent requests too (no existence leak / no access).
@@ -261,7 +338,8 @@ public class RequestService : IRequestService
         // entries originated from WhatsApp (approve/reject/clarification via chat).
         var waInbound = await _db.WhatsAppMessageHistories
             .Where(w => w.RequestId == id && w.Direction == "Inbound"
-                     && (w.MessageType == "approved" || w.MessageType == "rejected" || w.MessageType == "clarification"))
+                     && (w.MessageType == "approved" || w.MessageType == "rejected"
+                         || w.MessageType == "clarification" || w.MessageType == "clarification_response"))
             .Select(w => new { w.MessageType, w.WorkflowLevel, w.CreatedBy })
             .ToListAsync();
 
@@ -318,6 +396,15 @@ public class RequestService : IRequestService
             // The requester (and only the requester) responds to a "Clarification Needed"
             // request via the dedicated Submit Clarification panel — not by editing.
             CanSubmitClarification = r.Status == "Clarification Needed" && r.RequestorId == curUserId,
+            // Revoke: only the owner, only while still revocable, and not already revoked.
+            CanRevoke = r.RequestorId == curUserId && !r.IsRevoked &&
+                (r.Status == "Pending Approval" || r.Status == "Open" || r.Status == "Clarification Needed"),
+            IsRevoked = r.IsRevoked,
+            // The revoker is always the requestor (only they can revoke), so their name
+            // is r.Requestor.FullName — no extra lookup needed.
+            RevokedByName = r.IsRevoked ? r.Requestor.FullName : null,
+            RevokedDate = r.RevokedDate,
+            RevokedRemark = r.RevokedRemark,
             LatestClarificationComment = r.ActionLogs
                 .Where(l => l.Action == "clarification")
                 .OrderByDescending(l => l.CreatedAt)
@@ -945,6 +1032,119 @@ public class RequestService : IRequestService
             _log.LogError(ex, "SubmitClarificationResponse: WhatsApp notify failed RequestId={Id}", requestId);
         }
 
+        return (true, null);
+    }
+
+    // ── Requestor's Revoke ────────────────────────────────────
+    // The requestor withdraws their OWN request before it is processed further. This is a
+    // DEDICATED flow — it deliberately does NOT reuse any Clarification logic. Allowed only
+    // while the request is Pending Approval (legacy "Open") or Clarification Needed; every
+    // other status (Partial Approved, Approved, Rejected, Deleted, already Revoked) is
+    // refused with the spec's message. All writes run inside a single DB transaction:
+    //   • the request is stamped Revoked + the four revoke fields,
+    //   • every still-active approver row (pending/waiting/clarification) is set to
+    //     "cancelled" so no approver can Approve / Reject / Clarify afterwards,
+    //   • a "revoked" audit record is appended to the history timeline,
+    //   • the current pending approver(s) get an in-app notification (no WhatsApp/email).
+    public async Task<(bool ok, string? err)> RevokeRequestAsync(int requestId, int userId, string remark)
+    {
+        if (string.IsNullOrWhiteSpace(remark))
+            return (false, "Revoke remark is required.");
+        if (remark.Length > 500)
+            return (false, "Revoke remark cannot exceed 500 characters.");
+
+        var r = await _db.Requests.Include(x => x.Approvers)
+            .FirstOrDefaultAsync(x => x.RequestId == requestId);
+        if (r == null) return (false, "Not found.");
+
+        // Only the ORIGINAL requestor may revoke — approvers, notification-alert users and
+        // admins cannot revoke on someone's behalf.
+        if (r.RequestorId != userId)
+            return (false, "Only the original requestor can revoke this request.");
+
+        // Revoke is allowed ONLY from Pending Approval (legacy "Open") or Clarification
+        // Needed. Everything else — including an already-revoked request — is refused with
+        // the exact spec message (also prevents a duplicate revoke).
+        bool revocable = !r.IsRevoked &&
+            (r.Status == RequestStatus.PendingApproval
+             || r.Status == RequestStatus.Open
+             || r.Status == RequestStatus.ClarificationNeeded);
+        if (!revocable)
+            return (false, "This request cannot be revoked because it has already been processed.");
+
+        var now = IstClock.Now;
+        var finalRemark = remark.Trim();
+
+        // The current pending approver(s) — captured BEFORE we cancel their rows so we can
+        // notify them. At Pending Approval this is the "pending" row; at Clarification
+        // Needed it is the "clarification" row.
+        var currentApproverIds = r.Approvers
+            .Where(a => a.Status == "pending" || a.Status == "clarification")
+            .Select(a => a.ApproverUserId)
+            .Distinct()
+            .ToList();
+
+        try
+        {
+            r.Status = RequestStatus.Revoked;
+            r.IsRevoked = true;
+            r.RevokedByUserId = userId;
+            r.RevokedDate = now;
+            r.RevokedRemark = finalRemark;
+
+            // Terminate the workflow: cancel every still-active approver step so no approver
+            // can act. Already-approved / already-rejected rows are left intact as history.
+            foreach (var a in r.Approvers.Where(a =>
+                a.Status == "pending" || a.Status == "waiting" || a.Status == "clarification"))
+            {
+                a.Status = "cancelled";
+            }
+
+            // Append-only audit record for the revoke — surfaces in the History timeline.
+            _db.RequestActionLogs.Add(new RequestActionLog
+            {
+                RequestId = requestId,
+                ActorUserId = userId,
+                Action = "revoked",
+                Comment = finalRemark,
+                StepLevel = r.CurrentStepLevel,
+            });
+
+            // Notify the current pending approver(s) in-app. Clear any stale action_required
+            // notifications first (as tracked entities, so everything commits in the SAME
+            // SaveChanges — one implicit transaction — which is atomic and works with the
+            // configured retry execution strategy; a manual transaction would not).
+            if (currentApproverIds.Count > 0)
+            {
+                var stale = await _db.Notifications
+                    .Where(n => currentApproverIds.Contains(n.UserId)
+                             && n.RequestId == requestId
+                             && n.NotificationType == "action_required"
+                             && !n.IsRead)
+                    .ToListAsync();
+                foreach (var n in stale) { n.IsRead = true; n.ReadAt = now; }
+
+                var revokeMsg = $"Request {r.RequestNumber} has been revoked by the Requestor. "
+                              + $"Reason: {finalRemark}. No further action is required.";
+                foreach (var approverId in currentApproverIds)
+                    _db.Notifications.Add(new Notification
+                    {
+                        UserId = approverId,
+                        RequestId = requestId,
+                        NotificationType = "revoked",
+                        Message = revokeMsg,
+                    });
+            }
+
+            await _db.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "RevokeRequest: failed for RequestId={Id} UserId={Uid}", requestId, userId);
+            return (false, "Could not revoke the request. Please try again.");
+        }
+
+        _log.LogInformation("RevokeRequest: RequestId={Id} revoked by UserId={Uid}", requestId, userId);
         return (true, null);
     }
 

@@ -245,6 +245,9 @@ namespace ApproveFlow.MVC.Migrations
                     b.Property<string>("Description")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<bool>("IsRevoked")
+                        .HasColumnType("bit");
+
                     b.Property<int>("LocationId")
                         .HasColumnType("int");
 
@@ -264,6 +267,16 @@ namespace ApproveFlow.MVC.Migrations
 
                     b.Property<int>("RequestorId")
                         .HasColumnType("int");
+
+                    b.Property<int?>("RevokedByUserId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset?>("RevokedDate")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("RevokedRemark")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
 
                     b.Property<string>("Status")
                         .IsRequired()

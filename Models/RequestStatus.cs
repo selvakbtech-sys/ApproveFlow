@@ -14,6 +14,7 @@ public static class RequestStatus
     public const string Rejected            = "Rejected";
     public const string ClarificationNeeded = "Clarification Needed";
     public const string Deleted             = "Deleted";
+    public const string Revoked             = "Revoked";        // requestor withdrew the request
 }
 
 // Maps the friendly status token carried on the Approval-Requests URL
