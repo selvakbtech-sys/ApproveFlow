@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "approveflow",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": ["run", "--project", "C:\\Source\\Final Source\\ApproveFlow.MVC\\ApproveFlow.MVC.csproj", "--urls", "http://localhost:5080"],
+      "port": 5080
+    }
+  ]
+}

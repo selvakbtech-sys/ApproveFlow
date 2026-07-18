@@ -1,0 +1,288 @@
+/* ============================================================
+   Login page — premium glassmorphism UI over animated MP4 bg
+   Scoped to the login page only (linked from Views/Auth/Login.cshtml)
+   All selectors are prefixed with .login-bg so nothing else in the
+   app is affected. Base classes (.inp/.btn/.lbl) come from site.css
+   and are intentionally overridden here.
+   ============================================================ */
+
+/* ---- Typography base ---- */
+.login-bg,
+.login-bg body,
+.login-bg .inp,
+.login-bg .btn,
+.login-bg .lf-remember,
+.login-bg .lf-forgot {
+    font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+}
+
+/* Prevent page scrolling; lock viewport to the video */
+html.login-bg,
+html.login-bg body {
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+}
+
+/* ---- Full-screen background video (GPU-accelerated) ---- */
+#bgVideo {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    z-index: -2;
+    transform: translateZ(0); /* promote to its own layer for smooth playback */
+    will-change: transform;
+    pointer-events: none;
+}
+
+/* ---- Dark overlay (light, so the construction video stays vibrant) ---- */
+.video-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, .12);
+    z-index: -1;
+    pointer-events: none;
+}
+
+/* ---- Page: perfectly centered card (never stretched vertically) ---- */
+.login-bg .auth-page {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: transparent; /* let the video show through */
+}
+
+/* ---- Login card: floating frosted glass, height fits content ---- */
+.login-bg .login-card {
+    width: 100%;
+    max-width: 500px;
+    margin: 0;
+    padding: 28px 36px;
+    background: rgba(255, 255, 255, 0.06);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 24px;
+    box-shadow: 0 15px 40px rgba(0, 0, 0, .25);
+
+    /* Entrance animation: fade + rise on load */
+    opacity: 0;
+    transform: translateY(30px);
+    will-change: opacity, transform;
+    animation: loginCardIn 700ms ease-out forwards;
+}
+
+@keyframes loginCardIn {
+    from { opacity: 0; transform: translateY(30px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ---- Logo + title ---- */
+.login-bg .auth-logo {
+    text-align: center;
+    margin-bottom: 0;
+}
+
+.login-bg .auth-logo-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 60px;
+    height: 60px;
+    margin: 0 0 12px; /* logo -> title */
+    padding: 0;
+    background: #fff;
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .18);
+}
+
+.login-bg .auth-logo-icon img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+.login-bg .auth-title {
+    font-size: 36px;
+    font-weight: 700;
+    letter-spacing: .5px;
+    color: #FFFFFF;
+    margin-bottom: 20px; /* title -> first field */
+    text-shadow: 0 2px 12px rgba(0, 0, 0, .35);
+}
+
+/* ---- Fields ---- */
+.login-bg .lf-field {
+    margin-bottom: 16px; /* textbox -> next label / remember me */
+}
+
+.login-bg .lbl {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: #F8FAFC;
+    margin-bottom: 8px;
+    text-shadow: 0 1px 6px rgba(0, 0, 0, .30);
+}
+
+.login-bg .req {
+    color: #FCA5A5;
+    margin-left: 2px;
+}
+
+/* Text inputs */
+.login-bg .inp {
+    width: 100%;
+    height: 50px;
+    padding: 0 16px;
+    border: 1px solid rgba(255, 255, 255, .35);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, .92);
+    color: #1E293B;
+    font-size: 15px;
+    font-weight: 500;
+    transition: background .25s ease, border-color .25s ease, box-shadow .25s ease;
+}
+
+.login-bg .inp::placeholder {
+    color: #94A3B8;
+    font-size: 14px;
+    font-weight: 400;
+}
+
+.login-bg .inp:hover {
+    border-color: rgba(255, 255, 255, .6);
+}
+
+.login-bg .inp:focus {
+    outline: none;
+    background: #FFFFFF;
+    border-color: #2563EB;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, .18);
+}
+
+/* Validation text — kept readable on the glass panel */
+.login-bg .field-validation-error {
+    font-size: 12px;
+    color: #FCA5A5;
+    margin-top: 6px;
+    text-shadow: 0 1px 4px rgba(0, 0, 0, .35);
+}
+
+/* ---- Remember me ---- */
+.login-bg .lf-remember {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 18px; /* checkbox -> button */
+    font-size: 15px;
+    font-weight: 500;
+    color: #FFFFFF;
+    cursor: pointer;
+    user-select: none;
+    text-shadow: 0 1px 6px rgba(0, 0, 0, .30);
+}
+
+.login-bg .lf-check {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    border-radius: 4px;
+    accent-color: #2563EB;
+    cursor: pointer;
+}
+
+/* ---- Sign in button ---- */
+.login-bg .lf-btn {
+    width: 100%;
+    height: 50px;
+    padding: 0;
+    justify-content: center;
+    border: none;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #1E40AF, #2563EB);
+    color: #FFFFFF;
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: .4px;
+    box-shadow: 0 8px 20px rgba(37, 99, 235, .28);
+    transition: background .25s ease, box-shadow .25s ease, transform .25s ease;
+}
+
+.login-bg .lf-btn:hover {
+    color: #FFFFFF;
+    transform: translateY(-2px);
+    box-shadow: 0 10px 25px rgba(37, 99, 235, .30);
+}
+
+.login-bg .lf-btn:active {
+    transform: translateY(0);
+}
+
+/* ---- Forgot password ---- */
+.login-bg .lf-forgot {
+    margin-top: 14px; /* button -> forgot password */
+    padding: 6px;
+    text-align: center;
+    font-size: 14px;
+    font-weight: 500;
+    color: #FFFFFF;
+    border-radius: 10px;
+    cursor: pointer;
+    user-select: none;
+    transition: background .25s ease;
+    text-shadow: 0 1px 6px rgba(0, 0, 0, .30);
+}
+
+.login-bg .lf-forgot:hover,
+.login-bg .lf-forgot:focus {
+    background: rgba(255, 255, 255, .12);
+    outline: none;
+}
+
+/* ============================================================
+   Responsive — card stays centered at every breakpoint
+   (320 / 375 / 425 / 768 / 1024 / 1440)
+   ============================================================ */
+@media (max-width: 768px) {
+    .login-bg .auth-page { padding: 18px; }
+    .login-bg .login-card { width: 94%; padding: 28px 30px; }
+}
+
+@media (max-width: 576px) {
+    .login-bg .login-card { width: 94%; padding: 26px 24px; }
+    .login-bg .auth-title { font-size: 30px; }
+    .login-bg .inp { height: 48px; }
+    .login-bg .lf-btn { height: 48px; }
+}
+
+@media (max-width: 360px) {
+    .login-bg .login-card { padding: 22px 18px; }
+    .login-bg .auth-title { font-size: 26px; }
+}
+
+/* ============================================================
+   Accessibility — replace video with a static background when the
+   user prefers reduced motion, and disable the card entrance.
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+    #bgVideo { display: none; }
+
+    .video-overlay {
+        background: linear-gradient(135deg, #1E3A8A 0%, #1e3a5f 100%);
+    }
+
+    .login-bg .login-card {
+        opacity: 1;
+        transform: none;
+        animation: none;
+    }
+}
