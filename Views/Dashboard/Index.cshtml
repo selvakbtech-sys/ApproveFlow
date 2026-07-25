@@ -10,7 +10,18 @@
     bool isApprover = ViewBag.IsApprover == true;
     bool isViewOnly = ((string)(ViewBag.UserRole ?? "") == "View Only");
     var displayedRecent = isAdmin ? Model.RecentRequests : Model.MyRecentRequests;
-    string defaultTab = "requests";
+
+    // ── Originating tab restore ───────────────────────────────
+    // The "← Back" button on a KPI list page returns here as /Dashboard?tab=<tab>. The token
+    // is resolved SERVER-SIDE so the correct panel is chosen before any script runs. Only
+    // tabs this user actually has are honoured (Territory is hidden for View Only, Admin
+    // Overview for non-admins); anything else falls back to the current default.
+    var allowedTabs = new List<string> { "requests", "approvals" };
+    if (!isViewOnly) allowedTabs.Add("territory");
+    if (isAdmin) allowedTabs.Add("admin");
+    var tabParam = Context.Request.Query["tab"].ToString();
+    bool tabFromUrl = allowedTabs.Contains(tabParam);
+    string defaultTab = tabFromUrl ? tabParam : "requests";
 }
 
 <style>
@@ -65,14 +76,10 @@
 </div>
 
 @* ── Alert banners ── *@
-@if (Model.MyPendingApprovals > 0)
-{
-  <div class="alert alert-wa" style="margin-bottom:10px">
-    <svg viewBox="0 0 24 24" style="width:16px;height:16px;flex-shrink:0"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-    You have <strong>@Model.MyPendingApprovals</strong> request@(Model.MyPendingApprovals > 1 ? "s" : "") awaiting your approval.
-    <a href="#" onclick="switchTab('approvals','approvalQueueCard');return false;" style="margin-left:10px;font-weight:600">Review now ↓</a>
-  </div>
-}
+@* The "You have N requests awaiting your approval / Review now" banner was removed by
+   design: the pending-approval nudge is delivered ONLY through the WhatsApp Pending
+   Reminder now. The My Approvals KPI, the tab badge and the approval queue below are
+   unaffected and still use Model.MyPendingApprovals. *@
 @if (Model.ClarificationItems.Any())
 {
   <div class="alert" style="background:#f3e8ff;color:#7c3aed;border:1px solid #c4b5fd;border-radius:8px;padding:10px 14px;display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:13px">
@@ -145,27 +152,27 @@
   @if (isApprover)
   {
   <div class="metric-row" style="grid-template-columns:repeat(5,1fr)">
-    <a asp-controller="Requests" asp-action="Approval" class="metric-card" style="--mc:#0f172a">
+    <a asp-controller="Requests" asp-action="Approval" asp-route-dtab="admin" class="metric-card" style="--mc:#0f172a">
       <div class="metric-num">@Model.AssignedToMeTotal</div>
       <div class="metric-lbl">Total Assigned to Me</div>
       <div class="metric-hint">All assigned</div>
     </a>
-    <a asp-controller="Requests" asp-action="Approval" asp-route-status="Pending" class="metric-card" style="--mc:#d97706">
+    <a asp-controller="Requests" asp-action="Approval" asp-route-dtab="admin" asp-route-status="Pending" class="metric-card" style="--mc:#d97706">
       <div class="metric-num">@Model.AssignedToMePending</div>
       <div class="metric-lbl">Pending Approvals</div>
       <div class="metric-hint">Awaiting my action</div>
     </a>
-    <a asp-controller="Requests" asp-action="Approval" asp-route-status="Approved" class="metric-card" style="--mc:#16a34a">
+    <a asp-controller="Requests" asp-action="Approval" asp-route-dtab="admin" asp-route-status="Approved" class="metric-card" style="--mc:#16a34a">
       <div class="metric-num">@Model.ApprovedByMe</div>
       <div class="metric-lbl">Approved by Me</div>
       <div class="metric-hint">&nbsp;</div>
     </a>
-    <a asp-controller="Requests" asp-action="Approval" asp-route-status="Rejected" class="metric-card" style="--mc:#dc2626">
+    <a asp-controller="Requests" asp-action="Approval" asp-route-dtab="admin" asp-route-status="Rejected" class="metric-card" style="--mc:#dc2626">
       <div class="metric-num">@Model.RejectedByMe</div>
       <div class="metric-lbl">Rejected by Me</div>
       <div class="metric-hint">&nbsp;</div>
     </a>
-    <a asp-controller="Requests" asp-action="Approval" asp-route-status="Clarification" class="metric-card" style="--mc:#7c3aed">
+    <a asp-controller="Requests" asp-action="Approval" asp-route-dtab="admin" asp-route-status="Clarification" class="metric-card" style="--mc:#7c3aed">
       <div class="metric-num">@Model.ClarificationByMe</div>
       <div class="metric-lbl">Clarification</div>
       <div class="metric-hint">&nbsp;</div>
@@ -175,32 +182,32 @@
   else if (isAdmin)
   {
   <div class="metric-row">
-    <a asp-controller="Requests" asp-action="Index" class="metric-card" style="--mc:#0f172a">
+    <a asp-controller="Requests" asp-action="Index" asp-route-dtab="admin" class="metric-card" style="--mc:#0f172a">
       <div class="metric-num">@Model.Total</div>
       <div class="metric-lbl">Total Requests</div>
       <div class="metric-hint">All time</div>
     </a>
-    <a asp-controller="Requests" asp-action="Index" asp-route-FilterStatus="Pending Approval" class="metric-card" style="--mc:#d97706">
+    <a asp-controller="Requests" asp-action="Index" asp-route-dtab="admin" asp-route-FilterStatus="Pending Approval" class="metric-card" style="--mc:#d97706">
       <div class="metric-num">@Model.PendingApproval</div>
       <div class="metric-lbl">Pending Approval</div>
       <div class="metric-hint">₹@Model.TotalAmountPending.ToString("N0") value</div>
     </a>
-    <a asp-controller="Requests" asp-action="Index" asp-route-FilterStatus="Approved" class="metric-card" style="--mc:#16a34a">
+    <a asp-controller="Requests" asp-action="Index" asp-route-dtab="admin" asp-route-FilterStatus="Approved" class="metric-card" style="--mc:#16a34a">
       <div class="metric-num">@Model.Approved</div>
       <div class="metric-lbl">Approved</div>
       <div class="metric-hint">₹@Model.TotalAmountApproved.ToString("N0") value</div>
     </a>
-    <a asp-controller="Requests" asp-action="Index" asp-route-FilterStatus="Rejected" class="metric-card" style="--mc:#dc2626">
+    <a asp-controller="Requests" asp-action="Index" asp-route-dtab="admin" asp-route-FilterStatus="Rejected" class="metric-card" style="--mc:#dc2626">
       <div class="metric-num">@Model.Rejected</div>
       <div class="metric-lbl">Rejected</div>
       <div class="metric-hint">&nbsp;</div>
     </a>
-    <a asp-controller="Requests" asp-action="Index" asp-route-FilterStatus="Draft" class="metric-card" style="--mc:#475569">
+    <a asp-controller="Requests" asp-action="Index" asp-route-dtab="admin" asp-route-FilterStatus="Draft" class="metric-card" style="--mc:#475569">
       <div class="metric-num">@Model.Draft</div>
       <div class="metric-lbl">Draft</div>
       <div class="metric-hint">&nbsp;</div>
     </a>
-    <a asp-controller="Requests" asp-action="Index" asp-route-FilterStatus="Clarification Needed" class="metric-card" style="--mc:#7c3aed">
+    <a asp-controller="Requests" asp-action="Index" asp-route-dtab="admin" asp-route-FilterStatus="Clarification Needed" class="metric-card" style="--mc:#7c3aed">
       <div class="metric-num">@Model.ClarificationNeeded</div>
       <div class="metric-lbl">Clarification</div>
       <div class="metric-hint">&nbsp;</div>
@@ -210,27 +217,27 @@
   else
   {
   <div class="metric-row" style="grid-template-columns:repeat(5,1fr)">
-    <a asp-controller="Requests" asp-action="Index" class="metric-card" style="--mc:#0f172a">
+    <a asp-controller="Requests" asp-action="Index" asp-route-dtab="admin" class="metric-card" style="--mc:#0f172a">
       <div class="metric-num">@Model.MyTotal</div>
       <div class="metric-lbl">My Total Requests</div>
       <div class="metric-hint">&nbsp;</div>
     </a>
-    <a asp-controller="Requests" asp-action="Index" asp-route-FilterStatus="Pending Approval" class="metric-card" style="--mc:#d97706">
+    <a asp-controller="Requests" asp-action="Index" asp-route-dtab="admin" asp-route-FilterStatus="Pending Approval" class="metric-card" style="--mc:#d97706">
       <div class="metric-num">@Model.MyPending</div>
       <div class="metric-lbl">My Pending Requests</div>
       <div class="metric-hint">&nbsp;</div>
     </a>
-    <a asp-controller="Requests" asp-action="Index" asp-route-FilterStatus="Approved" class="metric-card" style="--mc:#16a34a">
+    <a asp-controller="Requests" asp-action="Index" asp-route-dtab="admin" asp-route-FilterStatus="Approved" class="metric-card" style="--mc:#16a34a">
       <div class="metric-num">@Model.MyApproved</div>
       <div class="metric-lbl">My Approved Requests</div>
       <div class="metric-hint">&nbsp;</div>
     </a>
-    <a asp-controller="Requests" asp-action="Index" asp-route-FilterStatus="Rejected" class="metric-card" style="--mc:#dc2626">
+    <a asp-controller="Requests" asp-action="Index" asp-route-dtab="admin" asp-route-FilterStatus="Rejected" class="metric-card" style="--mc:#dc2626">
       <div class="metric-num">@Model.MyRejected</div>
       <div class="metric-lbl">My Rejected Requests</div>
       <div class="metric-hint">&nbsp;</div>
     </a>
-    <a asp-controller="Requests" asp-action="Index" asp-route-FilterStatus="Clarification Needed" class="metric-card" style="--mc:#7c3aed">
+    <a asp-controller="Requests" asp-action="Index" asp-route-dtab="admin" asp-route-FilterStatus="Clarification Needed" class="metric-card" style="--mc:#7c3aed">
       <div class="metric-num">@Model.MyClarification</div>
       <div class="metric-lbl">My Clarification</div>
       <div class="metric-hint">&nbsp;</div>
@@ -245,7 +252,7 @@
         <svg viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22,4 12,14.01 9,11.01"/></svg>
         My Pending Approvals
         @if (Model.MyPendingApprovals > 0) { <span class="badge badge-amber">@Model.MyPendingApprovals</span> }
-        <div class="card-hdr-right"><a asp-controller="Requests" asp-action="Approval" asp-route-status="Pending" class="btn btn-ghost btn-sm">View all →</a></div>
+        <div class="card-hdr-right"><a asp-controller="Requests" asp-action="Approval" asp-route-dtab="admin" asp-route-status="Pending" class="btn btn-ghost btn-sm">View all →</a></div>
       </div>
       @if (Model.MyPendingApprovalRequests.Any())
       {
@@ -282,7 +289,7 @@
       <div class="card-hdr">
         <svg viewBox="0 0 24 24" style="width:15px;height:15px"><polyline points="22,12 18,12 15,21 9,3 6,12 2,12"/></svg>
         @(isAdmin ? "Recent Activity" : "My Recent Activity")
-        <div class="card-hdr-right"><a asp-controller="Requests" asp-action="Index" class="btn btn-ghost btn-sm">View all</a></div>
+        <div class="card-hdr-right"><a asp-controller="Requests" asp-action="Index" asp-route-dtab="admin" class="btn btn-ghost btn-sm">View all</a></div>
       </div>
       <div style="max-height:340px;overflow-y:auto">
         @foreach (var log in Model.ActivityFeed)
@@ -315,7 +322,7 @@
       <div class="card-hdr">
         <svg viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>
         My Recent Requests
-        <div class="card-hdr-right"><a asp-controller="Requests" asp-action="Index" class="btn btn-ghost btn-sm">View all</a></div>
+        <div class="card-hdr-right"><a asp-controller="Requests" asp-action="Index" asp-route-dtab="admin" class="btn btn-ghost btn-sm">View all</a></div>
       </div>
       @foreach (var r in Model.MyRecentRequests)
       {
@@ -526,7 +533,7 @@
     <div class="card-hdr">
       <svg viewBox="0 0 24 24" style="width:15px;height:15px"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>
       @(isAdmin ? "All Recent Requests" : "My Recent Requests")
-      <div class="card-hdr-right"><a asp-controller="Requests" asp-action="Index" class="btn btn-ghost btn-sm">View all →</a></div>
+      <div class="card-hdr-right"><a asp-controller="Requests" asp-action="Index" asp-route-dtab="admin" class="btn btn-ghost btn-sm">View all →</a></div>
     </div>
     <div class="tbl-wrap">
       <table class="tbl">
@@ -732,9 +739,20 @@
   }
 
   // switchTab(tab[, scrollToId]) — activates the tab and, when a scroll target is
-  // given (e.g. the "Review now" banner passing 'approvalQueueCard'), scrolls to it
+  // given (e.g. the clarification banner passing 'myRecentRequestsCard'), scrolls to it
   // AFTER the panel's content has loaded.
   window.switchTab = function (tab, scrollToId) {
+    // Keep ?tab= in the address bar in step with the active tab, so a refresh — and the
+    // browser Back button returning to this entry — land on the same tab. Also recorded in
+    // sessionStorage as a fallback for history entries created before this ran.
+    try {
+      var u = new URL(window.location.href);
+      if (u.searchParams.get('tab') !== tab) {
+        u.searchParams.set('tab', tab);
+        history.replaceState(null, '', u.toString());
+      }
+    } catch (e) { /* URL unsupported — tab still switches */ }
+    try { sessionStorage.setItem('af-dash-tab', tab); } catch (e) { /* storage blocked */ }
     if (loaded.has(tab)) {
       activateTab(tab);
       scrollToTarget(scrollToId);
@@ -760,7 +778,25 @@
     }
   };
 
-  // Activate default tab on page load
-  switchTab(defaultTab);
+  // defaultTab is already the tab named by ?tab= when the "← Back" button sent one, so the
+  // normal path needs nothing further.
+  var startTab = defaultTab;
+
+  // Fallback for the BROWSER back button only: a /Dashboard history entry created before
+  // the tab was recorded carries no ?tab=, so going back to it would drop to My Requests.
+  // When the navigation type is back/forward AND the URL named no tab, restore the tab last
+  // opened in this session. Direct URL access and the nav menu keep the default behaviour.
+  var tabCameFromUrl = @(tabFromUrl ? "true" : "false");
+  if (!tabCameFromUrl) {
+    try {
+      var nav = performance.getEntriesByType('navigation')[0];
+      var isBackForward = nav ? nav.type === 'back_forward'
+                              : performance.navigation && performance.navigation.type === 2;
+      var saved = sessionStorage.getItem('af-dash-tab');
+      if (isBackForward && saved && document.getElementById('tab-btn-' + saved)) startTab = saved;
+    } catch (e) { /* history/storage APIs unavailable — keep the default */ }
+  }
+
+  switchTab(startTab);
 })();
 </script>

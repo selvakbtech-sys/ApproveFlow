@@ -3,7 +3,7 @@ namespace ApproveFlow.MVC.Services;
 public interface IRequestService
 {
     Task<RequestListVM> GetListAsync(RequestListVM filter, int page, int pageSize, int? filterUserId = null, int loggedInUserId = 0);
-    Task<RequestListVM> GetMyApprovalsAsync(int approverUserId, RequestListVM filter, int page, int pageSize, string? statusToken = null);
+    Task<RequestListVM> GetMyApprovalsAsync(int approverUserId, RequestListVM filter, int page, int pageSize, string? statusToken = null, bool includeLookups = true);
     Task<RequestListVM> GetTerritoryListAsync(int userId, RequestListVM filter, int page, int pageSize);
     Task<RequestFormVM?> GetDetailAsync(int id, int curUserId);
     Task<RequestFormVM> BuildFormAsync(int userId);
@@ -23,6 +23,7 @@ public interface IRequestService
     // Authorization: can this user open/download this specific request? Admin = any;
     // otherwise only the requestor (creator) or an assigned approver.
     Task<bool> CanAccessRequestAsync(int requestId, int userId, string userRole);
+    Task<bool> CanViewRequestAsync(int requestId, int userId, string userRole);
 }
 
 public class RequestService : IRequestService
@@ -91,6 +92,8 @@ public class RequestService : IRequestService
                 LocationName = r.Location.LocationName,
                 DeptName = r.Department.DeptName,
                 RequestTypeName = r.RequestType.TypeName,
+                Description = r.Description,
+                Notes = r.Notes,
                 DocumentCount = r.Documents.Count,
                 CreatedAt = r.CreatedAt,
                 UpdatedAt = r.UpdatedAt,
@@ -161,7 +164,10 @@ public class RequestService : IRequestService
     // KPI cards is mapped (via ApprovalStatusFilter) to the request statuses it covers:
     //   (none) → All 12 · Pending → Open+Pending Approval+Partial Approved · Approved →
     //   Approved · Rejected → Rejected · Clarification → Clarification Needed.
-    public async Task<RequestListVM> GetMyApprovalsAsync(int approverUserId, RequestListVM f, int page, int size, string? statusToken = null)
+    // includeLookups=false skips the Location/Department/RequestType dropdown loads, which only
+    // the desktop filter bar needs. The mobile pending page passes false so a search keystroke
+    // costs one query instead of four. Defaults to true, so existing callers are unchanged.
+    public async Task<RequestListVM> GetMyApprovalsAsync(int approverUserId, RequestListVM f, int page, int size, string? statusToken = null, bool includeLookups = true)
     {
         var q = _db.RequestApprovers
             .AsNoTracking()
@@ -207,16 +213,26 @@ public class RequestService : IRequestService
                 LocationName = r.Location.LocationName,
                 DeptName = r.Department.DeptName,
                 RequestTypeName = r.RequestType.TypeName,
+                Description = r.Description,
+                Notes = r.Notes,
                 DocumentCount = r.Documents.Count,
                 CreatedAt = r.CreatedAt,
                 UpdatedAt = r.UpdatedAt,
+                SubmittedAt = r.SubmittedAt,
+                CurrentStepLevel = r.CurrentStepLevel,
                 IsRequester = r.RequestorId == approverUserId,
+                RevokedByName = r.IsRevoked ? r.Requestor.FullName : null,
+                RevokedDate = r.RevokedDate,
+                RevokedRemark = r.RevokedRemark,
             }).ToListAsync();
 
         f.Items = items; f.TotalCount = total; f.PageNumber = page; f.PageSize = size;
-        f.Locations = await _db.Locations.Where(l => l.IsActive).OrderBy(l => l.LocationName).ToListAsync();
-        f.Departments = await _db.Departments.Where(d => d.IsActive).OrderBy(d => d.DeptName).ToListAsync();
-        f.RequestTypes = await _mapping.GetAllowedRequestTypesAsync(approverUserId);
+        if (includeLookups)
+        {
+            f.Locations = await _db.Locations.Where(l => l.IsActive).OrderBy(l => l.LocationName).ToListAsync();
+            f.Departments = await _db.Departments.Where(d => d.IsActive).OrderBy(d => d.DeptName).ToListAsync();
+            f.RequestTypes = await _mapping.GetAllowedRequestTypesAsync(approverUserId);
+        }
         return f;
     }
 
@@ -279,10 +295,15 @@ public class RequestService : IRequestService
                 LocationName = r.Location.LocationName,
                 DeptName = r.Department.DeptName,
                 RequestTypeName = r.RequestType.TypeName,
+                Description = r.Description,
+                Notes = r.Notes,
                 DocumentCount = r.Documents.Count,
                 CreatedAt = r.CreatedAt,
                 UpdatedAt = r.UpdatedAt,
                 IsRequester = r.RequestorId == userId,
+                RevokedByName = r.IsRevoked ? r.Requestor.FullName : null,
+                RevokedDate = r.RevokedDate,
+                RevokedRemark = r.RevokedRemark,
             }).ToListAsync();
 
         f.Items = items; f.TotalCount = total; f.PageNumber = page; f.PageSize = size;
@@ -302,6 +323,30 @@ public class RequestService : IRequestService
 
         return await _db.Requests.AnyAsync(r => r.RequestId == requestId &&
             (r.RequestorId == userId || r.Approvers.Any(a => a.ApproverUserId == userId)));
+    }
+
+    // Read-only view gate. Broader than CanAccessRequestAsync: in addition to the owner,
+    // the approvers and admins, it also lets a user OPEN a request that falls inside their
+    // territory — the SAME dept/location scope as GetTerritoryListAsync / the territory KPI
+    // (dept OR location). This is exactly the set the Territory grid lists, so every row a
+    // user can see there is now openable. It grants viewing ONLY; every mutating action and
+    // attachment download still gates on the stricter CanAccessRequestAsync, so a territory
+    // co-worker can look but cannot act.
+    public async Task<bool> CanViewRequestAsync(int requestId, int userId, string userRole)
+    {
+        if (string.Equals(userRole, "Admin", StringComparison.OrdinalIgnoreCase))
+            return await _db.Requests.AnyAsync(r => r.RequestId == requestId);
+
+        var myDeptIds = await _db.UserDepartments.AsNoTracking()
+            .Where(ud => ud.UserId == userId).Select(ud => ud.DepartmentId).ToListAsync();
+        var myLocIds = await _db.UserLocations.AsNoTracking()
+            .Where(ul => ul.UserId == userId).Select(ul => ul.LocationId).ToListAsync();
+
+        return await _db.Requests.AnyAsync(r => r.RequestId == requestId &&
+            (r.RequestorId == userId
+             || r.Approvers.Any(a => a.ApproverUserId == userId)
+             || myDeptIds.Contains(r.DepartmentId)
+             || myLocIds.Contains(r.LocationId)));
     }
 
     public async Task<RequestFormVM?> GetDetailAsync(int id, int curUserId)

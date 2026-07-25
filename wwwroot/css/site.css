@@ -312,3 +312,36 @@ body{overflow-x:hidden}
   /* Metric tiles: one per row on the narrowest screens */
   .metric-row,.my-metric-row{grid-template-columns:1fr!important}
 }
+
+/* ============================================================
+   MOBILE OVERFLOW GUARD  (≤768px only — desktop untouched)
+   A phone page must never pan sideways. Two causes are handled here:
+   1. Unbreakable content — long request numbers, file names, URLs, e-mail
+      addresses and pasted remarks have no space to wrap on, so they widen
+      their container and with it the whole page.
+   2. Inline grids declared with a fixed column count in a view's style
+      attribute, which the generic .m-collapse helpers do not cover.
+   Wide TABLES are deliberately NOT clipped — they live inside .tbl-wrap,
+   which scrolls them horizontally on their own, and that must keep working.
+   ============================================================ */
+@media(max-width:768px){
+  /* Nothing may extend the page horizontally. */
+  html,body{overflow-x:hidden}
+  .main,.page-body{max-width:100%}
+
+  /* Break long unbreakable strings rather than stretching the layout. */
+  .info-val,.tl-text,.tl-title,.card-body,.alert,.badge,.mono,
+  .pg-title,.pg-sub,.doc-name,.f-lbl{overflow-wrap:anywhere}
+
+  /* Header title + status/priority badges wrap instead of forcing width. */
+  .pg-hdr{flex-wrap:wrap}
+  .pg-hdr>div{min-width:0}
+
+  /* Inline "repeat(N,1fr)" grids inside cards collapse to a single column.
+     Scoped to .card so dashboard metric rows keep their own 2-up rules. */
+  .card [style*="repeat(4,1fr)"],
+  .card [style*="repeat(3,1fr)"]{grid-template-columns:1fr!important}
+
+  /* Grid/flex children need min-width:0 or their content refuses to shrink. */
+  .card,.card-body,.tbl-wrap{min-width:0}
+}

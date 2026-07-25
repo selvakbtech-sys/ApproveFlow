@@ -1,0 +1,62 @@
+@model RequestListVM
+@*
+    One page of pending-approval cards. Rendered server-side for the first page and returned
+    from /Mobile/Cards for search, chip switches and lazy loading — one card template only.
+    Each card is a single anchor into the EXISTING request detail page, carrying source=mobile
+    so its Back button returns here.
+
+    Each item emits a grid column, so the container's row-cols-* rules give one card per row
+    on a phone and two per row from the md breakpoint up.
+
+    No status badge and no approval level: every request on this page is pending by definition.
+*@
+@{
+    // Small priority pill: red High/Critical, orange Medium, green Low.
+    string PrioClass(string p) => p switch
+    {
+        "Critical" => "pa-prio-high",
+        "High"     => "pa-prio-high",
+        "Medium"   => "pa-prio-med",
+        "Low"      => "pa-prio-low",
+        _          => "pa-prio-none"
+    };
+}
+
+@if (!Model.Items.Any() && Model.PageNumber == 1)
+{
+  <div class="col-12">
+    <div class="text-center text-secondary py-5">
+      <i class="bi bi-check2-circle d-block mb-2" style="font-size:2rem"></i>
+      <div class="small fw-semibold">Nothing pending</div>
+      <div class="small">No requests match this filter.</div>
+    </div>
+  </div>
+}
+
+@foreach (var r in Model.Items)
+{
+  <div class="col">
+    <a class="pa-card" href="@Url.Action("Detail", "Requests", new { id = r.RequestId, source = "mobile" })">
+
+      <div class="d-flex justify-content-between align-items-center gap-2">
+        <span class="pa-no text-truncate">@r.DisplayRequestNumber</span>
+        <span class="pa-prio @PrioClass(r.Priority)">@r.Priority?.ToUpperInvariant()</span>
+      </div>
+
+      <div class="pa-title text-truncate">@r.Title</div>
+
+      <div class="pa-sub text-truncate">@r.RequestorName | @r.DeptName</div>
+
+      <div class="d-flex justify-content-between align-items-center gap-2 mt-1">
+        <span class="pa-date">@((r.SubmittedAt ?? r.CreatedAt).ToString("dd-MMM-yyyy"))</span>
+        <span class="d-inline-flex align-items-center gap-2 min-0">
+          @* Explicit ₹ + N2 rather than "C", so the symbol never follows the server's
+             culture — the same convention the desktop grid uses. Null/zero → ₹0.00. *@
+          <span class="pa-amt">₹@((r.Amount ?? 0m).ToString("N2"))</span>
+          <i class="bi bi-chevron-right pa-chev"></i>
+        </span>
+      </div>
+
+    </a>
+  </div>
+}

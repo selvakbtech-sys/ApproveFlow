@@ -1,0 +1,91 @@
+@*
+    Standalone layout for the mobile Pending Approvals page. Deliberately separate from
+    _Layout.cshtml: no sidebar, no admin menu, no KPI/chart assets — just Bootstrap 5 and the
+    page itself. Bootstrap and Bootstrap Icons are served from wwwroot/lib (no CDN), so the
+    page renders correctly on a phone with no internet access, e.g. on the office LAN.
+    Bootstrap's JS bundle is intentionally not loaded — this page uses no JS components.
+*@
+@{ Layout = null; }
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#1d4ed8"/>
+  <title>@(ViewData["Title"] ?? "Pending Approvals") — BNR Flow</title>
+  <link rel="stylesheet" href="~/lib/bootstrap/css/bootstrap.min.css" asp-append-version="true"/>
+  <link rel="stylesheet" href="~/lib/bootstrap-icons/bootstrap-icons.min.css" asp-append-version="true"/>
+  <style>
+    /* Nothing may scroll sideways on a phone, whatever the content length. */
+    html, body { overflow-x: hidden; }
+    body { -webkit-tap-highlight-color: transparent; background: var(--bs-secondary-bg); }
+
+    /* Phone = single column; tablet/desktop = the same list, centred and two-up. */
+    .m-shell {
+      max-width: 860px; margin: 0 auto;
+      padding-bottom: calc(80px + env(safe-area-inset-bottom));
+    }
+
+    /* ── Summary banner (~95px) ─────────────────────────────────── */
+    .pa-banner {
+      background: linear-gradient(135deg, #1d4ed8 0%, #3b82f6 100%);
+      color: #fff; border-radius: 14px; padding: 13px 16px;
+      box-shadow: 0 2px 10px rgba(29, 78, 216, .25);
+    }
+    .pa-banner-hi   { font-size: .8rem;  opacity: .9; }
+    .pa-banner-cnt  { font-size: 1.05rem; font-weight: 700; margin: .15rem 0 .2rem; }
+    .pa-banner-date { font-size: .72rem; opacity: .85; }
+
+    /* ── Filter chips ───────────────────────────────────────────── */
+    .chip {
+      border-radius: 999px; font-size: .72rem; padding: .25rem .7rem;
+      white-space: nowrap; line-height: 1.35;
+    }
+
+    /* ── Request card (~104px: 4 rows + 16px padding) ───────────── */
+    .pa-card {
+      display: block; background: var(--bs-body-bg);
+      border: 1px solid var(--bs-border-color); border-radius: 12px;
+      padding: 16px; height: 100%;
+      color: inherit; text-decoration: none;
+      box-shadow: 0 1px 3px rgba(16, 24, 40, .06);
+      transition: transform .12s ease, box-shadow .12s ease;
+    }
+    .pa-card:active { transform: scale(.99); box-shadow: 0 1px 2px rgba(16, 24, 40, .04); }
+
+    .pa-no    { font-size: .78rem; font-weight: 600; color: var(--bs-primary); }
+    .pa-title { font-size: .9rem;  font-weight: 700; line-height: 1.3; margin: .25rem 0 .15rem; }
+    .pa-sub   { font-size: .74rem; color: var(--bs-secondary-color); }
+    .pa-date  { font-size: .72rem; color: var(--bs-secondary-color); }
+    .pa-amt   { font-size: .88rem; font-weight: 700; }
+    .pa-chev  { color: var(--bs-secondary-color); font-size: .95rem; }
+
+    /* Small priority pill — red High, orange Medium, green Low. */
+    .pa-prio { font-size: .62rem; font-weight: 700; padding: .18rem .5rem; border-radius: 999px; letter-spacing: .3px; }
+    .pa-prio-high { background: #fee2e2; color: #b91c1c; }
+    .pa-prio-med  { background: #ffedd5; color: #c2410c; }
+    .pa-prio-low  { background: #dcfce7; color: #15803d; }
+    .pa-prio-none { background: var(--bs-secondary-bg); color: var(--bs-secondary-color); }
+
+    /* Flex children need min-width:0 or long text refuses to truncate and widens the card. */
+    .min-0 { min-width: 0; }
+
+    /* ── Sticky bottom bar ──────────────────────────────────────── */
+    .m-bottom {
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 1030;
+      padding-bottom: env(safe-area-inset-bottom);
+      background: var(--bs-body-bg);
+      border-top: 1px solid var(--bs-border-color);
+    }
+    .m-bottom a, .m-bottom button {
+      flex: 1 1 0; border: 0; background: none; padding: .5rem .25rem;
+      font-size: .68rem; line-height: 1.1; color: var(--bs-secondary-color); text-decoration: none;
+    }
+    .m-bottom i { font-size: 1.05rem; display: block; margin-bottom: .1rem; }
+  </style>
+</head>
+<body>
+  @RenderBody()
+  @await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>

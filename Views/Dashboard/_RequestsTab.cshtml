@@ -7,43 +7,43 @@
 
 @* ── KPI Cards ── *@
 <div class="metric-row" style="grid-template-columns:repeat(8,1fr)">
-  <a asp-controller="Requests" asp-action="Index" asp-route-FilterMine="true" class="metric-card" style="--mc:#0f172a">
+  <a asp-controller="Requests" asp-action="Index" asp-route-dtab="requests" asp-route-FilterMine="true" class="metric-card" style="--mc:#0f172a">
     <div class="metric-num">@Model.MyTotal</div>
     <div class="metric-lbl">Total Request</div>
     <div class="metric-hint">All time</div>
   </a>
-  <a asp-controller="Requests" asp-action="Index" asp-route-FilterMine="true" asp-route-FilterStatus="Pending Approval" class="metric-card" style="--mc:#d97706">
+  <a asp-controller="Requests" asp-action="Index" asp-route-dtab="requests" asp-route-FilterMine="true" asp-route-FilterStatus="Pending Approval" class="metric-card" style="--mc:#d97706">
     <div class="metric-num">@Model.MyPending</div>
     <div class="metric-lbl">Pending Request</div>
     <div class="metric-hint">Pending Approval</div>
   </a>
-  <a asp-controller="Requests" asp-action="Index" asp-route-FilterMine="true" asp-route-FilterStatus="Partial Approved" class="metric-card" style="--mc:#0369a1">
+  <a asp-controller="Requests" asp-action="Index" asp-route-dtab="requests" asp-route-FilterMine="true" asp-route-FilterStatus="Partial Approved" class="metric-card" style="--mc:#0369a1">
     <div class="metric-num">@Model.MyPartialApproved</div>
     <div class="metric-lbl">Partial Approved</div>
     <div class="metric-hint">&nbsp;</div>
   </a>
-  <a asp-controller="Requests" asp-action="Index" asp-route-FilterMine="true" asp-route-FilterStatus="Approved" class="metric-card" style="--mc:#16a34a">
+  <a asp-controller="Requests" asp-action="Index" asp-route-dtab="requests" asp-route-FilterMine="true" asp-route-FilterStatus="Approved" class="metric-card" style="--mc:#16a34a">
     <div class="metric-num">@Model.MyApproved</div>
     <div class="metric-lbl">Approved</div>
     <div class="metric-hint">&nbsp;</div>
   </a>
-  <a asp-controller="Requests" asp-action="Index" asp-route-FilterMine="true" asp-route-FilterStatus="Rejected" class="metric-card" style="--mc:#dc2626">
+  <a asp-controller="Requests" asp-action="Index" asp-route-dtab="requests" asp-route-FilterMine="true" asp-route-FilterStatus="Rejected" class="metric-card" style="--mc:#dc2626">
     <div class="metric-num">@Model.MyRejected</div>
     <div class="metric-lbl">Rejected</div>
     <div class="metric-hint">&nbsp;</div>
   </a>
  
-  <a asp-controller="Requests" asp-action="Index" asp-route-FilterMine="true" asp-route-FilterStatus="Clarification Needed" class="metric-card" style="--mc:#7c3aed">
+  <a asp-controller="Requests" asp-action="Index" asp-route-dtab="requests" asp-route-FilterMine="true" asp-route-FilterStatus="Clarification Needed" class="metric-card" style="--mc:#7c3aed">
     <div class="metric-num">@Model.MyClarification</div>
     <div class="metric-lbl">Clarification</div>
     <div class="metric-hint">&nbsp;</div>
   </a>
-    <a asp-controller="Requests" asp-action="Index" asp-route-FilterMine="true" asp-route-FilterStatus="Draft" class="metric-card" style="--mc:#475569">
+    <a asp-controller="Requests" asp-action="Index" asp-route-dtab="requests" asp-route-FilterMine="true" asp-route-FilterStatus="Draft" class="metric-card" style="--mc:#475569">
         <div class="metric-num">@Model.MyDraft</div>
         <div class="metric-lbl">Draft</div>
         <div class="metric-hint">&nbsp;</div>
     </a>
-  <a asp-controller="Requests" asp-action="Index" asp-route-FilterMine="true" asp-route-FilterStatus="Revoked" class="metric-card" style="--mc:#6b7280">
+  <a asp-controller="Requests" asp-action="Index" asp-route-dtab="requests" asp-route-FilterMine="true" asp-route-FilterStatus="Revoked" class="metric-card" style="--mc:#6b7280">
     <div class="metric-num">@Model.MyRevoked</div>
     <div class="metric-lbl">Revoked</div>
     <div class="metric-hint">&nbsp;</div>
@@ -77,7 +77,7 @@
   <div class="card-hdr">
     <svg viewBox="0 0 24 24" style="width:15px;height:15px"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>
      Recent Requests
-    <div class="card-hdr-right"><a asp-controller="Requests" asp-action="Index" class="btn btn-ghost btn-sm">View all →</a></div>
+    <div class="card-hdr-right"><a asp-controller="Requests" asp-action="Index" asp-route-dtab="requests" asp-route-FilterMine="true" class="btn btn-ghost btn-sm">View all →</a></div>
   </div>
   <div class="tbl-wrap">
     <table class="tbl">
@@ -107,7 +107,7 @@
               else if (r.Status == "Approved" || r.Status == "Rejected") { <span style="color:var(--txt3)">—</span> }
               else { <span style="color:var(--txt3)">Not assigned</span> }
             </td>
-            <td><a asp-controller="Requests" asp-action="Detail" asp-route-id="@r.RequestId" class="btn btn-ghost btn-sm">Open</a></td>
+            <td><a asp-controller="Requests" asp-action="Detail" asp-route-id="@r.RequestId" asp-route-ret="/Dashboard?tab=requests" class="btn btn-ghost btn-sm">Open</a></td>
           </tr>
         }
         @if (!Model.RecentRequests.Any())

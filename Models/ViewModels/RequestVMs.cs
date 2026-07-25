@@ -34,10 +34,19 @@ public class ReqListItemVM
     public string LocationName { get; set; } = "";
     public string DeptName { get; set; } = "";
     public string RequestTypeName { get; set; } = "";
+    // Description / Justification and Additional Notes. Selected by the list queries that
+    // back the Excel export only — the desktop grid does not render either column.
+    public string? Description { get; set; }
+    public string? Notes { get; set; }
     public int DocumentCount { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
     public int AgeDays => IstClock.DaysSince(UpdatedAt);
+    // Selected by the approver query (GetMyApprovalsAsync) for the mobile pending page's
+    // "Submitted" and "Pending at Level" lines. Left at their defaults by the other list
+    // queries; the desktop grid does not read either, so nothing there changes.
+    public DateTimeOffset? SubmittedAt { get; set; }
+    public int CurrentStepLevel { get; set; }
     // True when the logged-in user is this request's owner — set server-side so the grid
     // can show the requester-only Clarification action on a Clarification Needed request.
     public bool IsRequester { get; set; }

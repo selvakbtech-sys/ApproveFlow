@@ -10,6 +10,22 @@
     string TlIco(string a) => a switch{"approved"=>"✓","rejected"=>"✕","clarification"=>"?","clarification_response"=>"↩","submitted"=>"↑","revoked"=>"⟲",_=>"·"};
     string TlLbl(string a) => a switch{"approved"=>"approved the request","rejected"=>"rejected the request","clarification"=>"requested clarification","clarification_response"=>"responded to clarification","submitted"=>"submitted for approval","saved_draft"=>"saved as draft","deleted"=>"deleted the request","revoked"=>"revoked the request",_=>a};
     var tab = Model.ActiveTab ?? "details";
+    // "mobile" when this page was opened from the mobile Pending Approvals page, otherwise
+    // null. Every link and form below carries it through (asp-route-source renders nothing
+    // when null), so Back and the post-action redirects return to where the user came from.
+    var src = ViewBag.Source as string;
+    // ?ret= is the list/dashboard URL this page was opened from (set by the grid links). It
+    // is honoured only when it is a local URL, so Back returns to the exact screen — the
+    // Territory/Approvals grid with its KPI filter, search and page — instead of the default
+    // request list. Missing or non-local → the original destination, unchanged.
+    var retUrl = Context.Request.Query["ret"].ToString();
+    var backUrl = src == "mobile" ? "/Mobile/PendingApprovals"
+                : Url.IsLocalUrl(retUrl) ? retUrl
+                : Url.Action("Index");
+    // True only for a territory-only viewer (not the owner, an approver, or admin). The page
+    // renders read-only for them: every mutating control and attachment download below is
+    // hidden. False for all existing users, so their view is unchanged.
+    bool readOnly = ViewBag.ReadOnly == true;
 }
 
 <div class="pg-hdr">
@@ -22,11 +38,11 @@
     <div class="pg-sub" style="font-size:20px;font-weight:700;color:var(--txt1)">@Model.Title</div>
   </div>
   <div class="pg-actions">
-    <a asp-action="Index" class="btn btn-sec btn-sm">← Back</a>
-    @if (Model.Status == "Draft")
+    <a href="@backUrl" class="btn btn-sec btn-sm">← Back</a>
+    @if (!readOnly && Model.Status == "Draft")
     {
       <a asp-action="Edit" asp-route-id="@Model.RequestId" class="btn btn-sec btn-sm">Edit</a>
-      <form asp-action="Submit" asp-route-id="@Model.RequestId" method="post" style="display:inline">
+      <form asp-action="Submit" asp-route-id="@Model.RequestId" asp-route-source="@src" method="post" style="display:inline">
         @Html.AntiForgeryToken()
         <button type="submit" class="btn btn-acc btn-sm"
           onclick="return confirm('Submit for approval?')">
@@ -35,11 +51,11 @@
         </button>
       </form>
     }
-    @if (ViewBag.CanDelete == true)
+    @if (!readOnly && ViewBag.CanDelete == true)
     {
       @if (Model.Status == "Pending Approval" || Model.Status == "Open")
       {
-        <form asp-action="Delete" asp-route-id="@Model.RequestId" method="post" style="display:inline">
+        <form asp-action="Delete" asp-route-id="@Model.RequestId" asp-route-source="@src" method="post" style="display:inline">
           @Html.AntiForgeryToken()
           <button type="submit" class="btn btn-ng btn-sm"
             onclick="return confirm('Delete request @Model.DisplayRequestNumber? This cannot be undone.')">
@@ -68,10 +84,10 @@
 </div>
 
 <div class="tabs">
-  <a asp-action="Detail" asp-route-id="@Model.RequestId" asp-route-tab="details"   class="tab @(tab=="details"?"active":"")">Details</a>
-  <a asp-action="Detail" asp-route-id="@Model.RequestId" asp-route-tab="approval"  class="tab @(tab=="approval"?"active":"")">Approval Chain <span class="tab-cnt">@Model.ApprovalChain.Count</span></a>
-  <a asp-action="Detail" asp-route-id="@Model.RequestId" asp-route-tab="history"   class="tab @(tab=="history"?"active":"")">History <span class="tab-cnt">@Model.ActionLog.Count</span></a>
-  <a asp-action="Detail" asp-route-id="@Model.RequestId" asp-route-tab="documents" class="tab @(tab=="documents"?"active":"")">Documents <span class="tab-cnt">@Model.TotalDocumentCount</span></a>
+  <a asp-action="Detail" asp-route-id="@Model.RequestId" asp-route-tab="details"   asp-route-source="@src" class="tab @(tab=="details"?"active":"")">Details</a>
+  <a asp-action="Detail" asp-route-id="@Model.RequestId" asp-route-tab="approval"  asp-route-source="@src" class="tab @(tab=="approval"?"active":"")">Approval Chain <span class="tab-cnt">@Model.ApprovalChain.Count</span></a>
+  <a asp-action="Detail" asp-route-id="@Model.RequestId" asp-route-tab="history"   asp-route-source="@src" class="tab @(tab=="history"?"active":"")">History <span class="tab-cnt">@Model.ActionLog.Count</span></a>
+  <a asp-action="Detail" asp-route-id="@Model.RequestId" asp-route-tab="documents" asp-route-source="@src" class="tab @(tab=="documents"?"active":"")">Documents <span class="tab-cnt">@Model.TotalDocumentCount</span></a>
 </div>
 
 @if (tab == "details")
@@ -142,7 +158,7 @@
                 <textarea id="prevClarRemark" class="readonly-remark" readonly>@Model.LatestClarificationComment</textarea>
               </div>
             }
-            <form id="clarificationForm" asp-action="SubmitClarification" asp-route-id="@Model.RequestId" method="post" enctype="multipart/form-data">
+            <form id="clarificationForm" asp-action="SubmitClarification" asp-route-id="@Model.RequestId" asp-route-source="@src" method="post" enctype="multipart/form-data">
               @Html.AntiForgeryToken()
               <div class="form-group" style="margin-bottom:12px">
                 <label class="lbl">Clarification Remarks <span style="color:var(--ng)">*</span></label>
@@ -217,7 +233,7 @@
             </span>
           </div>
           <div class="card-body">
-            <form id="approvalActionForm" asp-action="Action" asp-route-id="@Model.RequestId" method="post" enctype="multipart/form-data">
+            <form id="approvalActionForm" asp-action="Action" asp-route-id="@Model.RequestId" asp-route-source="@src" method="post" enctype="multipart/form-data">
               @Html.AntiForgeryToken()
               <div class="form-group" style="margin-bottom:12px">
                 <label class="lbl">Comment</label>
@@ -381,17 +397,20 @@
                       <div style="display:flex;align-items:center;gap:7px;margin-bottom:4px">
                         <svg viewBox="0 0 24 24" style="width:13px;height:13px;stroke:var(--in);fill:none;flex-shrink:0" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
                         <span style="font-size:12px;color:var(--txt1)">@att.FileName</span>
-                        @if (att.AttachmentType == "Requestor")
+                        @if (!readOnly)
                         {
-                          <a asp-action="Download" asp-route-id="@Model.RequestId" asp-route-docId="@att.Id" class="btn btn-sec btn-sm" style="padding:2px 8px;font-size:11px">Download</a>
-                        }
-                        else if (att.AttachmentType == "Reply")
-                        {
-                          <a href="@att.Url" target="_blank" rel="noopener" class="btn btn-sec btn-sm" style="padding:2px 8px;font-size:11px">View / Download</a>
-                        }
-                        else
-                        {
-                          <a asp-action="DownloadApproval" asp-route-id="@Model.RequestId" asp-route-attachmentId="@att.Id" class="btn btn-sec btn-sm" style="padding:2px 8px;font-size:11px">Download</a>
+                          @if (att.AttachmentType == "Requestor")
+                          {
+                            <a asp-action="Download" asp-route-id="@Model.RequestId" asp-route-docId="@att.Id" class="btn btn-sec btn-sm" style="padding:2px 8px;font-size:11px">Download</a>
+                          }
+                          else if (att.AttachmentType == "Reply")
+                          {
+                            <a href="@att.Url" target="_blank" rel="noopener" class="btn btn-sec btn-sm" style="padding:2px 8px;font-size:11px">View / Download</a>
+                          }
+                          else
+                          {
+                            <a asp-action="DownloadApproval" asp-route-id="@Model.RequestId" asp-route-attachmentId="@att.Id" class="btn btn-sec btn-sm" style="padding:2px 8px;font-size:11px">Download</a>
+                          }
                         }
                       </div>
                     }
@@ -409,7 +428,7 @@
 @if (tab == "documents")
 {
   <div style="max-width:640px;display:flex;flex-direction:column;gap:14px">
-    @if (Model.Status == "Draft")
+    @if (!readOnly && Model.Status == "Draft")
     {
       <div class="card">
         <div class="card-hdr">
@@ -417,7 +436,7 @@
           Upload Document
         </div>
         <div class="card-body">
-          <form asp-action="Upload" asp-route-id="@Model.RequestId" method="post" enctype="multipart/form-data">
+          <form asp-action="Upload" asp-route-id="@Model.RequestId" asp-route-source="@src" method="post" enctype="multipart/form-data">
             @Html.AntiForgeryToken()
             <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
               <div class="form-group" style="flex:1">
@@ -447,16 +466,19 @@
               <div style="font-size:12px;font-weight:600">@doc.FileName</div>
               <div style="font-size:11px;color:var(--txt3)">@doc.FormattedSize · @doc.UploadedAt.ToString("dd MMM yyyy") · @doc.UploadedByName</div>
             </div>
-            <div style="display:flex;gap:6px">
-              <a asp-action="Download" asp-route-id="@Model.RequestId" asp-route-docId="@doc.DocumentId" class="btn btn-sec btn-sm">Download</a>
-              @if (Model.Status == "Draft")
-              {
-                <form asp-action="DeleteDoc" asp-route-id="@Model.RequestId" asp-route-docId="@doc.DocumentId" method="post" style="display:inline">
-                  @Html.AntiForgeryToken()
-                  <button type="submit" class="btn btn-ng btn-sm" onclick="return confirm('Remove document?')">Remove</button>
-                </form>
-              }
-            </div>
+            @if (!readOnly)
+            {
+              <div style="display:flex;gap:6px">
+                <a asp-action="Download" asp-route-id="@Model.RequestId" asp-route-docId="@doc.DocumentId" class="btn btn-sec btn-sm">Download</a>
+                @if (Model.Status == "Draft")
+                {
+                  <form asp-action="DeleteDoc" asp-route-id="@Model.RequestId" asp-route-docId="@doc.DocumentId" asp-route-source="@src" method="post" style="display:inline">
+                    @Html.AntiForgeryToken()
+                    <button type="submit" class="btn btn-ng btn-sm" onclick="return confirm('Remove document?')">Remove</button>
+                  </form>
+                }
+              </div>
+            }
           </div>
         }
       </div>
@@ -489,13 +511,16 @@
                 · @att.UploadedAt.ToString("dd MMM yyyy") · @att.UploadedByName
               </div>
             </div>
-            @if (att.Url != null)
+            @if (!readOnly)
             {
-              <a href="@att.Url" target="_blank" rel="noopener" class="btn btn-sec btn-sm">View / Download</a>
-            }
-            else
-            {
-              <a asp-action="DownloadApproval" asp-route-id="@Model.RequestId" asp-route-attachmentId="@att.AttachmentId" class="btn btn-sec btn-sm">Download</a>
+              @if (att.Url != null)
+              {
+                <a href="@att.Url" target="_blank" rel="noopener" class="btn btn-sec btn-sm">View / Download</a>
+              }
+              else
+              {
+                <a asp-action="DownloadApproval" asp-route-id="@Model.RequestId" asp-route-attachmentId="@att.AttachmentId" class="btn btn-sec btn-sm">Download</a>
+              }
             }
           </div>
         }
@@ -552,9 +577,12 @@
     if (ta.scrollHeight > 250) { ta.style.height = '250px'; ta.style.overflowY = 'auto'; }
     else { ta.style.height = ta.scrollHeight + 'px'; ta.style.overflowY = 'hidden'; }
   }
+  // Carries the mobile marker onto the Revoke post so it returns to the mobile pending list
+  // (empty string on desktop — the URL is then exactly what it was before).
+  var revokeSrc = '@(src == "mobile" ? "?source=mobile" : "")';
   function openRevokeModal(id, num) {
     var f = document.getElementById('revokeForm');
-    f.action = '/Requests/Revoke/' + id;
+    f.action = '/Requests/Revoke/' + id + revokeSrc;
     document.getElementById('revokeReqNum').textContent = num;
     var ta = document.getElementById('revokeRemark');
     ta.value = '';

@@ -16,11 +16,33 @@
     bool isTerritory = ViewBag.IsTerritory == true;
     string approvalStatus = ViewBag.ApprovalStatus as string ?? "";
     string listAction = isApprovals ? "Approval" : isTerritory ? "Territory" : "Index";
+
+    // ── Dashboard context ─────────────────────────────────────
+    // Every dashboard KPI card links here with ?dtab=<dashboard tab>. The token is echoed on
+    // the filter form, the Clear link and every pager link, so it survives filtering/paging,
+    // and it drives the "← Back" button, which returns to that exact dashboard tab. Absent
+    // (the page reached from the nav menu) nothing is rendered and the page is unchanged.
+    var dtabRaw = Context.Request.Query["dtab"].ToString();
+    string? dashTab = new[]{ "requests", "approvals", "territory", "admin" }.Contains(dtabRaw) ? dtabRaw : null;
+    // This grid's own URL — handed to the Detail page as ?ret= so its Back button returns
+    // here with the KPI filter, search term and page number intact.
+    var retUrl = $"{Context.Request.Path}{Context.Request.QueryString}";
+    // Which grid the Export button must export (matches listAction).
+    string exportMode = isApprovals ? "approvals" : isTerritory ? "territory" : "";
+    // "true" only on the My Requests list, so the scope rides along on Clear and the pager.
+    string? mineToken = Model.FilterMine ? "true" : null;
 }
 
 <div class="pg-hdr">
   <div><div class="pg-title">Approval Requests</div><div class="pg-sub">@Model.TotalCount records · Page @Model.PageNumber of @Model.TotalPages</div></div>
   <div class="pg-actions">
+    @* Back to the dashboard tab this list was opened from (dashboard KPI click-through only) *@
+    @if (dashTab != null)
+    {
+      @* Literal URL — dashTab is whitelisted to one of four fixed tokens above, and this
+         leaves no doubt that ?tab= reaches the Dashboard, which resolves it server-side. *@
+      <a href="~/Dashboard?tab=@dashTab" class="btn btn-sec btn-sm">← Back</a>
+    }
     @* Excel Download Button - opens date range modal *@
     <button type="button" onclick="openExportModal()" class="btn btn-sec btn-sm" title="Export to CSV"
        style="display:inline-flex;align-items:center;gap:6px">
@@ -37,6 +59,10 @@
 </div>
 
 <form method="get" asp-action="@listAction">
+  @* Keeps the dashboard context (and the Back button) alive across Filter submits *@
+  @if (dashTab != null) { <input type="hidden" name="dtab" value="@dashTab" /> }
+  @* "My Requests" scope — without this a Filter submit would widen an Admin's grid to all requests *@
+  @if (Model.FilterMine) { <input type="hidden" name="FilterMine" value="true" /> }
   <div class="filter-bar" style="gap:8px">
     <div class="f-group" style="flex:1 1 160px;min-width:0">
       <label class="f-lbl">Search</label>
@@ -109,7 +135,7 @@
       <div id="dateRangeError" style="display:none;color:var(--ng,#ef4444);font-size:11px;white-space:nowrap;margin-bottom:4px">From Date cannot be greater than To Date.</div>
       <div style="display:flex;gap:6px">
         <button type="submit" class="btn btn-pri btn-sm" onclick="return validateDateRange()">Filter</button>
-        <a asp-action="@listAction" class="btn btn-sec btn-sm">Clear</a>
+        <a asp-action="@listAction" asp-route-dtab="@dashTab" asp-route-FilterMine="@mineToken" class="btn btn-sec btn-sm">Clear</a>
       </div>
     </div>
   </div>
@@ -154,7 +180,7 @@
                    dedicated Clarification action (server-side check on status + owner). *@
                 @if (r.Status == "Clarification Needed" && r.IsRequester)
                 {
-                  <a asp-action="Detail" asp-route-id="@r.RequestId" asp-route-mode="clarification"
+                  <a asp-action="Detail" asp-route-id="@r.RequestId" asp-route-mode="clarification" asp-route-ret="@retUrl"
                      class="btn btn-sm" title="Respond to Clarification"
                      style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:0;border:1px solid #d97706;background:#d97706;color:#fff;border-radius:6px">
                     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
@@ -174,7 +200,7 @@
                 }
                 else
                 {
-                <a asp-action="Detail" asp-route-id="@r.RequestId"
+                <a asp-action="Detail" asp-route-id="@r.RequestId" asp-route-ret="@retUrl"
                    class="btn btn-sec btn-sm" title="View"
                    style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:0">
                   <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -192,7 +218,9 @@
                     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
                   </button>
                 }
-                @if (r.Status == "Draft")
+                @* In territory mode the grid also lists co-workers' requests; Edit is owner-
+                   only (UpdateAsync re-checks), so only offer it on the viewer's own rows. *@
+                @if (r.Status == "Draft" && (!isTerritory || r.IsRequester))
                 {
                   <a asp-action="Edit" asp-route-id="@r.RequestId"
                      class="btn btn-sec btn-sm" title="Edit"
@@ -200,7 +228,9 @@
                     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                   </a>
                 }
-                @if (ViewBag.CanDelete == true)
+                @* Delete is owner-only for non-admins (DeleteAsync re-checks). In territory
+                   mode, don't offer it on co-workers' rows the viewer can't delete. *@
+                @if (ViewBag.CanDelete == true && (!isTerritory || r.IsRequester))
                 {
                   @if (r.Status == "Pending Approval" || r.Status == "Open")
                   {
@@ -241,11 +271,11 @@
           string? pgFilterStatus = isApprovals ? null : Model.FilterStatus;
         }
         @if (Model.PageNumber > 1)
-        { <a class="pb" asp-action="@listAction" asp-route-page="@(Model.PageNumber-1)" asp-route-status="@pgStatusToken" asp-route-SearchTerm="@Model.SearchTerm" asp-route-FilterStatus="@pgFilterStatus" asp-route-FilterTypeId="@Model.FilterTypeId" asp-route-FilterPriority="@Model.FilterPriority" asp-route-FilterDeptId="@Model.FilterDeptId" asp-route-FilterLocationId="@Model.FilterLocationId" asp-route-FilterDateFrom="@Model.FilterDateFrom" asp-route-FilterDateTo="@Model.FilterDateTo">‹</a> }
+        { <a class="pb" asp-action="@listAction" asp-route-page="@(Model.PageNumber-1)" asp-route-dtab="@dashTab" asp-route-FilterMine="@mineToken" asp-route-status="@pgStatusToken" asp-route-SearchTerm="@Model.SearchTerm" asp-route-FilterStatus="@pgFilterStatus" asp-route-FilterTypeId="@Model.FilterTypeId" asp-route-FilterPriority="@Model.FilterPriority" asp-route-FilterDeptId="@Model.FilterDeptId" asp-route-FilterLocationId="@Model.FilterLocationId" asp-route-FilterDateFrom="@Model.FilterDateFrom" asp-route-FilterDateTo="@Model.FilterDateTo">‹</a> }
         @for (int p = Math.Max(1,Model.PageNumber-2); p <= Math.Min(Model.TotalPages,Model.PageNumber+2); p++)
-        { <a class="pb @(p==Model.PageNumber?"active":"")" asp-action="@listAction" asp-route-page="@p" asp-route-status="@pgStatusToken" asp-route-SearchTerm="@Model.SearchTerm" asp-route-FilterStatus="@pgFilterStatus" asp-route-FilterTypeId="@Model.FilterTypeId" asp-route-FilterPriority="@Model.FilterPriority" asp-route-FilterDeptId="@Model.FilterDeptId" asp-route-FilterLocationId="@Model.FilterLocationId" asp-route-FilterDateFrom="@Model.FilterDateFrom" asp-route-FilterDateTo="@Model.FilterDateTo">@p</a> }
+        { <a class="pb @(p==Model.PageNumber?"active":"")" asp-action="@listAction" asp-route-page="@p" asp-route-dtab="@dashTab" asp-route-FilterMine="@mineToken" asp-route-status="@pgStatusToken" asp-route-SearchTerm="@Model.SearchTerm" asp-route-FilterStatus="@pgFilterStatus" asp-route-FilterTypeId="@Model.FilterTypeId" asp-route-FilterPriority="@Model.FilterPriority" asp-route-FilterDeptId="@Model.FilterDeptId" asp-route-FilterLocationId="@Model.FilterLocationId" asp-route-FilterDateFrom="@Model.FilterDateFrom" asp-route-FilterDateTo="@Model.FilterDateTo">@p</a> }
         @if (Model.PageNumber < Model.TotalPages)
-        { <a class="pb" asp-action="@listAction" asp-route-page="@(Model.PageNumber+1)" asp-route-status="@pgStatusToken" asp-route-SearchTerm="@Model.SearchTerm" asp-route-FilterStatus="@pgFilterStatus" asp-route-FilterTypeId="@Model.FilterTypeId" asp-route-FilterPriority="@Model.FilterPriority" asp-route-FilterDeptId="@Model.FilterDeptId" asp-route-FilterLocationId="@Model.FilterLocationId" asp-route-FilterDateFrom="@Model.FilterDateFrom" asp-route-FilterDateTo="@Model.FilterDateTo">›</a> }
+        { <a class="pb" asp-action="@listAction" asp-route-page="@(Model.PageNumber+1)" asp-route-dtab="@dashTab" asp-route-FilterMine="@mineToken" asp-route-status="@pgStatusToken" asp-route-SearchTerm="@Model.SearchTerm" asp-route-FilterStatus="@pgFilterStatus" asp-route-FilterTypeId="@Model.FilterTypeId" asp-route-FilterPriority="@Model.FilterPriority" asp-route-FilterDeptId="@Model.FilterDeptId" asp-route-FilterLocationId="@Model.FilterLocationId" asp-route-FilterDateFrom="@Model.FilterDateFrom" asp-route-FilterDateTo="@Model.FilterDateTo">›</a> }
       </div>
     </div>
   }
@@ -394,7 +424,12 @@
     btn.textContent = 'Exporting…';
 
     var token = document.querySelector('#exportAntiForgery input[name="__RequestVerificationToken"]').value;
+    // mode + status tell the server WHICH grid this is (Territory / My Approvals / My
+    // Requests) so the export runs the same scoped query the page is showing.
     var params = new URLSearchParams({
+      mode:             '@exportMode',
+      status:           '@approvalStatus',
+      FilterMine:       '@(Model.FilterMine ? "true" : "false")',
       FilterDateFrom:   fromDate,
       FilterDateTo:     toDate,
       SearchTerm:       '@Model.SearchTerm',

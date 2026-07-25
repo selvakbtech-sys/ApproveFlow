@@ -29,13 +29,13 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         o.Events.OnRedirectToLogin = ctx =>
         {
             if (IsAjaxRequest(ctx.Request)) ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
-            else ctx.Response.Redirect(ctx.RedirectUri);
+            else ctx.Response.Redirect(RelativeRedirect(ctx.RedirectUri));
             return Task.CompletedTask;
         };
         o.Events.OnRedirectToAccessDenied = ctx =>
         {
             if (IsAjaxRequest(ctx.Request)) ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
-            else ctx.Response.Redirect(ctx.RedirectUri);
+            else ctx.Response.Redirect(RelativeRedirect(ctx.RedirectUri));
             return Task.CompletedTask;
         };
     });
@@ -92,6 +92,7 @@ builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<INotifService, NotifService>();
 builder.Services.AddScoped<IUserMappingService, UserMappingService>();
 builder.Services.AddScoped<IApplicationUrlService, ApplicationUrlService>();
+builder.Services.AddScoped<IPendingApprovalSummaryService, PendingApprovalSummaryService>();
 
 // WhatsApp integration
 builder.Services.AddHttpClient("WhatsApp");
@@ -151,6 +152,15 @@ app.MapControllerRoute("default", "{controller=Dashboard}/{action=Index}/{id?}")
 app.MapGet("/", () => Results.Redirect("/Dashboard"));
 
 app.Run();
+
+// Cookie auth builds its login redirect as an ABSOLUTE url from the host the SERVER sees.
+// Behind a tunnel or reverse proxy that host is the internal one (e.g. localhost:44356), so
+// an external client — a phone opening the WhatsApp link through ngrok — gets redirected to
+// itself and fails with ERR_CONNECTION_REFUSED. Emitting only the path+query keeps the browser
+// on whatever host it actually used (ngrok, nip.io, LAN IP, localhost) and preserves the
+// ReturnUrl. A relative Location is valid per RFC 7231 and every browser follows it.
+static string RelativeRedirect(string redirectUri) =>
+    Uri.TryCreate(redirectUri, UriKind.Absolute, out var abs) ? abs.PathAndQuery : redirectUri;
 
 // Treat a request as AJAX/API (rather than a page navigation) when it is an
 // XMLHttpRequest or does not accept HTML. Such callers get 401/403 status codes

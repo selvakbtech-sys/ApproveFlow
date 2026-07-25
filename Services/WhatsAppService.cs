@@ -30,10 +30,13 @@ public class WhatsAppService : IWhatsAppService
     private readonly ILogger<WhatsAppService> _log;
 
     private readonly IWebHostEnvironment _env;
+    private readonly IApplicationUrlService _url;
+    private readonly IPendingApprovalSummaryService _pending;
 
-    public WhatsAppService(AppDbContext db, IConfiguration cfg, IHttpClientFactory http, ILogger<WhatsAppService> log, IWebHostEnvironment env)
+    public WhatsAppService(AppDbContext db, IConfiguration cfg, IHttpClientFactory http, ILogger<WhatsAppService> log, IWebHostEnvironment env,
+        IApplicationUrlService url, IPendingApprovalSummaryService pending)
     {
-        _db = db; _cfg = cfg; _http = http; _log = log; _env = env;
+        _db = db; _cfg = cfg; _http = http; _log = log; _env = env; _url = url; _pending = pending;
     }
 
     private string GetStoragePath()
@@ -504,38 +507,129 @@ public class WhatsAppService : IWhatsAppService
     private static string Param(string? value, string fallback) =>
         string.IsNullOrWhiteSpace(value) ? fallback : value;
 
-    // ── 6. Aging Reminder ─────────────────────────────────────
+    // ── 6. Pending Approval Reminder ──────────────────────────
+    // Daily nudge for every approver who still has requests waiting on them. The message
+    // summarises those requests grouped by Request Type and carries a deep link straight into
+    // the EXISTING Pending Approval page (/Requests/Approval?status=Pending) — never the
+    // dashboard, a KPI card or the home page. Approvers with nothing pending are skipped, and
+    // the counts come from IPendingApprovalSummaryService, which uses the same filter as the
+    // page the link opens, so the numbers can never disagree.
     public async Task SendAgingReminderAsync()
     {
-        var pendingApprovers = await _db.RequestApprovers
-            .Include(a => a.Request).ThenInclude(r => r.RequestType)
-            .Include(a => a.Request).ThenInclude(r => r.Location)
-            .Include(a => a.Request).ThenInclude(r => r.Department)
-            .Include(a => a.ApproverUser)
-            .Where(a => a.Status == "pending")
-            .ToListAsync();
+        var summaries = await _pending.GetAllAsync();
+        if (summaries.Count == 0) return;
 
-        if (!pendingApprovers.Any()) return;
+        var links = _url.GetPendingApprovalsLinksText();
+        // WhatsApp:PendingReminderTemplate = the approved Meta template to use. A template
+        // reaches EVERY approver, while free-form text only reaches those who messaged the bot
+        // in the last 24 hours — so the template is the preferred path. Delivery degrades in
+        // three steps and an approver is never left without a nudge:
+        //   1. the summary template (all approvers, full content),
+        //   2. free-form text if Meta refuses it (in-window approvers, full content),
+        //   3. the long-approved pending_approval_reminder template (name + count only).
+        // Leaving the key blank simply starts at step 2 — the behaviour before this feature.
+        var summaryTemplate = _cfg["WhatsApp:PendingReminderTemplate"];
+        var (inOffice, outOfOffice) = _url.GetPendingApprovalsUrlPair();
 
-        var grouped = pendingApprovers
-            .GroupBy(a => new { a.ApproverUserId, a.StepLevel }).ToList();
-
-        foreach (var grp in grouped)
+        foreach (var s in summaries)
         {
-            var phone = await GetPhoneAsync(grp.Key.ApproverUserId);
+            if (s.Total == 0) continue;                     // never remind about nothing
+            var phone = await GetPhoneAsync(s.ApproverUserId);
             if (string.IsNullOrEmpty(phone)) continue;
 
-            var approverName = grp.First().ApproverUser?.FullName ?? "Approver";
-            var items = grp.OrderByDescending(a =>
-                IstClock.DaysSince(a.Request.SubmittedAt ?? a.Request.CreatedAt)).ToList();
-
-            // pending_approval_reminder (2): {{1}}=Approver name  {{2}}=Pending count
-            await SendTemplateAsync(phone, "pending_approval_reminder", new[]
+            if (!string.IsNullOrWhiteSpace(summaryTemplate))
             {
-                approverName,             // {{1}} Approver name
-                items.Count.ToString()    // {{2}} Pending count
-            });
+                // pending_approval_summary (5): {{1}}=Approver  {{2}}=Total  {{3}}=Summary
+                // {{4}}=In-Office link  {{5}}=Out-of-Office link. The per-type breakdown is one
+                // parameter because a template body is fixed while the number of request types
+                // is not, and a parameter may not carry new-lines (#132018).
+                var accepted = await SendTemplateAsync(phone, summaryTemplate, new[]
+                {
+                    s.ApproverName,
+                    s.Total.ToString(),
+                    BuildPendingSummaryLine(s),
+                    inOffice,
+                    outOfOffice
+                },
+                ctx: new WaMsgContext(null, null, $"template:{summaryTemplate}",
+                    $"Pending Approval Reminder: {s.Total} pending", null, s.ApproverUserId));
+
+                if (accepted) continue;
+
+                // Meta refused it — most likely the template is still in review, or was
+                // rejected/paused. Rather than drop the reminder we fall through to the
+                // free-form message below, which carries the same content.
+                _log.LogWarning("WA-REMINDER: template {Template} not accepted, falling back to free-form UserId={Uid}",
+                    summaryTemplate, s.ApproverUserId);
+            }
+
+            var text = BuildPendingReminderText(s, links);
+
+            // Free-form text is what renders the grouped summary and the tappable link — a
+            // Meta template body is fixed and rejects new-lines in its parameters (#132018).
+            // Meta only delivers free-form inside the 24-hour service window, so when the send
+            // is refused we fall back to the approved pending_approval_reminder template
+            // (name + count) — exactly what this reminder sent before, so no approver is left
+            // without a nudge.
+            var wamid = await SendTextAsync(phone, text, previewUrl: false,
+                ctx: new WaMsgContext(null, null, "pending_reminder", text, null, s.ApproverUserId));
+
+            if (wamid == null)
+            {
+                _log.LogInformation("WA-REMINDER: free-form not deliverable, using template fallback UserId={Uid} Pending={N}",
+                    s.ApproverUserId, s.Total);
+                // pending_approval_reminder (2): {{1}}=Approver name  {{2}}=Pending count
+                await SendTemplateAsync(phone, "pending_approval_reminder", new[]
+                {
+                    s.ApproverName,
+                    s.Total.ToString()
+                });
+            }
         }
+    }
+
+    // The reminder body. Layout is fixed text built here (not a Meta template) so the
+    // per-request-type summary can grow or shrink with whatever the approver actually has
+    // waiting — one category when there is one, all of them when there are more.
+    private static string BuildPendingReminderText(PendingApprovalSummary s, string links)
+    {
+        var sb = new StringBuilder();
+        sb.Append("🔔 *Pending Approval Reminder*\n\n");
+        sb.Append($"Hello {s.ApproverName},\n\n");
+        sb.Append($"You have *{s.Total}* pending request{(s.Total == 1 ? "" : "s")} awaiting your approval.\n\n");
+        sb.Append("*Summary:*\n");
+        foreach (var t in s.ByType)
+            sb.Append($"{RequestTypeIcon(t.TypeName)} {t.TypeName} : {t.Count}\n");
+        sb.Append("\nPlease review and take action using the link below.\n\n");
+        sb.Append("👉 *Open Pending Approvals*\n");
+        sb.Append(string.IsNullOrWhiteSpace(links) ? "(link unavailable)" : links);
+        sb.Append("\n\nThank You,\nBNR Flow");
+        return sb.ToString();
+    }
+
+    // The same per-request-type breakdown as one single-line string, for the Meta template's
+    // {{3}}. Uses "•" separators because new-lines are not allowed inside a parameter.
+    private static string BuildPendingSummaryLine(PendingApprovalSummary s)
+        => string.Join(" • ", s.ByType.Select(t => $"{RequestTypeIcon(t.TypeName)} {t.TypeName} : {t.Count}"));
+
+    // Visual cue per request type. Types are master data that admins can add at any time, so
+    // the match is by keyword with 📄 as the catch-all — a new type never breaks the message.
+    private static string RequestTypeIcon(string typeName)
+    {
+        var n = (typeName ?? "").ToLowerInvariant();
+        var words = n.Split(new[] { ' ', '-', '_', '/', '&', ',' }, StringSplitOptions.RemoveEmptyEntries);
+
+        if (words.Contains("it") || n.Contains("software") || n.Contains("hardware") ||
+            n.Contains("system") || n.Contains("laptop") || n.Contains("asset")) return "💻";
+        if (n.Contains("cash") || n.Contains("payment") || n.Contains("expense") ||
+            n.Contains("fund") || n.Contains("advance") || n.Contains("reimburse") ||
+            n.Contains("budget")) return "💰";
+        if (n.Contains("purchase") || n.Contains("procure") || n.Contains("material") ||
+            n.Contains("vendor") || n.Contains("indent")) return "📦";
+        if (n.Contains("travel") || n.Contains("trip") || n.Contains("tour")) return "✈️";
+        if (n.Contains("hiring") || n.Contains("recruit") || n.Contains("manpower") ||
+            n.Contains("candidate") || n.Contains("onboard")) return "👤";
+        return "📄";
     }
 
     // ── Send Template WITH 3 Buttons ─────────────────────────
@@ -653,7 +747,10 @@ public class WhatsAppService : IWhatsAppService
 
     // ── Send Template WITHOUT Buttons ─────────────────────────
     // Sends template (body only), then file as separate message for all formats.
-    private async Task SendTemplateAsync(string toPhone, string templateName, string[] parameters,
+    // Returns whether Meta accepted the send, so callers that have a second option (e.g. the
+    // pending reminder) can fall back instead of silently dropping the message. Existing
+    // callers ignore the result and are unaffected.
+    private async Task<bool> SendTemplateAsync(string toPhone, string templateName, string[] parameters,
         RequestDocument? doc = null, IList<RequestDocument>? allDocs = null, WaMsgContext? ctx = null)
     {
         var token = _cfg["WhatsApp:BearerToken"];
@@ -661,7 +758,7 @@ public class WhatsAppService : IWhatsAppService
         var apiVersion = _cfg["WhatsApp:ApiVersion"] ?? "v19.0";
         var language = _cfg["WhatsApp:TemplateLanguage"] ?? "en";
 
-        if (string.IsNullOrEmpty(token) || string.IsNullOrEmpty(phoneNumId)) return;
+        if (string.IsNullOrEmpty(token) || string.IsNullOrEmpty(phoneNumId)) return false;
 
         var normalised = NormalisePhone(toPhone);
 
@@ -721,7 +818,7 @@ public class WhatsAppService : IWhatsAppService
             }
         };
 
-        await PostToWhatsAppAsync(normalised, payload, token, phoneNumId, apiVersion,
+        var (ok, _) = await PostToWhatsAppAsync(normalised, payload, token, phoneNumId, apiVersion,
             ctx ?? new WaMsgContext(null, null, $"template:{templateName}", ""));
 
         // Send remaining documents (2nd, 3rd...) as separate messages after template
@@ -730,6 +827,8 @@ public class WhatsAppService : IWhatsAppService
             foreach (var extraDoc in allDocs.Skip(1))
                 await SendDocumentAsync(normalised, extraDoc);
         }
+
+        return ok;
     }
 
     // Public plain-text confirmation sender (e.g. the deferred-approve timeout notice

@@ -17,6 +17,30 @@ public class RequestsController : BaseCtrl
     private int? ScopeUserId(bool filterMine) =>
         UserRole == "Admin" ? (filterMine ? UserId : (int?)null) : UserId;
 
+    // ── Mobile-source navigation ──────────────────────────────
+    // A Detail page opened from the mobile Pending Approvals page carries source=mobile on
+    // every link and form. It changes exactly one thing — where "Back" and the post-action
+    // redirect go. Any other value, including none, is the desktop flow, untouched.
+    private const string MobileSource = "mobile";
+    private static bool IsMobile(string? source) => source == MobileSource;
+
+    // Normalised marker to hand to views/redirects: "mobile", or null so the route value is
+    // omitted entirely and desktop URLs stay exactly as they are today.
+    private static string? SourceTag(string? source) => IsMobile(source) ? MobileSource : null;
+
+    // Where a COMPLETED action returns to. Mobile always lands back on the pending list;
+    // desktop keeps its current destination (the Detail page, or the list when it used to go
+    // there). Uses the same path constant the WhatsApp reminder links to.
+    private IActionResult ExitTo(int id, string? source, bool desktopGoesToList = false) =>
+        IsMobile(source)
+            ? Redirect(ApplicationUrlService.PendingApprovalsPath)
+            : desktopGoesToList ? RedirectToAction("Index") : RedirectToAction("Detail", new { id });
+
+    // Back to the Detail page KEEPING the marker — used for validation bounces and for the
+    // document actions, which are not the end of the journey.
+    private IActionResult StayOnDetail(int id, string? source, string? tab = null) =>
+        RedirectToAction("Detail", new { id, tab, source = SourceTag(source) });
+
     public async Task<IActionResult> Index(RequestListVM filter, int page = 1)
     {
         if (DenyIfNoPerm("Requests") is { } r1) return r1;
@@ -59,11 +83,16 @@ public class RequestsController : BaseCtrl
         return View("Index", await _svc.GetTerritoryListAsync(UserId, filter, page, 20));
     }
 
-    public async Task<IActionResult> Detail(int id, string tab = "details", string? mode = null)
+    public async Task<IActionResult> Detail(int id, string tab = "details", string? mode = null, string? source = null)
     {
         if (DenyIfNoPerm("Requests") is { } rd) return rd;
-        // A user may only open a request they created or are an approver on (admin = any).
-        if (!await _svc.CanAccessRequestAsync(id, UserId, UserRole)) return Deny();
+        // A user may OPEN a request they created, approve on, or that is in their territory
+        // (dept/location) — the same set the Territory grid lists. Territory-only viewers get
+        // a read-only page: ReadOnly is true for them (not owner/approver/admin), which hides
+        // every mutating control and attachment download in the view. Every mutating action
+        // still re-checks the stricter CanAccessRequestAsync server-side.
+        if (!await _svc.CanViewRequestAsync(id, UserId, UserRole)) return Deny();
+        ViewBag.ReadOnly = !await _svc.CanAccessRequestAsync(id, UserId, UserRole);
         var vm = await _svc.GetDetailAsync(id, UserId);
         if (vm == null) { Err("Request not found."); return RedirectToAction("Index"); }
         // Clarification Response mode: only meaningful for the request's owner while it is
@@ -72,6 +101,8 @@ public class RequestsController : BaseCtrl
         bool clarificationMode = mode == "clarification" && vm.CanSubmitClarification;
         vm.ActiveTab = clarificationMode ? "details" : tab;
         ViewBag.ClarificationMode = clarificationMode;
+        // Null for the desktop flow, so every existing link on this page renders unchanged.
+        ViewBag.Source = SourceTag(source);
         ViewBag.UserRole = UserRole;
         ViewBag.CanDelete = UserRole == "Admin" ||
             await _db.Users.Where(u => u.UserId == UserId)
@@ -243,7 +274,7 @@ public class RequestsController : BaseCtrl
     }
 
     [HttpPost, ValidateAntiForgeryToken]
-    public async Task<IActionResult> Submit(int id)
+    public async Task<IActionResult> Submit(int id, string? source = null)
     {
         // Submitting a request needs New Request → Create.
         if (DenyIfNoPerm("New Request", Perm.Create) is { } rp) return rp;
@@ -260,16 +291,16 @@ public class RequestsController : BaseCtrl
         if (reqInfo.Status == "Clarification Needed")
         {
             Err("This request is awaiting clarification. Use \"Submit Clarification\" to respond.");
-            return RedirectToAction("Detail", new { id });
+            return StayOnDetail(id, source);
         }
 
         var (ok, err) = await _svc.SubmitAsync(id, UserId);
         if (ok) Ok("Request submitted for approval."); else Err(err!);
-        return RedirectToAction("Detail", new { id });
+        return ok ? ExitTo(id, source) : StayOnDetail(id, source);
     }
 
     [HttpPost, ValidateAntiForgeryToken]
-    public async Task<IActionResult> Action(int id, string action, string? comment, IFormFile? approvalFile)
+    public async Task<IActionResult> Action(int id, string action, string? comment, IFormFile? approvalFile, string? source = null)
     {
         // Approve / Reject / Clarification are approval actions.
         if (DenyIfNoPerm("Requests", Perm.Approve) is { } rp) return rp;
@@ -279,25 +310,27 @@ public class RequestsController : BaseCtrl
             if (approvalFile.Length > maxMb * 1024L * 1024L)
             {
                 Err($"Attachment exceeds {maxMb} MB.");
-                return RedirectToAction("Detail", new { id });
+                return StayOnDetail(id, source);
             }
             var allowed = new[] { ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".jpg", ".jpeg", ".png" };
             var ext = Path.GetExtension(approvalFile.FileName).ToLowerInvariant();
             if (!allowed.Contains(ext))
             {
                 Err("Invalid file type. Allowed: PDF, DOC, DOCX, XLS, XLSX, JPG, PNG.");
-                return RedirectToAction("Detail", new { id });
+                return StayOnDetail(id, source);
             }
         }
         var maxFileMb = int.Parse(_cfg["AppSettings:MaxFileUploadMB"] ?? "20");
         var (ok, err) = await _svc.ProcessActionAsync(id, UserId, action, comment, approvalFile, GetStoragePath(), maxFileMb);
         if (ok) Ok($"Action '{action}' recorded."); else Err(err!);
-        return RedirectToAction("Detail", new { id });
+        // The action failed → the request still needs attention, so stay on it. Succeeded →
+        // mobile returns to the pending list (the item has left it); desktop stays put as before.
+        return ok ? ExitTo(id, source) : StayOnDetail(id, source);
     }
 
     // Requester responds to a clarification request (does NOT edit the original request).
     [HttpPost, ValidateAntiForgeryToken]
-    public async Task<IActionResult> SubmitClarification(int id, string clarificationRemarks, IFormFile? clarificationFile)
+    public async Task<IActionResult> SubmitClarification(int id, string clarificationRemarks, IFormFile? clarificationFile, string? source = null)
     {
         if (DenyIfNoPerm("Requests") is { } rp) return rp;
         if (!await _svc.CanAccessRequestAsync(id, UserId, UserRole)) return Deny();
@@ -308,35 +341,35 @@ public class RequestsController : BaseCtrl
             if (clarificationFile.Length > maxMb * 1024L * 1024L)
             {
                 Err($"Attachment exceeds {maxMb} MB.");
-                return RedirectToAction("Detail", new { id });
+                return StayOnDetail(id, source);
             }
             var allowed = new[] { ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".jpg", ".jpeg", ".png" };
             var ext = Path.GetExtension(clarificationFile.FileName).ToLowerInvariant();
             if (!allowed.Contains(ext))
             {
                 Err("Invalid file type. Allowed: PDF, DOC, DOCX, XLS, XLSX, JPG, PNG.");
-                return RedirectToAction("Detail", new { id });
+                return StayOnDetail(id, source);
             }
         }
 
         var maxFileMb = int.Parse(_cfg["AppSettings:MaxFileUploadMB"] ?? "20");
         var (ok, err) = await _svc.SubmitClarificationResponseAsync(id, UserId, clarificationRemarks, clarificationFile, GetStoragePath(), maxFileMb);
         if (ok) Ok("Clarification submitted. The approver has been notified."); else Err(err!);
-        return RedirectToAction("Detail", new { id });
+        return ok ? ExitTo(id, source) : StayOnDetail(id, source);
     }
 
     // Requestor revokes their own request (Pending Approval / Clarification Needed only).
     // Dedicated flow — independent of Clarification. All rules are enforced server-side in
     // RequestService.RevokeRequestAsync (owner + status + duplicate guard).
     [HttpPost, ValidateAntiForgeryToken]
-    public async Task<IActionResult> Revoke(int id, string revokeRemark)
+    public async Task<IActionResult> Revoke(int id, string revokeRemark, string? source = null)
     {
         if (DenyIfNoPerm("Requests") is { } rp) return rp;
         if (!await _svc.CanAccessRequestAsync(id, UserId, UserRole)) return Deny();
 
         var (ok, err) = await _svc.RevokeRequestAsync(id, UserId, revokeRemark);
         if (ok) Ok("Request revoked. The current approver has been notified."); else Err(err!);
-        return RedirectToAction("Detail", new { id });
+        return ok ? ExitTo(id, source) : StayOnDetail(id, source);
     }
 
     public async Task<IActionResult> DownloadApproval(int id, int attachmentId)
@@ -352,22 +385,23 @@ public class RequestsController : BaseCtrl
     }
 
     [HttpPost, ValidateAntiForgeryToken]
-    public async Task<IActionResult> Delete(int id)
+    public async Task<IActionResult> Delete(int id, string? source = null)
     {
         if (DenyIfNoPerm("Requests", Perm.Delete) is { } rp) return rp;
         var (ok, err) = await _svc.DeleteAsync(id, UserId, UserRole);
         if (ok) Ok("Request deleted."); else Err(err!);
-        return RedirectToAction("Index");
+        // Desktop keeps going to the Request List; mobile goes to the pending list.
+        return ExitTo(id, source, desktopGoesToList: true);
     }
 
     [HttpPost, ValidateAntiForgeryToken]
-    public async Task<IActionResult> Upload(int id, IFormFile file)
+    public async Task<IActionResult> Upload(int id, IFormFile file, string? source = null)
     {
         if (DenyIfNoPerm("Requests", Perm.Edit) is { } rp) return rp;
         if (!await _svc.CanAccessRequestAsync(id, UserId, UserRole)) return Deny();
         var maxMb = int.Parse(_cfg["AppSettings:MaxFileUploadMB"] ?? "20");
-        if (file == null || file.Length == 0) { Err("No file selected."); return RedirectToAction("Detail", new { id, tab = "documents" }); }
-        if (file.Length > maxMb * 1024L * 1024L) { Err($"File exceeds {maxMb} MB."); return RedirectToAction("Detail", new { id, tab = "documents" }); }
+        if (file == null || file.Length == 0) { Err("No file selected."); return StayOnDetail(id, source, "documents"); }
+        if (file.Length > maxMb * 1024L * 1024L) { Err($"File exceeds {maxMb} MB."); return StayOnDetail(id, source, "documents"); }
         var path = GetStoragePath();
         Directory.CreateDirectory(path);
         var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
@@ -385,7 +419,7 @@ public class RequestsController : BaseCtrl
         });
         await _db.SaveChangesAsync();
         Ok("File uploaded.");
-        return RedirectToAction("Detail", new { id, tab = "documents" });
+        return StayOnDetail(id, source, "documents");
     }
 
     public async Task<IActionResult> Download(int id, int docId)
@@ -401,7 +435,7 @@ public class RequestsController : BaseCtrl
     }
 
     [HttpPost, ValidateAntiForgeryToken]
-    public async Task<IActionResult> DeleteDoc(int id, int docId)
+    public async Task<IActionResult> DeleteDoc(int id, int docId, string? source = null)
     {
         if (DenyIfNoPerm("Requests", Perm.Edit) is { } rp) return rp;
         if (!await _svc.CanAccessRequestAsync(id, UserId, UserRole)) return Deny();
@@ -414,7 +448,7 @@ public class RequestsController : BaseCtrl
             await _db.SaveChangesAsync();
             Ok("Document removed.");
         }
-        return RedirectToAction("Detail", new { id, tab = "documents" });
+        return StayOnDetail(id, source, "documents");
     }
 
     public async Task<IActionResult> Aging(AgingReportVM filter)
@@ -454,7 +488,8 @@ public class RequestsController : BaseCtrl
     public async Task<IActionResult> Print(int id)
     {
         if (DenyIfNoPerm("Requests") is { } rp) return rp;
-        if (!await _svc.CanAccessRequestAsync(id, UserId, UserRole)) return Deny();
+        // Read-only print is allowed for territory viewers too (same scope as Detail).
+        if (!await _svc.CanViewRequestAsync(id, UserId, UserRole)) return Deny();
         var vm = await _svc.GetDetailAsync(id, UserId);
         if (vm == null)
         {
@@ -508,8 +543,13 @@ public class RequestsController : BaseCtrl
         return PhysicalFile(fullPath, att.ContentType ?? "application/octet-stream", att.FileName);
     }
 
+    // Export the grid the user is CURRENTLY looking at. `mode` mirrors the list action the
+    // Export button was pressed on ("territory" → Territory, "approvals" → Approval, empty →
+    // Index/My Requests) and `status` carries the friendly approval token, exactly as the
+    // grid received them. Each mode reuses the SAME service query that produced the grid —
+    // unpaged — so the exported record count can never diverge from the displayed one.
     [HttpPost, ValidateAntiForgeryToken]
-    public async Task<IActionResult> ExportExcel(RequestListVM filter)
+    public async Task<IActionResult> ExportExcel(RequestListVM filter, string? mode = null, string? status = null)
     {
         if (DenyIfNoPerm("Requests") is { } rp) return rp;
         if (string.IsNullOrWhiteSpace(filter.FilterDateFrom))
@@ -523,8 +563,15 @@ public class RequestsController : BaseCtrl
         if (from > to)
             return Json(new { error = "From Date cannot be greater than To Date." });
 
-        // Non-admins only export their own requests (Admins export all, or own if filtered).
-        var allItems = await _svc.GetAllForExportAsync(filter, ScopeUserId(filter.FilterMine));
+        // Territory / My Approvals export through their own scoped queries (page 1, no page
+        // size cap). My Requests keeps the original path: non-admins only export their own
+        // requests; Admins export all, or own when the "My Requests" filter is active.
+        var allItems = mode switch
+        {
+            "territory" => (await _svc.GetTerritoryListAsync(UserId, filter, 1, int.MaxValue)).Items,
+            "approvals" => (await _svc.GetMyApprovalsAsync(UserId, filter, 1, int.MaxValue, status, includeLookups: false)).Items,
+            _           => await _svc.GetAllForExportAsync(filter, ScopeUserId(filter.FilterMine)),
+        };
 
         if (!allItems.Any())
             return Json(new { error = "No records found for the selected date range." });
@@ -532,13 +579,21 @@ public class RequestsController : BaseCtrl
         var sb = new System.Text.StringBuilder();
         sb.Append('﻿');
 
-        sb.AppendLine("Request #,Title,Requestor,Type,Priority,Amount,Status,Department,Location,Created Date,Submitted Date,Revoked By,Revoked Date,Revoke Remark");
+        // Multi-line free text (Description / Additional Notes) is flattened to a single
+        // line and its quotes doubled, so one request always stays on one CSV row.
+        static string CsvText(string? s) =>
+            string.IsNullOrEmpty(s) ? "" :
+            s.Replace("\"", "\"\"").Replace("\r\n", " ").Replace('\r', ' ').Replace('\n', ' ');
+
+        sb.AppendLine("Request #,Title,Description,Additional Notes,Requestor,Type,Priority,Amount,Status,Department,Location,Created Date,Submitted Date,Revoked By,Revoked Date,Revoke Remark");
 
         foreach (var r in allItems)
         {
             sb.AppendLine(
                 $"\"{r.DisplayRequestNumber}\"," +
                 $"\"{r.Title?.Replace("\"", "\"\"")}\"," +
+                $"\"{CsvText(r.Description)}\"," +
+                $"\"{CsvText(r.Notes)}\"," +
                 $"\"{r.RequestorName}\"," +
                 $"\"{r.RequestTypeName}\"," +
                 $"\"{r.Priority}\"," +

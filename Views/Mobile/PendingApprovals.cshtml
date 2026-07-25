@@ -1,0 +1,135 @@
+@model MobilePendingVM
+@{
+    Layout = "_MobileLayout";
+    ViewData["Title"] = "Pending Approvals";
+    var pageSize = 20; // must match MobileController.PageSize — drives the "load more" cut-off
+}
+
+<div class="m-shell px-3 pt-3">
+
+  @* ── Summary banner ── *@
+  <div class="pa-banner">
+    <div class="pa-banner-hi text-truncate">Hello @Model.ApproverName</div>
+    <div class="pa-banner-cnt">
+      You have @Model.TotalPending Pending Request@(Model.TotalPending == 1 ? "" : "s")
+    </div>
+    <div class="pa-banner-date"><i class="bi bi-calendar3 me-1"></i>@IstClock.Now.ToString("dd-MMM-yyyy")</div>
+  </div>
+
+  @* ── Search ── *@
+  <input id="q" type="search" inputmode="search" autocomplete="off"
+         class="form-control form-control-sm mt-3"
+         placeholder="Search request no or title" value="@Model.SearchTerm"/>
+
+  @* ── Filter chips ── *@
+  <div class="d-flex flex-wrap gap-2 mt-2 mb-3">
+    @foreach (var (key, label) in MobileChip.Items)
+    {
+      <button type="button" data-chip="@key"
+              class="btn chip @(Model.Chip == key ? "btn-primary" : "btn-outline-secondary bg-body")">
+        @label
+      </button>
+    }
+  </div>
+
+  @* ── Cards: one column on a phone, two from md up ── *@
+  <div id="cards" class="row row-cols-1 row-cols-md-2" style="--bs-gutter-x:.625rem;--bs-gutter-y:.625rem">
+    @await Html.PartialAsync("_PendingCards", Model.List)
+  </div>
+
+  <div id="spinner" class="text-center py-3 d-none">
+    <div class="spinner-border spinner-border-sm text-primary"></div>
+  </div>
+
+  <div class="d-grid py-3">
+    <button id="more" type="button" class="btn btn-sm btn-outline-primary rounded-3 d-none">Load more</button>
+  </div>
+
+</div>
+
+@* ── Sticky bottom bar ── *@
+<nav class="m-bottom d-flex text-center">
+  <button type="button" id="refresh"><i class="bi bi-arrow-clockwise"></i>Refresh</button>
+  <a href="@Url.Action("PendingApprovals", "Mobile")" class="text-primary fw-semibold">
+    <i class="bi bi-inbox"></i>@Model.TotalPending Pending
+  </a>
+  <a href="/logout"><i class="bi bi-box-arrow-right"></i>Logout</a>
+</nav>
+
+@section Scripts {
+<script>
+(function () {
+  var cards   = document.getElementById('cards');
+  var spinner = document.getElementById('spinner');
+  var more    = document.getElementById('more');
+  var qBox    = document.getElementById('q');
+  var url     = '@Url.Action("Cards", "Mobile")';
+  var size    = @pageSize;
+
+  var chip = '@Model.Chip';
+  var page = 1;
+  var timer, inflight;
+
+  // Single fetch path for search, chip switches and lazy loading: the server renders the
+  // same card partial in every case, so there is no second copy of the card markup here.
+  function load(append) {
+    if (inflight) inflight.abort();
+    var ctrl = new AbortController();
+    inflight = ctrl;
+
+    spinner.classList.remove('d-none');
+    more.classList.add('d-none');
+
+    var q = encodeURIComponent(qBox.value.trim());
+    fetch(url + '?chip=' + encodeURIComponent(chip) + '&q=' + q + '&page=' + page,
+          { signal: ctrl.signal, headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+      .then(function (r) {
+        // The 5-minute idle session returns 401 to an AJAX call — send the user to login
+        // and come straight back to this page afterwards.
+        if (r.status === 401) { location.href = '/login?ReturnUrl=' + encodeURIComponent(location.pathname + location.search); return null; }
+        if (!r.ok) throw new Error(r.status);
+        return r.text();
+      })
+      .then(function (html) {
+        if (html === null) return;
+        if (append) { cards.insertAdjacentHTML('beforeend', html); }
+        else        { cards.innerHTML = html; window.scrollTo({ top: 0, behavior: 'smooth' }); }
+
+        // A short page means there is nothing left to fetch.
+        var received = (html.match(/pa-card/g) || []).length;
+        more.classList.toggle('d-none', received < size);
+      })
+      .catch(function (e) { if (e.name !== 'AbortError') more.classList.remove('d-none'); })
+      .finally(function () { spinner.classList.add('d-none'); inflight = null; });
+  }
+
+  // Instant search — debounced so typing does not fire a request per keystroke. Searching
+  // runs on the server (existing SearchTerm filter), so it covers every pending request,
+  // not just the cards already on screen.
+  qBox.addEventListener('input', function () {
+    clearTimeout(timer);
+    timer = setTimeout(function () { page = 1; load(false); }, 250);
+  });
+
+  document.querySelectorAll('[data-chip]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.querySelectorAll('[data-chip]').forEach(function (b) {
+        b.classList.remove('btn-primary');
+        b.classList.add('btn-outline-secondary', 'bg-body');
+      });
+      btn.classList.add('btn-primary');
+      btn.classList.remove('btn-outline-secondary', 'bg-body');
+      chip = btn.dataset.chip;
+      page = 1;
+      load(false);
+    });
+  });
+
+  more.addEventListener('click', function () { page += 1; load(true); });
+  document.getElementById('refresh').addEventListener('click', function () { location.reload(); });
+
+  // First page is server-rendered; only show "load more" when it filled up.
+  if (document.querySelectorAll('#cards .pa-card').length >= size) more.classList.remove('d-none');
+})();
+</script>
+}

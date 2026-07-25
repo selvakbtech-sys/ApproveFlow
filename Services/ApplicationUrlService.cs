@@ -6,6 +6,9 @@ public interface IApplicationUrlService
     string GetRequestViewUrl(string secureToken);
     string GetRequestViewLinksText(string secureToken);
     (string inOffice, string outOfOffice) GetRequestViewUrlPair(string secureToken);
+    string GetPendingApprovalsUrl();
+    string GetPendingApprovalsLinksText();
+    (string inOffice, string outOfOffice) GetPendingApprovalsUrlPair();
 }
 
 // Centralized public URL builder for links sent in WhatsApp messages (Notification Alert,
@@ -76,24 +79,51 @@ public class ApplicationUrlService : IApplicationUrlService
         return string.IsNullOrEmpty(baseUrl) ? "" : $"{baseUrl}/r/{secureToken}";
     }
 
-    // Builds the "View Request" block for WhatsApp. When both LAN and public base URLs are
-    // configured (typical Production), it emits two clearly-labelled links so the recipient can
-    // tap the one that matches their network — office/WhatsApp-Web users hit the LAN IP, mobile
-    // users hit the public IP. When those keys are blank (e.g. Development), it falls back to the
-    // single URL from GetRequestViewUrl. All hosts come from configuration — none are hardcoded.
+    // The "View Request" block for WhatsApp (see BuildLinksText for the LAN/public rules).
     public string GetRequestViewLinksText(string secureToken)
+        => BuildLinksText($"/r/{secureToken}", GetRequestViewUrl(secureToken));
+
+    // Deep link target for the WhatsApp reminder: the mobile Pending Approvals landing page,
+    // already scoped server-side to the logged-in approver's pending items. Kept as one
+    // constant so the reminder can never point at the dashboard, a KPI card or the home page.
+    // The desktop Approval Requests grid (/Requests/Approval?status=Pending) is unchanged and
+    // still reachable from the dashboard as before.
+    public const string PendingApprovalsPath = "/Mobile/PendingApprovals";
+
+    public string GetPendingApprovalsUrl()
+    {
+        var baseUrl = GetBaseUrl();
+        return string.IsNullOrEmpty(baseUrl) ? "" : baseUrl + PendingApprovalsPath;
+    }
+
+    public string GetPendingApprovalsLinksText()
+        => BuildLinksText(PendingApprovalsPath, GetPendingApprovalsUrl());
+
+    // The two pending-approval links as SEPARATE values, for the pending_approval_summary
+    // Meta template ({{4}} = In-Office / HO, {{5}} = Out of Office / Mobile) — same reason as
+    // GetRequestViewUrlPair: a template parameter may not contain new-lines (#132018), and
+    // Meta rejects a blank parameter outright, so neither side is ever empty.
+    public (string inOffice, string outOfOffice) GetPendingApprovalsUrlPair()
+        => BuildUrlPair(PendingApprovalsPath, GetPendingApprovalsUrl());
+
+    // Builds a link block for WhatsApp. When both LAN and public base URLs are configured
+    // (typical Production), it emits two clearly-labelled links so the recipient can tap the
+    // one that matches their network — office/WhatsApp-Web users hit the LAN IP, mobile users
+    // hit the public IP. When those keys are blank (e.g. Development), it falls back to the
+    // single auto-resolved URL. All hosts come from configuration — none are hardcoded.
+    private string BuildLinksText(string relativePath, string fallbackUrl)
     {
         var lan = _cfg["Application:LanBaseUrl"];
         var pub = _cfg["Application:PublicBaseUrl"];
 
         var lines = new List<string>();
         if (!string.IsNullOrWhiteSpace(lan))
-            lines.Add($"🏢 In-Office / HO (WhatsApp Web):\n{lan.TrimEnd('/')}/r/{secureToken}");
+            lines.Add($"🏢 In-Office / HO (WhatsApp Web):\n{lan.TrimEnd('/')}{relativePath}");
         if (!string.IsNullOrWhiteSpace(pub))
-            lines.Add($"📱 Out of Office / Mobile:\n{pub.TrimEnd('/')}/r/{secureToken}");
+            lines.Add($"📱 Out of Office / Mobile:\n{pub.TrimEnd('/')}{relativePath}");
 
         // No environment-specific links configured — fall back to single auto/config URL.
-        return lines.Count > 0 ? string.Join("\n\n", lines) : GetRequestViewUrl(secureToken);
+        return lines.Count > 0 ? string.Join("\n\n", lines) : fallbackUrl;
     }
 
     // The two view links as SEPARATE values, for the notification_alert Meta template
@@ -106,20 +136,22 @@ public class ApplicationUrlService : IApplicationUrlService
     // alert fails to send. So each side falls back to the auto-resolved URL, and finally
     // to a plain-text notice, guaranteeing both parameters always carry something.
     public (string inOffice, string outOfOffice) GetRequestViewUrlPair(string secureToken)
+        => BuildUrlPair($"/r/{secureToken}", GetRequestViewUrl(secureToken));
+
+    private (string inOffice, string outOfOffice) BuildUrlPair(string relativePath, string autoUrl)
     {
         var lan = _cfg["Application:LanBaseUrl"];
         var pub = _cfg["Application:PublicBaseUrl"];
-        var auto = GetRequestViewUrl(secureToken); // NGROK_URL / Application:BaseUrl / request host
 
         const string unavailable = "(link unavailable)";
 
         var inOffice = !string.IsNullOrWhiteSpace(lan)
-            ? $"{lan.TrimEnd('/')}/r/{secureToken}"
-            : (!string.IsNullOrWhiteSpace(auto) ? auto : unavailable);
+            ? $"{lan.TrimEnd('/')}{relativePath}"
+            : (!string.IsNullOrWhiteSpace(autoUrl) ? autoUrl : unavailable);
 
         var outOfOffice = !string.IsNullOrWhiteSpace(pub)
-            ? $"{pub.TrimEnd('/')}/r/{secureToken}"
-            : (!string.IsNullOrWhiteSpace(auto) ? auto : unavailable);
+            ? $"{pub.TrimEnd('/')}{relativePath}"
+            : (!string.IsNullOrWhiteSpace(autoUrl) ? autoUrl : unavailable);
 
         return (inOffice, outOfOffice);
     }

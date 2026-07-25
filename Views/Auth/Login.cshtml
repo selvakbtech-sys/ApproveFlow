@@ -29,7 +29,12 @@
 
     <div asp-validation-summary="ModelOnly" class="alert alert-err" style="display:@(ViewData.ModelState.IsValid?"none":"flex")"></div>
 
-    <form asp-controller="Auth" asp-action="Login" method="post">
+    @* ReturnUrl is carried BOTH in the action URL and in the hidden field. The hidden field
+       alone is enough on a direct connection, but through a tunnel/proxy an interstitial can
+       swallow the POST body — the browser then re-issues a plain GET to the action URL, and
+       without the query string the destination would be lost and login would fall back to the
+       Dashboard. Keeping it in the URL means the deep link survives that round trip. *@
+    <form asp-controller="Auth" asp-action="Login" asp-route-returnUrl="@Model.ReturnUrl" method="post">
       @Html.AntiForgeryToken()
       <input type="hidden" asp-for="ReturnUrl"/>
       <div class="form-group lf-field">

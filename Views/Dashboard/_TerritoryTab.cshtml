@@ -7,32 +7,32 @@
 
 @* ── KPI Cards ── *@
 <div class="metric-row" style="grid-template-columns:repeat(6,1fr)">
-  <a asp-controller="Requests" asp-action="Territory" class="metric-card" style="--mc:#7c3aed">
+  <a asp-controller="Requests" asp-action="Territory" asp-route-dtab="territory" class="metric-card" style="--mc:#7c3aed">
     <div class="metric-num">@Model.TotalInTerritory</div>
     <div class="metric-lbl">Total Request</div>
     <div class="metric-hint">Dept &amp; Location</div>
   </a>
-  <a asp-controller="Requests" asp-action="Territory" asp-route-FilterStatus="Pending Approval" class="metric-card" style="--mc:#d97706">
+  <a asp-controller="Requests" asp-action="Territory" asp-route-dtab="territory" asp-route-FilterStatus="Pending Approval" class="metric-card" style="--mc:#d97706">
     <div class="metric-num">@Model.Pending</div>
     <div class="metric-lbl">Pending Request</div>
     <div class="metric-hint">&nbsp;</div>
   </a>
-    <a asp-controller="Requests" asp-action="Territory" asp-route-FilterStatus="Partial Approved" class="metric-card" style="--mc:#0369a1">
+    <a asp-controller="Requests" asp-action="Territory" asp-route-dtab="territory" asp-route-FilterStatus="Partial Approved" class="metric-card" style="--mc:#0369a1">
         <div class="metric-num">@(Model.ByStatus.GetValueOrDefault("Partial Approved"))</div>
         <div class="metric-lbl">Partial Approved</div>
         <div class="metric-hint">&nbsp;</div>
     </a>
-  <a asp-controller="Requests" asp-action="Territory" asp-route-FilterStatus="Approved" class="metric-card" style="--mc:#16a34a">
+  <a asp-controller="Requests" asp-action="Territory" asp-route-dtab="territory" asp-route-FilterStatus="Approved" class="metric-card" style="--mc:#16a34a">
     <div class="metric-num">@Model.Approved</div>
     <div class="metric-lbl">Approved</div>
     <div class="metric-hint">&nbsp;</div>
   </a>
-  <a asp-controller="Requests" asp-action="Territory" asp-route-FilterStatus="Rejected" class="metric-card" style="--mc:#dc2626">
+  <a asp-controller="Requests" asp-action="Territory" asp-route-dtab="territory" asp-route-FilterStatus="Rejected" class="metric-card" style="--mc:#dc2626">
     <div class="metric-num">@Model.Rejected</div>
     <div class="metric-lbl">Rejected</div>
     <div class="metric-hint">&nbsp;</div>
   </a>
-  <a asp-controller="Requests" asp-action="Territory" asp-route-FilterStatus="Clarification Needed" class="metric-card" style="--mc:#7c3aed">
+  <a asp-controller="Requests" asp-action="Territory" asp-route-dtab="territory" asp-route-FilterStatus="Clarification Needed" class="metric-card" style="--mc:#7c3aed">
     <div class="metric-num">@Model.Clarification</div>
     <div class="metric-lbl">Clarification</div>
     <div class="metric-hint">&nbsp;</div>
