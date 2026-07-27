@@ -17,6 +17,15 @@ public class RequestsController : BaseCtrl
     private int? ScopeUserId(bool filterMine) =>
         UserRole == "Admin" ? (filterMine ? UserId : (int?)null) : UserId;
 
+    // Configurable grid page sizes offered by the list footer selector. Any value outside
+    // this set (or omitted) falls back to the default so a hand-edited URL can't request an
+    // arbitrary page size. Paging itself is unchanged — this only chooses the page size fed
+    // to the existing service `size` argument.
+    private static readonly int[] AllowedPageSizes = { 10, 25, 50, 100 };
+    private const int DefaultPageSize = 10;
+    private static int NormalizePageSize(int size) =>
+        AllowedPageSizes.Contains(size) ? size : DefaultPageSize;
+
     // ── Mobile-source navigation ──────────────────────────────
     // A Detail page opened from the mobile Pending Approvals page carries source=mobile on
     // every link and form. It changes exactly one thing — where "Back" and the post-action
@@ -41,7 +50,7 @@ public class RequestsController : BaseCtrl
     private IActionResult StayOnDetail(int id, string? source, string? tab = null) =>
         RedirectToAction("Detail", new { id, tab, source = SourceTag(source) });
 
-    public async Task<IActionResult> Index(RequestListVM filter, int page = 1)
+    public async Task<IActionResult> Index(RequestListVM filter, int page = 1, int pageSize = DefaultPageSize)
     {
         if (DenyIfNoPerm("Requests") is { } r1) return r1;
         ViewBag.UserRole = UserRole;
@@ -50,7 +59,7 @@ public class RequestsController : BaseCtrl
                 .Select(u => u.Role.Permissions.Any(p => p.ScreenName == "Requests" && p.CanDelete))
                 .FirstOrDefaultAsync();
         int? scopeUser = ScopeUserId(filter.FilterMine);
-        return View(await _svc.GetListAsync(filter, page, 20, scopeUser, UserId));
+        return View(await _svc.GetListAsync(filter, page, NormalizePageSize(pageSize), scopeUser, UserId));
     }
 
     // Approval Requests page for the logged-in approver. Reached from the dashboard KPI
@@ -58,29 +67,29 @@ public class RequestsController : BaseCtrl
     // All). The friendly `status` token is mapped to concrete request statuses inside the
     // service (ApprovalStatusFilter) so the grid totals always match the KPI counts, and
     // it is echoed to the view so the Status dropdown pre-selects the matching option.
-    public async Task<IActionResult> Approval(RequestListVM filter, string? status, int page = 1)
+    public async Task<IActionResult> Approval(RequestListVM filter, string? status, int page = 1, int pageSize = DefaultPageSize)
     {
         if (DenyIfNoPerm("Requests") is { } r1) return r1;
         ViewBag.UserRole = UserRole;
         ViewBag.IsMyApprovals = true;
         ViewBag.ApprovalStatus = status;
-        return View("Index", await _svc.GetMyApprovalsAsync(UserId, filter, page, 20, status));
+        return View("Index", await _svc.GetMyApprovalsAsync(UserId, filter, page, NormalizePageSize(pageSize), status));
     }
 
     // Backward-compatible alias for older links; delegates to the Approval page.
-    public Task<IActionResult> MyApprovals(RequestListVM filter, string? status, int page = 1)
-        => Approval(filter, status, page);
+    public Task<IActionResult> MyApprovals(RequestListVM filter, string? status, int page = 1, int pageSize = DefaultPageSize)
+        => Approval(filter, status, page, pageSize);
 
     // Territory grid — reached from the dashboard "My Territory" KPI cards as
     // /Requests/Territory?FilterStatus=… The service scopes to the logged-in user's
     // department/location (the SAME scope as the territory KPI counts) for EVERY role, so
     // the grid total always matches the KPI. Renders the shared Index view in territory mode.
-    public async Task<IActionResult> Territory(RequestListVM filter, int page = 1)
+    public async Task<IActionResult> Territory(RequestListVM filter, int page = 1, int pageSize = DefaultPageSize)
     {
         if (DenyIfNoPerm("Requests") is { } r1) return r1;
         ViewBag.UserRole = UserRole;
         ViewBag.IsTerritory = true;
-        return View("Index", await _svc.GetTerritoryListAsync(UserId, filter, page, 20));
+        return View("Index", await _svc.GetTerritoryListAsync(UserId, filter, page, NormalizePageSize(pageSize)));
     }
 
     public async Task<IActionResult> Detail(int id, string tab = "details", string? mode = null, string? source = null)
@@ -552,15 +561,14 @@ public class RequestsController : BaseCtrl
     public async Task<IActionResult> ExportExcel(RequestListVM filter, string? mode = null, string? status = null)
     {
         if (DenyIfNoPerm("Requests") is { } rp) return rp;
-        if (string.IsNullOrWhiteSpace(filter.FilterDateFrom))
-            return Json(new { error = "From Date is required." });
-        if (string.IsNullOrWhiteSpace(filter.FilterDateTo))
-            return Json(new { error = "To Date is required." });
-        if (!DateOnly.TryParse(filter.FilterDateFrom, out var from))
-            return Json(new { error = "From Date is invalid." });
-        if (!DateOnly.TryParse(filter.FilterDateTo, out var to))
-            return Json(new { error = "To Date is invalid." });
-        if (from > to)
+        // Export always uses the grid's CURRENT filters/search. The date range is OPTIONAL —
+        // exactly as the grid treats it — so no date is required to export. When BOTH bounds
+        // are supplied we still guard against an inverted range; a missing/blank date simply
+        // means "no date filter", and the underlying query already skips it.
+        if (!string.IsNullOrWhiteSpace(filter.FilterDateFrom) &&
+            !string.IsNullOrWhiteSpace(filter.FilterDateTo) &&
+            DateOnly.TryParse(filter.FilterDateFrom, out var from) &&
+            DateOnly.TryParse(filter.FilterDateTo, out var to) && from > to)
             return Json(new { error = "From Date cannot be greater than To Date." });
 
         // Territory / My Approvals export through their own scoped queries (page 1, no page
@@ -609,9 +617,12 @@ public class RequestsController : BaseCtrl
         }
 
         var bytes = System.Text.Encoding.UTF8.GetBytes(sb.ToString());
-        return File(
-            bytes,
-            "text/csv",
-            $"Requests_{filter.FilterDateFrom}_to_{filter.FilterDateTo}.csv");
+        // Keep the original "from_to" filename when a date range is in effect; otherwise fall
+        // back to a date-stamped name so the download is never called "Requests__to_.csv".
+        var fileName =
+            (!string.IsNullOrWhiteSpace(filter.FilterDateFrom) && !string.IsNullOrWhiteSpace(filter.FilterDateTo))
+                ? $"Requests_{filter.FilterDateFrom}_to_{filter.FilterDateTo}.csv"
+                : $"Requests_{IstClock.Now:yyyy-MM-dd}.csv";
+        return File(bytes, "text/csv", fileName);
     }
 }
