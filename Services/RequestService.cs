@@ -237,12 +237,19 @@ public class RequestService : IRequestService
     }
 
     // ── My Territory grid ─────────────────────────────────────
-    // Requests in the logged-in user's departments/locations — the SAME dept/location
-    // scope used by DashboardService.GetMyTerritoryTabAsync, so the Territory KPI counts
-    // and this grid can never diverge. Backs the Territory KPI-card click-through for ALL
-    // roles (the previous behaviour routed to /Requests/Index, which is own-only for
-    // non-admins and global for admins — neither equals the territory, so counts never
-    // matched). Deleted requests are excluded, matching the counts.
+    // Requests inside the logged-in user's territory — the SAME dept+location scope used by
+    // DashboardService.GetMyTerritoryTabAsync, so the Territory KPI counts and this grid can
+    // never diverge. Backs the Territory KPI-card click-through for ALL roles (the previous
+    // behaviour routed to /Requests/Index, which is own-only for non-admins and global for
+    // admins — neither equals the territory, so counts never matched). Deleted requests are
+    // excluded, matching the counts.
+    //
+    // Territory = the user's assigned Department(s) AND Location(s), matched as a pair: a
+    // request is in-territory only when its DepartmentId is one of the user's departments
+    // AND its LocationId is one of the user's locations. Assignments live in two independent
+    // tables (UserDepartments / UserLocations), so "matching ANY of my dept/location pairs"
+    // is expressed as (dept IN myDepts) AND (loc IN myLocs) — i.e. the cross-product of the
+    // user's departments and locations. This filter is applied FIRST, then the UI filters.
     public async Task<RequestListVM> GetTerritoryListAsync(int userId, RequestListVM f, int page, int size)
     {
         var myDeptIds = await _db.UserDepartments.AsNoTracking()
@@ -254,7 +261,7 @@ public class RequestService : IRequestService
             .AsNoTracking()
             .Include(r => r.Requestor).Include(r => r.Location)
             .Include(r => r.Department).Include(r => r.RequestType).Include(r => r.Documents)
-            .Where(r => (myDeptIds.Contains(r.DepartmentId) || myLocIds.Contains(r.LocationId))
+            .Where(r => myDeptIds.Contains(r.DepartmentId) && myLocIds.Contains(r.LocationId)
                         && r.Status != "Deleted")
             .AsQueryable();
 
@@ -327,11 +334,11 @@ public class RequestService : IRequestService
 
     // Read-only view gate. Broader than CanAccessRequestAsync: in addition to the owner,
     // the approvers and admins, it also lets a user OPEN a request that falls inside their
-    // territory — the SAME dept/location scope as GetTerritoryListAsync / the territory KPI
-    // (dept OR location). This is exactly the set the Territory grid lists, so every row a
-    // user can see there is now openable. It grants viewing ONLY; every mutating action and
-    // attachment download still gates on the stricter CanAccessRequestAsync, so a territory
-    // co-worker can look but cannot act.
+    // territory — the SAME dept+location scope as GetTerritoryListAsync / the territory KPI
+    // (dept AND location, matched as a pair). This is exactly the set the Territory grid
+    // lists, so every row a user can see there is openable and nothing outside it. It grants
+    // viewing ONLY; every mutating action and attachment download still gates on the stricter
+    // CanAccessRequestAsync, so a territory co-worker can look but cannot act.
     public async Task<bool> CanViewRequestAsync(int requestId, int userId, string userRole)
     {
         if (string.Equals(userRole, "Admin", StringComparison.OrdinalIgnoreCase))
@@ -345,8 +352,7 @@ public class RequestService : IRequestService
         return await _db.Requests.AnyAsync(r => r.RequestId == requestId &&
             (r.RequestorId == userId
              || r.Approvers.Any(a => a.ApproverUserId == userId)
-             || myDeptIds.Contains(r.DepartmentId)
-             || myLocIds.Contains(r.LocationId)));
+             || (myDeptIds.Contains(r.DepartmentId) && myLocIds.Contains(r.LocationId))));
     }
 
     public async Task<RequestFormVM?> GetDetailAsync(int id, int curUserId)

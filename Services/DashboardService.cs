@@ -486,9 +486,13 @@ public class DashboardService : IDashboardService
             .Select(ul => ul.LocationId)
             .ToListAsync();
 
+        // Territory = the user's assigned Department(s) AND Location(s), matched as a pair,
+        // identical to RequestService.GetTerritoryListAsync so the KPI counts here always
+        // equal the Territory grid. Assignments live in two independent tables, so pair-match
+        // is (dept IN myDepts) AND (loc IN myLocs) — the cross-product of the user's dept/loc.
         var q = _db.Requests
             .AsNoTracking()
-            .Where(r => (myDeptIds.Contains(r.DepartmentId) || myLocIds.Contains(r.LocationId)) && r.Status != "Deleted");
+            .Where(r => myDeptIds.Contains(r.DepartmentId) && myLocIds.Contains(r.LocationId) && r.Status != "Deleted");
 
         var vm = new MyTerritoryTabVM
         {

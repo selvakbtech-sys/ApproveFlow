@@ -31,7 +31,20 @@
       "Bash(curl -s -o /dev/null -w \"http60468: %{http_code} -> %{redirect_url}\\\\n\" --max-time 20 http://localhost:60468/)",
       "Bash(curl -sk -o /dev/null -w \"https44356: %{http_code} -> %{redirect_url}\\\\n\" --max-time 20 https://localhost:44356/)",
       "mcp__claude-in-chrome__list_connected_browsers",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "mcp__visualize__read_me",
+      "Bash(git credential *)",
+      "Bash(cd \"C:/Source/EstateManagement\" && echo \"===CLAUDE.md===\" && cat EstateManagement/CLAUDE.md 2>/dev/null | head -80 && echo \"\" && echo \"===CSPROJ===\" && cat EstateManagement/*.csproj 2>/dev/null | head -60)",
+      "PowerShell(Get-WinEvent -FilterHashtable @{LogName='Application'; StartTime=\\(Get-Date\\).AddMinutes\\(-20\\)} -ErrorAction SilentlyContinue | Where-Object { $_.Message -match 'EstateManagement|AspNetCore|\\\\.NET|Estate|Stack' } | Select-Object -First 3 | Format-List TimeCreated, ProviderName, Message)",
+      "PowerShell(Get-WinEvent -FilterHashtable @{LogName='Application'; ProviderName='.NET Runtime'; StartTime=\\(Get-Date\\).AddMinutes\\(-25\\)} -ErrorAction SilentlyContinue | Select-Object -First 2 | ForEach-Object { \"==== $\\($_.TimeCreated\\) ====\" ; $_.Message.Substring\\(0,[Math]::Min\\(2500,$_.Message.Length\\)\\) })",
+      "PowerShell(Get-WinEvent -FilterHashtable @{LogName='Application'; StartTime=\\(Get-Date\\).AddMinutes\\(-25\\)} -ErrorAction SilentlyContinue | Where-Object { $_.ProviderName -match 'Application Error|Windows Error Reporting|.NET Runtime|Restart' -or $_.Message -match 'Estate' } | Select-Object -First 5 | ForEach-Object { \"==== $\\($_.TimeCreated\\) | $\\($_.ProviderName\\) ====\" ; \\($_.Message -split \"`n\" | Select-Object -First 12\\) -join \"`n\" })",
+      "Bash(git push *)",
+      "Read(//c/Source/Final Source/ApproveFlow.MVC/**)",
+      "PowerShell($dll = \"C:\\\\Source\\\\EstateManagement\\\\bin\\\\Debug\\\\net8.0\\\\EstateManagement.dll\"; if \\(Test-Path $dll\\) { Get-Item $dll | Select-Object FullName, LastWriteTime, Length } else { \"DLL NOT FOUND at $dll\" })",
+      "PowerShell($dll=\"C:\\\\Source\\\\EstateManagement\\\\EstateManagement\\\\bin\\\\Debug\\\\net8.0\\\\EstateManagement.dll\"; if\\(Test-Path $dll\\){ Get-Item $dll | Select-Object LastWriteTime,Length } else {\"DLL absent\"}; \"--- recent CI blocks ---\"; Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-CodeIntegrity/Operational'; Id=3033,3077} -MaxEvents 6 -ErrorAction SilentlyContinue | Where-Object {$_.Message -match 'EstateManagement'} | Select-Object TimeCreated,Id | Format-Table -Auto)",
+      "PowerShell(Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-CodeIntegrity/Operational'; Id=3033} -MaxEvents 20 -ErrorAction SilentlyContinue | Where-Object {$_.Message -match 'EstateManagement'} | Select-Object -First 1 -ExpandProperty Message)",
+      "Bash(wc -l \"C:\\\\Users\\\\transformation03\\\\Downloads\\\\estate-ledger-prototype \\(14\\) \\(1\\).html\")"
     ]
   }
 }

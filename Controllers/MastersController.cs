@@ -92,15 +92,41 @@ public class MastersController : BaseCtrl
     public async Task<IActionResult> Delete(string type, int id)
     {
         if (Guard(type, Perm.Delete) is { } g) return g;
-        var sp = type switch
+        try
         {
-            "locations" => "EXEC dbo.sp_DeleteLocation @LocationId={0}",
-            "departments" => "EXEC dbo.sp_DeleteDepartment @DepartmentId={0}",
-            "requesttypes" => "EXEC dbo.sp_DeleteRequestType @RequestTypeId={0}",
-            _ => null
-        };
-        if (sp == null) return NotFound();
-        try { await _db.Database.ExecuteSqlRawAsync(sp, id); Ok("Deleted."); }
+            switch (type)
+            {
+                case "locations":
+                    if (await _db.Requests.AnyAsync(r => r.LocationId == id)
+                        || await _db.WorkflowDefinitions.AnyAsync(w => w.LocationId == id)
+                        || await _db.UserLocations.AnyAsync(u => u.LocationId == id))
+                    { Err("Cannot delete: this location is in use. Deactivate it instead."); break; }
+                    var l = await _db.Locations.FindAsync(id);
+                    if (l == null) { Err("Not found."); break; }
+                    _db.Locations.Remove(l); await _db.SaveChangesAsync(); Ok("Deleted.");
+                    break;
+                case "departments":
+                    if (await _db.Requests.AnyAsync(r => r.DepartmentId == id)
+                        || await _db.WorkflowDefinitions.AnyAsync(w => w.DepartmentId == id)
+                        || await _db.UserDepartments.AnyAsync(u => u.DepartmentId == id))
+                    { Err("Cannot delete: this department is in use. Deactivate it instead."); break; }
+                    var d = await _db.Departments.FindAsync(id);
+                    if (d == null) { Err("Not found."); break; }
+                    _db.Departments.Remove(d); await _db.SaveChangesAsync(); Ok("Deleted.");
+                    break;
+                case "requesttypes":
+                    if (await _db.Requests.AnyAsync(r => r.RequestTypeId == id)
+                        || await _db.WorkflowDefinitions.AnyAsync(w => w.RequestTypeId == id)
+                        || await _db.UserRequestTypeMappings.AnyAsync(u => u.RequestTypeId == id))
+                    { Err("Cannot delete: this request type is in use. Deactivate it instead."); break; }
+                    var t = await _db.RequestTypes.FindAsync(id);
+                    if (t == null) { Err("Not found."); break; }
+                    _db.RequestTypes.Remove(t); await _db.SaveChangesAsync(); Ok("Deleted.");
+                    break;
+                default:
+                    return NotFound();
+            }
+        }
         catch (Exception ex) { Err(ex.Message); }
         return RedirectToAction("Index", new { type });
     }

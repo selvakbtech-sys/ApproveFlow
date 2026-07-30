@@ -531,11 +531,33 @@ public class WhatsAppService : IWhatsAppService
         var summaryTemplate = _cfg["WhatsApp:PendingReminderTemplate"];
         var (inOffice, outOfOffice) = _url.GetPendingApprovalsUrlPair();
 
+        // Rule 10 tallies for the end-of-run line: how many approvers were evaluated this slot,
+        // how many actually received a reminder, and how many were skipped.
+        int evaluated = 0, sentCount = 0, skippedCount = 0;
+
         foreach (var s in summaries)
         {
-            if (s.Total == 0) continue;                     // never remind about nothing
+            evaluated++;
+
+            // Rules 2–4: only approvers with at least one CURRENT pending request are reminded;
+            // a zero count is skipped silently (the summary query already excludes them, so this
+            // is a defensive guard). Recorded as an audit line rather than dropped invisibly.
+            if (s.Total == 0)
+            {
+                skippedCount++;
+                LogReminderResult(s, sent: false, reason: "No Pending Requests");
+                continue;
+            }
+
             var phone = await GetPhoneAsync(s.ApproverUserId);
-            if (string.IsNullOrEmpty(phone)) continue;
+            if (string.IsNullOrEmpty(phone))
+            {
+                skippedCount++;
+                LogReminderResult(s, sent: false, reason: "No WhatsApp number");
+                continue;
+            }
+
+            bool sent = false;
 
             if (!string.IsNullOrWhiteSpace(summaryTemplate))
             {
@@ -554,39 +576,58 @@ public class WhatsAppService : IWhatsAppService
                 ctx: new WaMsgContext(null, null, $"template:{summaryTemplate}",
                     $"Pending Approval Reminder: {s.Total} pending", null, s.ApproverUserId));
 
-                if (accepted) continue;
-
-                // Meta refused it — most likely the template is still in review, or was
-                // rejected/paused. Rather than drop the reminder we fall through to the
-                // free-form message below, which carries the same content.
-                _log.LogWarning("WA-REMINDER: template {Template} not accepted, falling back to free-form UserId={Uid}",
-                    summaryTemplate, s.ApproverUserId);
+                if (accepted) sent = true;
+                else
+                    // Meta refused it — most likely the template is still in review, or was
+                    // rejected/paused. Rather than drop the reminder we fall through to the
+                    // free-form message below, which carries the same content.
+                    _log.LogWarning("WA-REMINDER: template {Template} not accepted, falling back to free-form UserId={Uid}",
+                        summaryTemplate, s.ApproverUserId);
             }
 
-            var text = BuildPendingReminderText(s, links);
-
-            // Free-form text is what renders the grouped summary and the tappable link — a
-            // Meta template body is fixed and rejects new-lines in its parameters (#132018).
-            // Meta only delivers free-form inside the 24-hour service window, so when the send
-            // is refused we fall back to the approved pending_approval_reminder template
-            // (name + count) — exactly what this reminder sent before, so no approver is left
-            // without a nudge.
-            var wamid = await SendTextAsync(phone, text, previewUrl: false,
-                ctx: new WaMsgContext(null, null, "pending_reminder", text, null, s.ApproverUserId));
-
-            if (wamid == null)
+            if (!sent)
             {
-                _log.LogInformation("WA-REMINDER: free-form not deliverable, using template fallback UserId={Uid} Pending={N}",
-                    s.ApproverUserId, s.Total);
-                // pending_approval_reminder (2): {{1}}=Approver name  {{2}}=Pending count
-                await SendTemplateAsync(phone, "pending_approval_reminder", new[]
+                var text = BuildPendingReminderText(s, links);
+
+                // Free-form text is what renders the grouped summary and the tappable link — a
+                // Meta template body is fixed and rejects new-lines in its parameters (#132018).
+                // Meta only delivers free-form inside the 24-hour service window, so when the send
+                // is refused we fall back to the approved pending_approval_reminder template
+                // (name + count) — exactly what this reminder sent before, so no approver is left
+                // without a nudge.
+                var wamid = await SendTextAsync(phone, text, previewUrl: false,
+                    ctx: new WaMsgContext(null, null, "pending_reminder", text, null, s.ApproverUserId));
+
+                if (wamid != null) sent = true;
+                else
                 {
-                    s.ApproverName,
-                    s.Total.ToString()
-                });
+                    _log.LogInformation("WA-REMINDER: free-form not deliverable, using template fallback UserId={Uid} Pending={N}",
+                        s.ApproverUserId, s.Total);
+                    // pending_approval_reminder (2): {{1}}=Approver name  {{2}}=Pending count
+                    sent = await SendTemplateAsync(phone, "pending_approval_reminder", new[]
+                    {
+                        s.ApproverName,
+                        s.Total.ToString()
+                    });
+                }
             }
+
+            if (sent) sentCount++; else skippedCount++;
+            LogReminderResult(s, sent, sent ? "Reminder Sent" : "Send Failed");
         }
+
+        _log.LogInformation(
+            "WA-REMINDER: run complete — approvers evaluated={Evaluated}, reminders sent={Sent}, skipped={Skipped}.",
+            evaluated, sentCount, skippedCount);
     }
+
+    // Rule 10: one structured audit line per approver per scheduler run, capturing the approver,
+    // their current pending count, whether a reminder went out, and why. Written at Information
+    // level so a run's outcome is auditable from the logs without changing any send behaviour.
+    private void LogReminderResult(PendingApprovalSummary s, bool sent, string reason)
+        => _log.LogInformation(
+            "WA-REMINDER-AUDIT: Approver='{Approver}' (UserId={UserId}) PendingCount={PendingCount} ReminderSent={Sent} Reason='{Reason}'",
+            s.ApproverName, s.ApproverUserId, s.Total, sent ? "Yes" : "No", reason);
 
     // The reminder body. Layout is fixed text built here (not a Meta template) so the
     // per-request-type summary can grow or shrink with whatever the approver actually has
