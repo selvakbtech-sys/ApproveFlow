@@ -127,13 +127,11 @@
           <div style="font-size:13px;color:var(--txt2);line-height:1.7;background:var(--bg);border:1px solid var(--bdr);border-radius:var(--r);padding:10px 13px">@Model.Description</div>
         </div>
       }
-      @if (!string.IsNullOrEmpty(Model.Notes))
-      {
-        <div style="padding:14px 18px">
-          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--txt3);margin-bottom:8px">Notes</div>
-          <div style="font-size:13px;color:var(--txt2);line-height:1.7">@Model.Notes</div>
-        </div>
-      }
+      @* Additional Notes — always shown on the view screen (muted "—" when none was entered). *@
+      <div style="padding:14px 18px">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--txt3);margin-bottom:8px">Additional Notes</div>
+        <div style="font-size:13px;line-height:1.7;background:var(--bg);border:1px solid var(--bdr);border-radius:var(--r);padding:10px 13px;color:@(string.IsNullOrEmpty(Model.Notes) ? "var(--txt3)" : "var(--txt2)")">@(string.IsNullOrEmpty(Model.Notes) ? "—" : Model.Notes)</div>
+      </div>
     </div>
 
     <div>
