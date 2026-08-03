@@ -64,6 +64,21 @@ function initMs(wrap) {
     if (chev) chev.classList.remove('open');
   });
   cbs.forEach(cb => cb.addEventListener('change', render));
+
+  // Optional Select All / Clear All controls. Present only where the markup opts in
+  // (e.g. the User form); absent elsewhere, so other multi-selects are unaffected.
+  // stopPropagation keeps the dropdown open while bulk-toggling.
+  const selAll = wrap.querySelector('.ms-selall');
+  const clrAll = wrap.querySelector('.ms-clrall');
+  if (selAll) selAll.addEventListener('click', e => {
+    e.preventDefault(); e.stopPropagation();
+    cbs.forEach(c => c.checked = true); render();
+  });
+  if (clrAll) clrAll.addEventListener('click', e => {
+    e.preventDefault(); e.stopPropagation();
+    cbs.forEach(c => c.checked = false); render();
+  });
+
   render();
   wrap._msRefresh = render; // exposed so external code can force a refresh after renaming data-name
 }

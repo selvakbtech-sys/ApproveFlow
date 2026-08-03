@@ -486,13 +486,23 @@ public class DashboardService : IDashboardService
             .Select(ul => ul.LocationId)
             .ToListAsync();
 
-        // Territory = the user's assigned Department(s) AND Location(s), matched as a pair,
-        // identical to RequestService.GetTerritoryListAsync so the KPI counts here always
-        // equal the Territory grid. Assignments live in two independent tables, so pair-match
-        // is (dept IN myDepts) AND (loc IN myLocs) — the cross-product of the user's dept/loc.
+        // Request Type scope: the user's actively-mapped request types (UserRequestTypeMappings).
+        var myTypeIds = await _db.UserRequestTypeMappings
+            .AsNoTracking()
+            .Where(m => m.UserId == userId && !m.SoftDeleted && m.IsActive)
+            .Select(m => m.RequestTypeId)
+            .ToListAsync();
+
+        // Territory = Location IN (UserLocations) AND Department IN (UserDepartments)
+        //           AND RequestType IN (UserRequestTypeMappings) — all three applied together.
+        // IDENTICAL filter to RequestService.GetTerritoryListAsync so the KPI counts here always
+        // equal the Territory grid.
         var q = _db.Requests
             .AsNoTracking()
-            .Where(r => myDeptIds.Contains(r.DepartmentId) && myLocIds.Contains(r.LocationId) && r.Status != "Deleted");
+            .Where(r => myLocIds.Contains(r.LocationId)
+                     && myDeptIds.Contains(r.DepartmentId)
+                     && myTypeIds.Contains(r.RequestTypeId)
+                     && r.Status != "Deleted");
 
         var vm = new MyTerritoryTabVM
         {

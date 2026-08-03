@@ -72,6 +72,10 @@
                 <svg class="ms-chev" viewBox="0 0 24 24"><polyline points="6,9 12,15 18,9"/></svg>
               </div>
               <div class="ms-drop">
+                <div class="ms-bulk">
+                  <button type="button" class="ms-selall">Select All</button>
+                  <button type="button" class="ms-clrall">Clear All</button>
+                </div>
                 @foreach (var l in Model.Locations)
                 {
                   <label class="ms-opt">
@@ -93,6 +97,10 @@
                 <svg class="ms-chev" viewBox="0 0 24 24"><polyline points="6,9 12,15 18,9"/></svg>
               </div>
               <div class="ms-drop">
+                <div class="ms-bulk">
+                  <button type="button" class="ms-selall">Select All</button>
+                  <button type="button" class="ms-clrall">Clear All</button>
+                </div>
                 @foreach (var d in Model.Departments)
                 {
                   <label class="ms-opt">

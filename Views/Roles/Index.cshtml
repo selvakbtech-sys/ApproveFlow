@@ -1,8 +1,36 @@
 @model RoleListVM
-@{ ViewData["Title"] = "Roles & Permissions"; ViewData["NavPage"] = "roles"; }
+@{
+    ViewData["Title"] = "Roles & Permissions";
+    ViewData["NavPage"] = "roles";
+
+    // ── Presentation-only aggregates, computed from the data already loaded into the
+    //    ViewModel (RoleItemVM.Permissions / UserCount). No new queries, services or
+    //    calculations — these just summarise the existing permission rows for display. ──
+    var screens        = RoleFormVM.AllScreens;
+    var reportScreens  = RoleFormVM.ReportScreens;
+
+    int totalRoles  = Model.Items.Count;
+    int activeRoles = Model.Items.Count(r => r.IsActive);
+    int totalUsers  = Model.Items.Sum(r => r.UserCount);
+    // "System roles" = roles that can administer the Roles & Permissions screen
+    // (derived from existing permission data only; shown for at-a-glance context).
+    int systemRoles = Model.Items.Count(r =>
+        r.Permissions.Any(p => p.ScreenName == "Roles & Permissions" && p.CanView));
+
+    int ScreensCount(RoleItemVM r) => r.Permissions.Count(p =>
+        p.CanView || p.CanCreate || p.CanEdit || p.CanApprove || p.CanDelete);
+
+    // Renders a permission count: emphasises non-zero values, mutes zero.
+    Microsoft.AspNetCore.Html.IHtmlContent RpNum(int n) =>
+        new Microsoft.AspNetCore.Html.HtmlString(
+            n > 0 ? $"<span class=\"rp-cnt\">{n}</span>" : "<span class=\"rp-zero\">0</span>");
+}
 
 <div class="pg-hdr">
-  <div><div class="pg-title">Roles & Permissions</div><div class="pg-sub">@Model.Items.Count roles</div></div>
+  <div>
+    <div class="pg-title">Roles &amp; Permissions</div>
+    <div class="pg-sub">@totalRoles role@(totalRoles != 1 ? "s" : "") configured</div>
+  </div>
   <div class="pg-actions">
     <a asp-action="Create" class="btn btn-acc">
       <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -11,63 +39,231 @@
   </div>
 </div>
 
-<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px">
+<!-- ── KPI summary ─────────────────────────────────────────── -->
+<div class="rp-kpis">
+  <div class="rp-kpi">
+    <div class="rp-kpi-ic rp-kpi-ic--blue">
+      <svg viewBox="0 0 24 24"><path d="M12 2l7 4v6c0 5-3.5 8-7 10-3.5-2-7-5-7-10V6l7-4z"/></svg>
+    </div>
+    <div><div class="rp-kpi-num">@totalRoles</div><div class="rp-kpi-lbl">Total Roles</div></div>
+  </div>
+  <div class="rp-kpi">
+    <div class="rp-kpi-ic rp-kpi-ic--green">
+      <svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22,4 12,14.01 9,11.01"/></svg>
+    </div>
+    <div><div class="rp-kpi-num">@activeRoles</div><div class="rp-kpi-lbl">Active Roles</div></div>
+  </div>
+  <div class="rp-kpi">
+    <div class="rp-kpi-ic rp-kpi-ic--amber">
+      <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+    </div>
+    <div><div class="rp-kpi-num">@totalUsers</div><div class="rp-kpi-lbl">Total Users Assigned</div></div>
+  </div>
+  <div class="rp-kpi">
+    <div class="rp-kpi-ic rp-kpi-ic--purple">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+    </div>
+    <div><div class="rp-kpi-num">@systemRoles</div><div class="rp-kpi-lbl" title="Roles that can manage the Roles &amp; Permissions screen">System Roles</div></div>
+  </div>
+</div>
+
+<!-- ── Roles grid (search / sort / pagination via data-grid.js) ── -->
+<div class="card rp-card">
+  <div class="tbl-wrap">
+    <table class="tbl rp-grid" data-grid>
+      <thead>
+        <tr>
+          <th>Role Name</th>
+          <th class="rp-c">Users</th>
+          <th class="rp-c">Screens</th>
+          <th class="rp-c">View</th>
+          <th class="rp-c">Create</th>
+          <th class="rp-c">Edit</th>
+          <th class="rp-c">Approve</th>
+          <th class="rp-c">Delete</th>
+          <th class="r">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        @if (!Model.Items.Any())
+        {
+          <tr><td colspan="9" class="tbl-empty">No roles found.</td></tr>
+        }
+        @foreach (RoleItemVM role in Model.Items)
+        {
+          <tr style="opacity:@(role.IsActive ? "1" : ".6")">
+            <td>
+              <div class="rp-role">
+                <span class="badge @role.BadgeColor">@role.RoleName</span>
+                @if (!role.IsActive) { <span class="badge badge-gray">Inactive</span> }
+              </div>
+              @if (!string.IsNullOrEmpty(role.Description))
+              {
+                <div class="rp-role-desc" title="@role.Description">@role.Description</div>
+              }
+            </td>
+            <td class="rp-c"><span class="rp-users">@role.UserCount</span></td>
+            <td class="rp-c rp-strong">@ScreensCount(role)</td>
+            <td class="rp-c">@RpNum(role.Permissions.Count(p => p.CanView))</td>
+            <td class="rp-c">@RpNum(role.Permissions.Count(p => p.CanCreate))</td>
+            <td class="rp-c">@RpNum(role.Permissions.Count(p => p.CanEdit))</td>
+            <td class="rp-c">@RpNum(role.Permissions.Count(p => p.CanApprove))</td>
+            <td class="rp-c">@RpNum(role.Permissions.Count(p => p.CanDelete))</td>
+            <td class="r">
+              <div class="rp-actions">
+                <button type="button" class="btn btn-sec btn-sm" onclick="rpOpen(@role.RoleId)">
+                  <svg viewBox="0 0 24 24" class="rp-btn-ic"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                  Permissions
+                </button>
+                <a asp-action="Edit" asp-route-id="@role.RoleId" class="btn btn-sec btn-sm">Edit</a>
+                <form asp-action="Delete" asp-route-id="@role.RoleId" method="post" style="display:inline">
+                  @Html.AntiForgeryToken()
+                  <button type="submit" class="btn btn-ng btn-sm"
+                          onclick="return confirm('Delete role @role.RoleName?')">
+                    <svg viewBox="0 0 24 24" class="rp-btn-ic"><polyline points="3,6 5,6 21,6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
+                  </button>
+                </form>
+              </div>
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ── Hidden per-role permission matrices (source for the modal) ── -->
+<div id="rp-permstore" style="display:none">
   @foreach (RoleItemVM role in Model.Items)
   {
-    <div class="card">
-      <div class="card-body">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:12px">
-          <div>
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-              <span class="badge @role.BadgeColor">@role.RoleName</span>
-              @if (!role.IsActive) { <span class="badge badge-gray">Inactive</span> }
-            </div>
-            @if (!string.IsNullOrEmpty(role.Description))
-            { <div style="font-size:12px;color:var(--txt3)">@role.Description</div> }
-            <div style="font-size:11px;color:var(--txt3);margin-top:4px">@role.UserCount user@(role.UserCount!=1?"s":"") assigned</div>
-          </div>
-          <div style="display:flex;gap:5px">
-            <a asp-action="Edit" asp-route-id="@role.RoleId" class="btn btn-sec btn-sm">Edit</a>
-            <form asp-action="Delete" asp-route-id="@role.RoleId" method="post" style="display:inline">
-              @Html.AntiForgeryToken()
-              <button type="submit" class="btn btn-ng btn-sm"
-                onclick="return confirm('Delete role @role.RoleName?')">
-                <svg viewBox="0 0 24 24"><polyline points="3,6 5,6 21,6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
-              </button>
-            </form>
-          </div>
-        </div>
-        <div style="overflow-x:auto">
-          <table style="width:100%;border-collapse:collapse;font-size:11px">
-            <thead><tr style="background:var(--bg)">
-              <th style="padding:4px 8px;text-align:left;color:var(--txt2)">Screen</th>
-              @foreach (var a in new[]{"V","C","E","A","D"})
-              { <th style="padding:4px;text-align:center;color:var(--txt2)">@a</th> }
-            </tr></thead>
-            <tbody>
-              @foreach (var screen in RoleFormVM.AllScreens)
+    <div data-roleid="@role.RoleId" data-rolename="@role.RoleName">
+      <table class="tbl rp-matrix">
+        <thead>
+          <tr>
+            <th>Screen</th>
+            <th class="rp-c">View</th>
+            <th class="rp-c">Create</th>
+            <th class="rp-c">Edit</th>
+            <th class="rp-c">Approve</th>
+            <th class="rp-c">Delete</th>
+          </tr>
+        </thead>
+        <tbody>
+          @foreach (var screen in screens)
+          {
+            var p = role.Permissions.FirstOrDefault(x => x.ScreenName == screen);
+            bool isRpt = Array.IndexOf(reportScreens, screen) >= 0;
+            bool?[] vals = p == null
+              ? new bool?[] { false, false, false, false, false }
+              : new bool?[] { p.CanView,
+                              isRpt ? (bool?)null : p.CanCreate,
+                              isRpt ? (bool?)null : p.CanEdit,
+                              isRpt ? (bool?)null : p.CanApprove,
+                              isRpt ? (bool?)null : p.CanDelete };
+            <tr>
+              <td class="rp-scr">@screen</td>
+              @foreach (var v in vals)
               {
-                var p = role.Permissions.FirstOrDefault(x => x.ScreenName == screen);
-                bool isRpt = Array.IndexOf(RoleFormVM.ReportScreens, screen) >= 0;
-                bool?[] vals = p == null
-                  ? new bool?[]{false,false,false,false,false}
-                  : new bool?[]{p.CanView, isRpt?null:(bool?)p.CanCreate, isRpt?null:(bool?)p.CanEdit, isRpt?null:(bool?)p.CanApprove, isRpt?null:(bool?)p.CanDelete};
-                <tr style="border-top:1px solid var(--bg)">
-                  <td style="padding:4px 8px;font-weight:500;color:var(--txt2)">@screen</td>
-                  @foreach (var v in vals)
-                  {
-                    <td style="padding:4px;text-align:center">
-                      @if (v == null)        { <span style="color:var(--bdr)">—</span> }
-                      else if (v == true)    { <span style="color:var(--ok);font-weight:700">✓</span> }
-                      else                   { <span style="color:var(--bdr)">·</span> }
-                    </td>
-                  }
-                </tr>
+                <td class="rp-c">
+                  @if (v == null) { <span class="rp-na">—</span> }
+                  else if (v == true) { <span class="rp-yes">✓</span> }
+                  else { <span class="rp-no">·</span> }
+                </td>
               }
-            </tbody>
-          </table>
-        </div>
-      </div>
+            </tr>
+          }
+        </tbody>
+      </table>
     </div>
   }
 </div>
+
+<!-- ── Permission-detail modal (presentation only) ── -->
+<div id="rpModal" class="rp-modal" onclick="if(event.target===this)rpClose()">
+  <div class="rp-modal-card" role="dialog" aria-modal="true" aria-labelledby="rpModalTitle">
+    <div class="rp-modal-head">
+      <div id="rpModalTitle" class="rp-modal-title">Permissions</div>
+      <button type="button" class="rp-modal-x" onclick="rpClose()" aria-label="Close">&times;</button>
+    </div>
+    <div id="rpModalBody" class="rp-modal-body"></div>
+    <div class="rp-modal-foot">
+      <span class="rp-legend"><span class="rp-yes">✓</span> Granted</span>
+      <span class="rp-legend"><span class="rp-no">·</span> Not granted</span>
+      <span class="rp-legend"><span class="rp-na">—</span> Not applicable</span>
+      <button type="button" class="btn btn-sec btn-sm" onclick="rpClose()" style="margin-left:auto">Close</button>
+    </div>
+  </div>
+</div>
+
+<style>
+  /* ── KPI cards ── */
+  .rp-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;margin-bottom:16px}
+  .rp-kpi{display:flex;align-items:center;gap:13px;background:var(--card);border:1px solid var(--bdr);border-radius:var(--rl);padding:15px 17px;box-shadow:0 1px 2px rgba(0,0,0,.05)}
+  .rp-kpi-ic{width:42px;height:42px;border-radius:11px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .rp-kpi-ic svg{width:20px;height:20px;fill:none;stroke-width:2}
+  .rp-kpi-ic--blue{background:var(--in-bg)}   .rp-kpi-ic--blue svg{stroke:var(--in)}
+  .rp-kpi-ic--green{background:var(--ok-bg)}  .rp-kpi-ic--green svg{stroke:var(--ok)}
+  .rp-kpi-ic--amber{background:var(--wa-bg)}  .rp-kpi-ic--amber svg{stroke:var(--wa)}
+  .rp-kpi-ic--purple{background:#faf5ff}      .rp-kpi-ic--purple svg{stroke:#7c3aed}
+  .rp-kpi-num{font-size:24px;font-weight:800;line-height:1;color:var(--txt)}
+  .rp-kpi-lbl{font-size:12px;color:var(--txt3);margin-top:3px;font-weight:500}
+
+  /* ── Grid ── */
+  .rp-grid td{vertical-align:top}
+  .rp-grid .rp-c{text-align:center}
+  .rp-role{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+  .rp-role-desc{font-size:11px;color:var(--txt3);margin-top:4px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .rp-strong{font-weight:700;color:var(--txt)}
+  .rp-users{display:inline-flex;min-width:26px;justify-content:center;padding:2px 8px;border-radius:20px;background:var(--in-bg);color:var(--in);border:1px solid var(--in-bdr);font-size:12px;font-weight:700}
+  .rp-cnt{font-weight:600;color:var(--txt2)}
+  .rp-zero{color:var(--bdr)}
+  .rp-actions{display:inline-flex;gap:5px;align-items:center}
+  .rp-btn-ic{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:2;vertical-align:-2px;margin-right:3px}
+
+  /* ── Permission matrix (modal + hidden source) ── */
+  .rp-matrix{font-size:12.5px}
+  .rp-matrix th,.rp-matrix td{padding:8px 12px}
+  .rp-matrix .rp-c{text-align:center}
+  .rp-scr{font-weight:600;color:var(--txt2)}
+  .rp-yes{color:var(--ok);font-weight:800}
+  .rp-no{color:var(--bdr)}
+  .rp-na{color:var(--bdr)}
+
+  /* ── Modal ── */
+  .rp-modal{display:none;position:fixed;inset:0;z-index:1000;background:rgba(15,23,42,.45);align-items:flex-start;justify-content:center;padding:6vh 16px 16px;overflow:auto}
+  .rp-modal.show{display:flex}
+  .rp-modal-card{background:var(--card);border:1px solid var(--bdr);border-radius:var(--rl);box-shadow:0 12px 40px rgba(0,0,0,.25);width:100%;max-width:560px;overflow:hidden;animation:rpIn .14s ease-out}
+  @@keyframes rpIn{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}
+  .rp-modal-head{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--bdr)}
+  .rp-modal-title{font-size:14px;font-weight:700}
+  .rp-modal-x{background:none;border:none;font-size:22px;line-height:1;cursor:pointer;color:var(--txt3);padding:0 2px}
+  .rp-modal-x:hover{color:var(--txt)}
+  .rp-modal-body{max-height:60vh;overflow:auto}
+  .rp-modal-foot{display:flex;align-items:center;gap:14px;padding:10px 18px;border-top:1px solid var(--bdr);background:var(--bg);font-size:11px;color:var(--txt3);flex-wrap:wrap}
+  .rp-legend{display:inline-flex;align-items:center;gap:5px}
+
+  @@media (max-width:640px){
+    .rp-role-desc{max-width:150px}
+    .rp-actions .btn span{display:none}
+  }
+</style>
+
+@section Scripts {
+<script>
+  // Presentation-only: open/close the permission-detail modal by cloning the matrix
+  // already rendered server-side into #rp-permstore. No data fetch, no state change.
+  function rpOpen(roleId) {
+    var src = document.querySelector('#rp-permstore [data-roleid="' + roleId + '"]');
+    if (!src) return;
+    document.getElementById('rpModalTitle').textContent = (src.getAttribute('data-rolename') || 'Role') + ' — Permissions';
+    document.getElementById('rpModalBody').innerHTML = src.innerHTML;
+    document.getElementById('rpModal').classList.add('show');
+    document.body.style.overflow = 'hidden';
+  }
+  function rpClose() {
+    document.getElementById('rpModal').classList.remove('show');
+    document.body.style.overflow = '';
+  }
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') rpClose(); });
+</script>
+}

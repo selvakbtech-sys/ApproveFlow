@@ -104,6 +104,9 @@ textarea.inp{resize:vertical;min-height:80px}
 .ms-drop{position:absolute;top:calc(100% + 3px);left:0;right:0;background:var(--card);border:1px solid var(--bdr);border-radius:var(--r);box-shadow:var(--shm);z-index:300;max-height:200px;overflow-y:auto;display:none}
 .ms-drop.show{display:block}
 .card:has(.ms-drop.show){overflow:visible}
+.ms-bulk{display:flex;gap:6px;padding:6px 8px;border-bottom:1px solid var(--bdr);position:sticky;top:0;background:var(--card);z-index:1}
+.ms-bulk button{flex:1;font-size:11px;font-weight:600;padding:5px 8px;border:1px solid var(--bdr-s);border-radius:var(--r);background:var(--card);color:var(--txt2);cursor:pointer;transition:background var(--tr),border-color var(--tr)}
+.ms-bulk button:hover{background:var(--bg);border-color:var(--pri)}
 .ms-opt{display:flex;align-items:center;gap:10px;padding:9px 13px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--bg);transition:background var(--tr)}
 .ms-opt:hover{background:var(--bg)}
 .ms-pills{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px}

@@ -99,10 +99,16 @@ public class RolesController : BaseCtrl
             bool willApprover = requestsPermNew?.CanApprove ?? false;
             if (wasApprover && !willApprover)
             {
+                // A role is "used in an active workflow" when an active workflow step targets it —
+                // either as a ROLE-BASED step (ApproverRoleId, how workflows are configured today)
+                // or as a LEGACY user-pinned step whose user holds this role. The original check
+                // only covered the legacy user-pinned case, so role-based steps slipped through and
+                // the block never fired for current workflows. Both cases are covered here so the
+                // existing rule enforces as intended.
                 bool usedInWorkflow = await _db.WorkflowSteps
-                    .AnyAsync(s => s.ApproverUser != null
-                               && s.ApproverUser.RoleId == vm.RoleId
-                               && s.Workflow.IsActive);
+                    .AnyAsync(s => s.Workflow.IsActive
+                               && (s.ApproverRoleId == vm.RoleId
+                                   || (s.ApproverUser != null && s.ApproverUser.RoleId == vm.RoleId)));
                 if (usedInWorkflow)
                 {
                     Err("This role is currently used in workflow approvals and Approve Rights cannot be removed.");
@@ -134,6 +140,17 @@ public class RolesController : BaseCtrl
     public async Task<IActionResult> Delete(int id)
     {
         if (DenyIfNoPerm("Roles & Permissions", Perm.Delete) is { } dr) return dr;
+
+        // A role that is still assigned to one or more users must NOT be deleted — the user(s)
+        // have to be reassigned to another role first. This server-side guard runs before
+        // sp_DeleteRole so the rule cannot be bypassed from the UI, matching the in-use
+        // validation the Masters delete actions already use.
+        if (await _db.Users.AnyAsync(u => u.RoleId == id))
+        {
+            Err("Cannot delete: this role is assigned to one or more users. Reassign them to another role first.");
+            return RedirectToAction("Index");
+        }
+
         try { await _db.Database.ExecuteSqlRawAsync("EXEC dbo.sp_DeleteRole @RoleId={0}", id); Ok("Role deleted."); }
         catch (Exception ex) { Err(ex.Message); }
         return RedirectToAction("Index");

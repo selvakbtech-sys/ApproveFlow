@@ -256,12 +256,22 @@ public class RequestService : IRequestService
             .Where(ud => ud.UserId == userId).Select(ud => ud.DepartmentId).ToListAsync();
         var myLocIds = await _db.UserLocations.AsNoTracking()
             .Where(ul => ul.UserId == userId).Select(ul => ul.LocationId).ToListAsync();
+        // Request Type scope: the user's actively-mapped types (UserRequestTypeMappings).
+        var myTypeIds = await _db.UserRequestTypeMappings.AsNoTracking()
+            .Where(m => m.UserId == userId && !m.SoftDeleted && m.IsActive)
+            .Select(m => m.RequestTypeId).ToListAsync();
 
+        // Territory = Location IN (UserLocations) AND Department IN (UserDepartments)
+        //           AND RequestType IN (UserRequestTypeMappings) — all three applied together.
+        // IDENTICAL to DashboardService.GetMyTerritoryTabAsync so the grid total always equals
+        // the territory KPI counts.
         var q = _db.Requests
             .AsNoTracking()
             .Include(r => r.Requestor).Include(r => r.Location)
             .Include(r => r.Department).Include(r => r.RequestType).Include(r => r.Documents)
-            .Where(r => myDeptIds.Contains(r.DepartmentId) && myLocIds.Contains(r.LocationId)
+            .Where(r => myLocIds.Contains(r.LocationId)
+                        && myDeptIds.Contains(r.DepartmentId)
+                        && myTypeIds.Contains(r.RequestTypeId)
                         && r.Status != "Deleted")
             .AsQueryable();
 
@@ -334,8 +344,8 @@ public class RequestService : IRequestService
 
     // Read-only view gate. Broader than CanAccessRequestAsync: in addition to the owner,
     // the approvers and admins, it also lets a user OPEN a request that falls inside their
-    // territory — the SAME dept+location scope as GetTerritoryListAsync / the territory KPI
-    // (dept AND location, matched as a pair). This is exactly the set the Territory grid
+    // territory — the SAME Department AND Location AND (when mapped) Request Type scope as
+    // GetTerritoryListAsync / the territory KPI. This is exactly the set the Territory grid
     // lists, so every row a user can see there is openable and nothing outside it. It grants
     // viewing ONLY; every mutating action and attachment download still gates on the stricter
     // CanAccessRequestAsync, so a territory co-worker can look but cannot act.
@@ -348,11 +358,19 @@ public class RequestService : IRequestService
             .Where(ud => ud.UserId == userId).Select(ud => ud.DepartmentId).ToListAsync();
         var myLocIds = await _db.UserLocations.AsNoTracking()
             .Where(ul => ul.UserId == userId).Select(ul => ul.LocationId).ToListAsync();
+        // Same Request-Type scope as the Territory grid: the territory branch grants viewing
+        // only for requests whose Location, Department AND Request Type are all mapped to the
+        // user. Owner and approver access are never affected by request type.
+        var myTypeIds = await _db.UserRequestTypeMappings.AsNoTracking()
+            .Where(m => m.UserId == userId && !m.SoftDeleted && m.IsActive)
+            .Select(m => m.RequestTypeId).ToListAsync();
 
         return await _db.Requests.AnyAsync(r => r.RequestId == requestId &&
             (r.RequestorId == userId
              || r.Approvers.Any(a => a.ApproverUserId == userId)
-             || (myDeptIds.Contains(r.DepartmentId) && myLocIds.Contains(r.LocationId))));
+             || (myLocIds.Contains(r.LocationId)
+                 && myDeptIds.Contains(r.DepartmentId)
+                 && myTypeIds.Contains(r.RequestTypeId))));
     }
 
     public async Task<RequestFormVM?> GetDetailAsync(int id, int curUserId)
@@ -894,7 +912,9 @@ public class RequestService : IRequestService
         {
             try
             {
-                notifRoleUsers = await ResolveNotificationRoleUsersAsync(r.WorkflowId, acting.StepLevel, notifExcludeUserId);
+                notifRoleUsers = await ResolveNotificationRoleUsersAsync(
+                    r.WorkflowId, acting.StepLevel, notifExcludeUserId,
+                    r.LocationId, r.DepartmentId, r.RequestTypeId);
                 if (notifRoleUsers.Count > 0)
                 {
                     notifViewToken = await GetOrCreateViewTokenAsync(requestId);
@@ -1410,7 +1430,16 @@ public class RequestService : IRequestService
     // ── Notification Alert (observer roles) ──────────────────
     // Notification roles are configured per approval level — only the roles mapped to the
     // specific level that was just approved are notified, not the whole workflow's roles.
-    private async Task<List<User>> ResolveNotificationRoleUsersAsync(int? workflowId, int stepLevel, int? excludeUserId)
+    //
+    // A recipient must satisfy ALL of: Active user · configured observer Role · Location IN
+    // (their UserLocations) · Department IN (their UserDepartments) · Request Type IN (their
+    // UserRequestTypeMappings) — the request's Location, Department AND Request Type must each
+    // be mapped to the user. This mirrors the My-Territory scope so an observer is never
+    // notified about a request from another location, department or request type. Uses only the
+    // existing mapping tables — no schema change.
+    private async Task<List<User>> ResolveNotificationRoleUsersAsync(
+        int? workflowId, int stepLevel, int? excludeUserId,
+        int locationId, int departmentId, int requestTypeId)
     {
         if (workflowId == null) return new List<User>();
         var roleIds = await _db.WorkflowNotificationRoles
@@ -1418,8 +1447,15 @@ public class RequestService : IRequestService
             .Select(x => x.RoleId)
             .ToListAsync();
         if (roleIds.Count == 0) return new List<User>();
+
         return await _db.Users
-            .Where(u => roleIds.Contains(u.RoleId) && u.Status == "active" && u.UserId != excludeUserId)
+            .Where(u => roleIds.Contains(u.RoleId)
+                     && u.Status == "active"
+                     && u.UserId != excludeUserId
+                     && u.UserLocations.Any(ul => ul.LocationId == locationId)
+                     && u.UserDepartments.Any(ud => ud.DepartmentId == departmentId)
+                     && _db.UserRequestTypeMappings.Any(m => m.UserId == u.UserId
+                            && !m.SoftDeleted && m.IsActive && m.RequestTypeId == requestTypeId))
             .ToListAsync();
     }
 

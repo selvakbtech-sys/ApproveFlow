@@ -56,14 +56,20 @@ public class MastersController : BaseCtrl
     {
         if (Guard(vm.EntityType, vm.Id == 0 ? Perm.Create : Perm.Edit) is { } g) return g;
         if (!ModelState.IsValid) return View("Form", vm);
+        // Track a newly created Department/Location so, after save, its Id can be cascaded to
+        // users who currently hold ALL active departments/locations ("Select All" cohort).
+        Department? newDept = null;
+        Location? newLoc = null;
         if (vm.Id == 0)
         {
             switch (vm.EntityType)
             {
                 case "locations":
-                    _db.Locations.Add(new Location { Code = vm.Code.ToUpper(), LocationName = vm.Name, Description = vm.Description, IsActive = vm.IsActive }); break;
+                    newLoc = new Location { Code = vm.Code.ToUpper(), LocationName = vm.Name, Description = vm.Description, IsActive = vm.IsActive };
+                    _db.Locations.Add(newLoc); break;
                 case "departments":
-                    _db.Departments.Add(new Department { Code = vm.Code.ToUpper(), DeptName = vm.Name, Description = vm.Description, IsActive = vm.IsActive }); break;
+                    newDept = new Department { Code = vm.Code.ToUpper(), DeptName = vm.Name, Description = vm.Description, IsActive = vm.IsActive };
+                    _db.Departments.Add(newDept); break;
                 default:
                     _db.RequestTypes.Add(new RequestType { Code = vm.Code.ToUpper(), TypeName = vm.Name, Description = vm.Description, IsActive = vm.IsActive }); break;
             }
@@ -84,8 +90,66 @@ public class MastersController : BaseCtrl
             }
         }
         await _db.SaveChangesAsync();
+
+        // Sticky "ALL": a newly created ACTIVE Department/Location is auto-added to every user
+        // who currently holds ALL other active departments/locations (i.e. previously had
+        // "Select All"), so their selection stays complete. Users with a partial selection are
+        // never touched. No effect for inactive masters or for edits.
+        if (newDept is { IsActive: true })
+            await CascadeNewDepartmentToAllSelectedUsersAsync(newDept.DepartmentId);
+        if (newLoc is { IsActive: true })
+            await CascadeNewLocationToAllSelectedUsersAsync(newLoc.LocationId);
+
         Ok(vm.Id == 0 ? "Created successfully." : "Updated successfully.");
         return RedirectToAction("Index", new { type = vm.EntityType });
+    }
+
+    // Adds the newly created department to every user whose current department selection covers
+    // ALL previously-active departments (the "Select All" cohort). A user with no departments,
+    // or only a subset, is left unchanged.
+    private async Task CascadeNewDepartmentToAllSelectedUsersAsync(int newDeptId)
+    {
+        var priorActiveIds = await _db.Departments
+            .Where(d => d.IsActive && d.DepartmentId != newDeptId)
+            .Select(d => d.DepartmentId).ToListAsync();
+        if (priorActiveIds.Count == 0) return; // no baseline of "all" existed → nobody qualifies
+
+        var byUser = (await _db.UserDepartments.AsNoTracking()
+                .Select(ud => new { ud.UserId, ud.DepartmentId }).ToListAsync())
+            .GroupBy(x => x.UserId)
+            .ToDictionary(g => g.Key, g => g.Select(x => x.DepartmentId).ToHashSet());
+
+        bool added = false;
+        foreach (var (uid, deptSet) in byUser)
+            if (!deptSet.Contains(newDeptId) && priorActiveIds.All(deptSet.Contains))
+            {
+                _db.UserDepartments.Add(new UserDepartment { UserId = uid, DepartmentId = newDeptId });
+                added = true;
+            }
+        if (added) await _db.SaveChangesAsync();
+    }
+
+    // Location counterpart of CascadeNewDepartmentToAllSelectedUsersAsync.
+    private async Task CascadeNewLocationToAllSelectedUsersAsync(int newLocId)
+    {
+        var priorActiveIds = await _db.Locations
+            .Where(l => l.IsActive && l.LocationId != newLocId)
+            .Select(l => l.LocationId).ToListAsync();
+        if (priorActiveIds.Count == 0) return;
+
+        var byUser = (await _db.UserLocations.AsNoTracking()
+                .Select(ul => new { ul.UserId, ul.LocationId }).ToListAsync())
+            .GroupBy(x => x.UserId)
+            .ToDictionary(g => g.Key, g => g.Select(x => x.LocationId).ToHashSet());
+
+        bool added = false;
+        foreach (var (uid, locSet) in byUser)
+            if (!locSet.Contains(newLocId) && priorActiveIds.All(locSet.Contains))
+            {
+                _db.UserLocations.Add(new UserLocation { UserId = uid, LocationId = newLocId });
+                added = true;
+            }
+        if (added) await _db.SaveChangesAsync();
     }
 
     [HttpPost, ValidateAntiForgeryToken]
