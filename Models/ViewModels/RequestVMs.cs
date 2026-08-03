@@ -32,6 +32,9 @@ public class ReqListItemVM
     public decimal? Amount { get; set; }
     public string RequestorName { get; set; } = "";
     public string LocationName { get; set; } = "";
+    // Location master Code (e.g. HO, CHN, BLR) shown as its own grid column. Empty when the
+    // request has no mapped location; the grid renders "-" in that case.
+    public string LocationCode { get; set; } = "";
     public string DeptName { get; set; } = "";
     public string RequestTypeName { get; set; } = "";
     // Description / Justification and Additional Notes. Selected by the list queries that

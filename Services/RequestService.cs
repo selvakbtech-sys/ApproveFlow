@@ -129,7 +129,10 @@ public class RequestService : IRequestService
             q = q.Where(r => r.CreatedAt.Date <= dt.ToDateTime(TimeOnly.MaxValue));
 
         var total = await q.CountAsync();
-        var items = await q.OrderByDescending(r => r.UpdatedAt)
+        // Default order: latest Request Number first. The number is REQ-YY-{RequestId:D6}
+        // (assigned from RequestId), so RequestId descending == request-number descending and
+        // is robust for legacy/variable-width number strings. Filters/paging apply unchanged.
+        var items = await q.OrderByDescending(r => r.RequestId)
             .Skip((page - 1) * size).Take(size)
             .Select(r => new ReqListItemVM
             {
@@ -141,6 +144,7 @@ public class RequestService : IRequestService
                 Amount = r.Amount,
                 RequestorName = r.Requestor.FullName,
                 LocationName = r.Location.LocationName,
+                LocationCode = r.Location.Code,
                 DeptName = r.Department.DeptName,
                 RequestTypeName = r.RequestType.TypeName,
                 DocumentCount = r.Documents.Count,
@@ -199,7 +203,9 @@ public class RequestService : IRequestService
             q = q.Where(r => r.CreatedAt.Date <= dt.ToDateTime(TimeOnly.MaxValue));
 
         var total = await q.CountAsync();
-        var items = await q.OrderByDescending(r => r.UpdatedAt)
+        // Default order: latest Request Number first (RequestId descending == request-number
+        // descending, since the number is derived from RequestId). Scope/paging unchanged.
+        var items = await q.OrderByDescending(r => r.RequestId)
             .Skip((page - 1) * size).Take(size)
             .Select(r => new ReqListItemVM
             {
@@ -211,6 +217,7 @@ public class RequestService : IRequestService
                 Amount = r.Amount,
                 RequestorName = r.Requestor.FullName,
                 LocationName = r.Location.LocationName,
+                LocationCode = r.Location.Code,
                 DeptName = r.Department.DeptName,
                 RequestTypeName = r.RequestType.TypeName,
                 Description = r.Description,
@@ -298,7 +305,9 @@ public class RequestService : IRequestService
             q = q.Where(r => r.CreatedAt.Date <= dt.ToDateTime(TimeOnly.MaxValue));
 
         var total = await q.CountAsync();
-        var items = await q.OrderByDescending(r => r.UpdatedAt)
+        // Default order: latest Request Number first (RequestId descending == request-number
+        // descending, since the number is derived from RequestId). Scope/paging unchanged.
+        var items = await q.OrderByDescending(r => r.RequestId)
             .Skip((page - 1) * size).Take(size)
             .Select(r => new ReqListItemVM
             {
@@ -310,6 +319,7 @@ public class RequestService : IRequestService
                 Amount = r.Amount,
                 RequestorName = r.Requestor.FullName,
                 LocationName = r.Location.LocationName,
+                LocationCode = r.Location.Code,
                 DeptName = r.Department.DeptName,
                 RequestTypeName = r.RequestType.TypeName,
                 Description = r.Description,

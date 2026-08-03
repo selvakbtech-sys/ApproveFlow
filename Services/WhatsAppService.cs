@@ -147,7 +147,7 @@ public class WhatsAppService : IWhatsAppService
             : r.RequestType.TypeName;
 
         // Pass doc so it is embedded as a header inside the template message
-        // new_approval_request1 (6): {{1}}=Type {{2}}=ID {{3}}=Title {{4}}=Priority {{5}}=RaisedBy {{6}}=Description
+        // new_approval_request1 (8): {{1}}=Type {{2}}=ID {{3}}=Title {{4}}=Priority {{5}}=RaisedBy {{6}}=Description {{7}}=Amount {{8}}=LocationCode
         await SendTemplateWithButtonsAsync(phone, "new_approval_request1", new[]
         {
             requestTypeLabel,            // {{1}} Request Type
@@ -155,7 +155,9 @@ public class WhatsAppService : IWhatsAppService
             r.Title,                     // {{3}} Title
             priority,                    // {{4}} Priority
             raisedBy,                    // {{5}} Raised By
-            r.Description ?? r.Title      // {{6}} Description
+            r.Description ?? r.Title,     // {{6}} Description
+            amount,                      // {{7}} Amount
+            r.Location.Code              // {{8}} Location Code
         }, requestId, l1.ApproverUserId, GetHeaderDocOrDefault(r, doc), docs);
     }
 
@@ -171,6 +173,7 @@ public class WhatsAppService : IWhatsAppService
 
         var raisedBy   = $"{r.Requestor.FullName} ({r.Department.DeptName})";
         var priority   = FormatPriority(r.Priority);
+        var amount     = r.Amount.HasValue ? r.Amount.Value.ToString("N0") : "0";
         var docs = await _db.RequestDocuments.AsNoTracking()
                         .Where(d => d.RequestId == requestId)
                         .OrderBy(d => d.DocumentId)
@@ -194,8 +197,9 @@ public class WhatsAppService : IWhatsAppService
         _log.LogInformation("WA-RESUBMIT: RequestId={Id} StepLevel={Level} ApproverId={Aid} HasRemark={HasRemark}",
             requestId, stepLevel, approverId, !string.IsNullOrWhiteSpace(resubmitRemark));
 
-        // request_resubmitted (8): {{1}}=Type {{2}}=ID {{3}}=Title {{4}}=Priority
-        // {{5}}=RaisedBy {{6}}=Description {{7}}=LatestAction {{8}}=Remarks.
+        // request_resubmitted (10): {{1}}=Type {{2}}=ID {{3}}=Title {{4}}=Priority
+        // {{5}}=RaisedBy {{6}}=Description {{7}}=LatestAction {{8}}=Remarks
+        // {{9}}=Amount {{10}}=LocationCode.
         //
         // A dedicated template for resubmissions, replacing BOTH previous branches:
         // new_approval_request1 (L1) and approval_required_level2 (L2+). Those carry Meta's
@@ -214,7 +218,9 @@ public class WhatsAppService : IWhatsAppService
             raisedBy,                        // {{5}} Raised By
             r.Description ?? r.Title,        // {{6}} Description — the ORIGINAL request text
             latestAction,                    // {{7}} Latest Action
-            remarks                          // {{8}} Remarks — the requester's resubmission note
+            remarks,                         // {{8}} Remarks — the requester's resubmission note
+            amount,                          // {{9}} Amount
+            r.Location.Code                  // {{10}} Location Code
         }, requestId, approverId, GetHeaderDocOrDefault(r, doc), docs);
     }
 
@@ -274,9 +280,10 @@ public class WhatsAppService : IWhatsAppService
         // ── Multi-level progression: notify the NEXT-level approver ───────────────────
         // When an intermediate level approves, ProcessActionAsync has already advanced the
         // next approver to "pending". Send THAT approver the approval request so the chain
-        // continues automatically through L2, L3, … until final approval. This uses
-        // new_approval_request1 (the genuine "Approval Request" template with Approve/Reject/
-        // Clarification buttons) — NEVER the clarification-worded approval_required_level2.
+        // continues automatically through L2, L3, … until final approval. This uses the
+        // level-aware approval_required_level2 template (re-authored as a proper approval card
+        // with Approve/Reject/Clarification buttons + document header), so the L2+ approver sees
+        // their review level and the latest action — not the generic L1 "new request" wording.
         if (r.Status != "Approved")
         {
             var nextStep = r.Approvers
@@ -302,15 +309,25 @@ public class WhatsAppService : IWhatsAppService
                 }
                 else
                 {
-                    // new_approval_request1 (6): {{1}}=Type {{2}}=ID {{3}}=Title {{4}}=Priority {{5}}=RaisedBy {{6}}=Description
-                    var sent = await SendTemplateWithButtonsAsync(nextPhone, "new_approval_request1", new[]
+                    // approval_required_level2 (11): {{1}}=Type {{2}}=Level {{3}}=ID {{4}}=Title
+                    // {{5}}=Priority {{6}}=RaisedBy {{7}}=Description {{8}}=LatestAction
+                    // {{9}}=LatestRemarks {{10}}=Amount {{11}}=LocationCode.
+                    // Sent to the next-level (L2+) approver so the card is level-aware; it carries the
+                    // same Approve/Reject/Clarification buttons + document header as new_approval_request1.
+                    var progressAction = $"Approved by {actingStep.ApproverUser?.FullName ?? "Approver"} (L{actingStep.StepLevel}) | {FormatDateTime(DateTimeOffset.UtcNow)}";
+                    var sent = await SendTemplateWithButtonsAsync(nextPhone, "approval_required_level2", new[]
                     {
-                        r.RequestType.TypeName,      // {{1}} Type
-                        r.RequestNumber,             // {{2}} ID
-                        r.Title,                     // {{3}} Title
-                        priority,                    // {{4}} Priority
-                        raisedBy,                    // {{5}} Raised By
-                        r.Description ?? r.Title      // {{6}} Description
+                        r.RequestType.TypeName,       // {{1}} Type
+                        nextStep.StepLevel.ToString(),// {{2}} Level (the reviewing approver's level)
+                        r.RequestNumber,              // {{3}} ID
+                        r.Title,                      // {{4}} Title
+                        priority,                     // {{5}} Priority
+                        raisedBy,                     // {{6}} Raised By
+                        r.Description ?? r.Title,      // {{7}} Description
+                        progressAction,               // {{8}} Latest Action
+                        lastRemark,                   // {{9}} Latest Remarks
+                        amount,                       // {{10}} Amount
+                        r.Location.Code               // {{11}} Location Code
                     }, requestId, nextStep.ApproverUserId, GetHeaderDocOrDefault(r, doc), docs);
 
                     _log.LogInformation("WA-PROGRESS: L{Lvl} approval request to User={Uid} Phone={Phone} Sent={Sent} RequestId={Id}",

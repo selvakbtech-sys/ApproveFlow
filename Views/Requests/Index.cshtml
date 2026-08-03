@@ -148,7 +148,7 @@
     <table class="tbl">
       <thead>
         <tr>
-          <th>Request #</th><th>Title</th><th>Requestor</th><th>Type</th>
+          <th>Request #</th><th>Title</th><th>Location</th><th>Requestor</th><th>Type</th>
           <th>Priority</th><th>Amount</th><th>Status</th><th>Created</th>
           <th class="r">Actions</th>
         </tr>
@@ -156,7 +156,7 @@
       <tbody>
         @if (!Model.Items.Any())
         {
-          <tr><td colspan="9" class="tbl-empty">
+          <tr><td colspan="10" class="tbl-empty">
             <div style="margin-bottom:8px">📋</div>
             No requests found.
             <a asp-action="Create" style="margin-left:6px">Create the first one →</a>
@@ -170,6 +170,7 @@
               <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">@r.Title</div>
               <div style="font-size:11px;color:var(--txt3)">@r.DeptName · @r.LocationName</div>
             </td>
+            <td><span class="mono" style="font-size:12px;color:var(--txt2)">@(string.IsNullOrWhiteSpace(r.LocationCode) ? "-" : r.LocationCode)</span></td>
             <td style="font-size:13px">@r.RequestorName</td>
             <td style="font-size:12px">@r.RequestTypeName</td>
             <td><span class="badge @Pc(r.Priority)">@r.Priority</span></td>
