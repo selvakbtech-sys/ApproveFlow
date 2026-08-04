@@ -968,7 +968,9 @@ public class WhatsAppService : IWhatsAppService
         // thrown during the handshake — before any request bytes reach Meta — so retrying it can
         // never double-send. Only that transport failure is retried; a non-2xx response is a real
         // API rejection (bad template, param, etc.) and is returned immediately, never retried.
-        const int maxAttempts = 3;
+        // Backoff is exponential (1s, 2s, 4s, 8s across 5 attempts) so a multi-second network
+        // "bad window" of resets is ridden out rather than exhausted in the first second.
+        const int maxAttempts = 5;
         for (var attempt = 1; ; attempt++)
         {
             // StringContent is single-use (consumed by PostAsync), so rebuild it each attempt.
@@ -998,8 +1000,9 @@ public class WhatsAppService : IWhatsAppService
             catch (HttpRequestException ex) when (attempt < maxAttempts)
             {
                 // Transient transport failure (connection forcibly closed / TLS reset while
-                // connecting). Back off briefly and retry — Meta received nothing.
-                var delayMs = 300 * attempt;
+                // connecting). Back off and retry — Meta received nothing. Exponential:
+                // attempt 1→1s, 2→2s, 3→4s, 4→8s (capped at 8s) to span a longer bad window.
+                var delayMs = Math.Min(8000, 1000 * (int)Math.Pow(2, attempt - 1));
                 _log.LogWarning(ex, "WhatsApp send transport failure for {Phone} (attempt {Attempt}/{Max}); retrying in {Delay}ms.",
                     normalised, attempt, maxAttempts, delayMs);
                 await Task.Delay(delayMs);
