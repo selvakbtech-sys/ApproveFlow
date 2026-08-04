@@ -1054,13 +1054,29 @@ public class WhatsAppService : IWhatsAppService
                     await SaveMessageHistoryAsync(ctx, normalised, "Outbound", null, "Failed", DescribeException(ex));
                     // A transport failure (connection reset) never reached Meta — queue it for the
                     // background outbox to resend once connectivity recovers. Non-transport errors
-                    // are not retryable and are left as a plain Failed record.
-                    if (ex is HttpRequestException)
+                    // are not retryable and are left as a plain Failed record. Reminders are excluded:
+                    // they are recomputed from current pending state every slot (self-healing) and try
+                    // three fallbacks per slot, so queuing them would deliver stale DUPLICATES on top
+                    // of the next slot's fresh reminder.
+                    if (ex is HttpRequestException && !IsReminderMessage(ctx.MessageType))
                         await EnqueueOutboxAsync(ctx, normalised, phoneNumId, apiVersion, json);
                 }
                 return (false, null);
             }
         }
+    }
+
+    // True for the daily pending-approval reminder message types. These are NOT queued to the
+    // outbox: the reminder is rebuilt from current pending state every slot (08:59/13:00/18:00)
+    // and already tries three fallbacks per slot, so a background resend would deliver stale
+    // duplicates. The summary template name is configuration-driven (WhatsApp:PendingReminderTemplate).
+    private bool IsReminderMessage(string messageType)
+    {
+        if (messageType == "pending_reminder" || messageType == "template:pending_approval_reminder")
+            return true;
+        var summaryTemplate = _cfg["WhatsApp:PendingReminderTemplate"];
+        return !string.IsNullOrWhiteSpace(summaryTemplate)
+            && messageType == $"template:{summaryTemplate}";
     }
 
     // ── Outbox: durable background resend for transport failures ──────────────────────
