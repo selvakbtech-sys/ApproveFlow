@@ -98,7 +98,8 @@ public class RequestsController : BaseCtrl
         // A user may OPEN a request they created, approve on, or that is in their territory
         // (dept/location) — the same set the Territory grid lists. Territory-only viewers get
         // a read-only page: ReadOnly is true for them (not owner/approver/admin), which hides
-        // every mutating control and attachment download in the view. Every mutating action
+        // every mutating control in the view. Attachment DOWNLOADS remain available to them
+        // (gated by CanViewRequestAsync, same as opening this page). Every mutating action
         // still re-checks the stricter CanAccessRequestAsync server-side.
         if (!await _svc.CanViewRequestAsync(id, UserId, UserRole)) return Deny();
         ViewBag.ReadOnly = !await _svc.CanAccessRequestAsync(id, UserId, UserRole);
@@ -384,7 +385,10 @@ public class RequestsController : BaseCtrl
     public async Task<IActionResult> DownloadApproval(int id, int attachmentId)
     {
         if (DenyIfNoPerm("Requests") is { } rp) return rp;
-        if (!await _svc.CanAccessRequestAsync(id, UserId, UserRole)) return Deny();
+        // Any user authorized to VIEW the request (owner, approver, admin, or a territory
+        // dept/location/type viewer) may download its attachments — the same gate as opening the
+        // Detail page. Users outside that scope are still denied.
+        if (!await _svc.CanViewRequestAsync(id, UserId, UserRole)) return Deny();
         var att = await _db.ApprovalAttachments
             .FirstOrDefaultAsync(a => a.AttachmentId == attachmentId && a.RequestId == id);
         if (att == null) return NotFound();
@@ -434,7 +438,10 @@ public class RequestsController : BaseCtrl
     public async Task<IActionResult> Download(int id, int docId)
     {
         if (DenyIfNoPerm("Requests") is { } rp) return rp;
-        if (!await _svc.CanAccessRequestAsync(id, UserId, UserRole)) return Deny();
+        // Any user authorized to VIEW the request (owner, approver, admin, or a territory
+        // dept/location/type viewer) may download its attachments — the same gate as opening the
+        // Detail page. Users outside that scope are still denied.
+        if (!await _svc.CanViewRequestAsync(id, UserId, UserRole)) return Deny();
         var doc = await _db.RequestDocuments
             .FirstOrDefaultAsync(d => d.DocumentId == docId && d.RequestId == id);
         if (doc == null) return NotFound();
