@@ -957,39 +957,60 @@ public class WhatsAppService : IWhatsAppService
     private async Task<(bool ok, string? messageId)> PostToWhatsAppAsync(string normalised, object payload, string token, string phoneNumId, string apiVersion, WaMsgContext? ctx = null)
     {
         var json = JsonSerializer.Serialize(payload);
-        var content = new StringContent(json, Encoding.UTF8, "application/json");
 
         var client = _http.CreateClient("WhatsApp");
         client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
         var url = $"https://graph.facebook.com/{apiVersion}/{phoneNumId}/messages";
-        try
+
+        // A dropped TLS connection to graph.facebook.com surfaces as HttpRequestException and is
+        // thrown during the handshake — before any request bytes reach Meta — so retrying it can
+        // never double-send. Only that transport failure is retried; a non-2xx response is a real
+        // API rejection (bad template, param, etc.) and is returned immediately, never retried.
+        const int maxAttempts = 3;
+        for (var attempt = 1; ; attempt++)
         {
-            var resp = await client.PostAsync(url, content);
-            var body = await resp.Content.ReadAsStringAsync();
-            var ok = resp.IsSuccessStatusCode;
-            if (!ok)
-                _log.LogError("WhatsApp API error {Code}: {Body} | Payload sent: {Payload}", (int)resp.StatusCode, body, json);
-            else
-                _log.LogInformation("WhatsApp message sent to {Phone}.", normalised);
+            // StringContent is single-use (consumed by PostAsync), so rebuild it each attempt.
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            try
+            {
+                var resp = await client.PostAsync(url, content);
+                var body = await resp.Content.ReadAsStringAsync();
+                var ok = resp.IsSuccessStatusCode;
+                if (!ok)
+                    _log.LogError("WhatsApp API error {Code}: {Body} | Payload sent: {Payload}", (int)resp.StatusCode, body, json);
+                else
+                    _log.LogInformation("WhatsApp message sent to {Phone}{Attempt}.", normalised,
+                        attempt > 1 ? $" (attempt {attempt})" : "");
 
-            var messageId = ExtractMessageId(ok ? body : null);
+                var messageId = ExtractMessageId(ok ? body : null);
 
-            // Central outbound history save — every Approve / Reject / Clarification
-            // (and other) notification funnels through here, so there is exactly one
-            // save path and no per-action duplication.
-            if (ctx != null)
-                await SaveMessageHistoryAsync(ctx, normalised, "Outbound", messageId, ok ? "Sent" : "Failed");
+                // Central outbound history save — every Approve / Reject / Clarification
+                // (and other) notification funnels through here, so there is exactly one
+                // save path and no per-action duplication.
+                if (ctx != null)
+                    await SaveMessageHistoryAsync(ctx, normalised, "Outbound", messageId, ok ? "Sent" : "Failed",
+                        ok ? null : BuildErrorSummary((int)resp.StatusCode, body));
 
-            return (ok, messageId);
-        }
-        catch (Exception ex)
-        {
-            _log.LogError(ex, "WhatsApp send failed for {Phone}.", normalised);
-            if (ctx != null)
-                await SaveMessageHistoryAsync(ctx, normalised, "Outbound", null, "Failed");
-            return (false, null);
+                return (ok, messageId);
+            }
+            catch (HttpRequestException ex) when (attempt < maxAttempts)
+            {
+                // Transient transport failure (connection forcibly closed / TLS reset while
+                // connecting). Back off briefly and retry — Meta received nothing.
+                var delayMs = 300 * attempt;
+                _log.LogWarning(ex, "WhatsApp send transport failure for {Phone} (attempt {Attempt}/{Max}); retrying in {Delay}ms.",
+                    normalised, attempt, maxAttempts, delayMs);
+                await Task.Delay(delayMs);
+            }
+            catch (Exception ex)
+            {
+                _log.LogError(ex, "WhatsApp send failed for {Phone} after {Attempt} attempt(s).", normalised, attempt);
+                if (ctx != null)
+                    await SaveMessageHistoryAsync(ctx, normalised, "Outbound", null, "Failed", DescribeException(ex));
+                return (false, null);
+            }
         }
     }
 
@@ -1009,13 +1030,56 @@ public class WhatsAppService : IWhatsAppService
         return null;
     }
 
+    // Compact reason for a send that Meta rejected (non-2xx), stored in the history row so the
+    // cause is readable in SQL: HTTP status + Meta's error code/subcode/message.
+    private static string BuildErrorSummary(int httpStatus, string? body)
+    {
+        var reason = $"HTTP {httpStatus}";
+        if (!string.IsNullOrWhiteSpace(body))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(body);
+                if (doc.RootElement.TryGetProperty("error", out var err))
+                {
+                    var code = err.TryGetProperty("code", out var c) ? c.ToString() : "?";
+                    var sub  = err.TryGetProperty("error_subcode", out var s) ? s.ToString() : null;
+                    var msg  = err.TryGetProperty("message", out var m) ? m.GetString() : null;
+                    reason += $" | code={code}"
+                            + (string.IsNullOrEmpty(sub) ? "" : $" subcode={sub}")
+                            + (string.IsNullOrEmpty(msg) ? "" : $" | {msg}");
+                }
+                else reason += $" | {body}";
+            }
+            catch { reason += $" | {body}"; }
+        }
+        return Truncate(reason, 400);
+    }
+
+    // The innermost exception message (e.g. the SocketException 10054 text) for a transport-level
+    // failure that never reached Meta — so a connectivity problem is self-evident in the history.
+    private static string DescribeException(Exception ex)
+    {
+        var inner = ex;
+        while (inner.InnerException != null) inner = inner.InnerException;
+        return Truncate($"TRANSPORT: {inner.GetType().Name}: {inner.Message}", 400);
+    }
+
+    private static string Truncate(string s, int max) => s.Length <= max ? s : s.Substring(0, max);
+
     // ── Shared Message-History Save (outbound + inbound) ──────
     // Single writer for the WhatsAppMessageHistory table. Never throws — a history
     // failure must never break an approval or a webhook.
-    private async Task SaveMessageHistoryAsync(WaMsgContext ctx, string mobileNumber, string direction, string? messageId, string status)
+    private async Task SaveMessageHistoryAsync(WaMsgContext ctx, string mobileNumber, string direction, string? messageId, string status, string? failureReason = null)
     {
         try
         {
+            // On failure, append Meta's error (or the transport exception) to the stored text so
+            // the cause is visible directly in SQL — no Event Viewer / log digging next time.
+            var text = string.IsNullOrEmpty(failureReason)
+                ? ctx.MessageText
+                : (string.IsNullOrEmpty(ctx.MessageText) ? $"[FAIL] {failureReason}" : $"{ctx.MessageText} [FAIL] {failureReason}");
+
             _db.WhatsAppMessageHistories.Add(new WhatsAppMessageHistory
             {
                 RequestId     = ctx.RequestId,
@@ -1026,7 +1090,7 @@ public class WhatsAppService : IWhatsAppService
                 MobileNumber  = mobileNumber,
                 Direction     = direction,
                 MessageType   = ctx.MessageType,
-                MessageText   = ctx.MessageText,
+                MessageText   = text,
                 Status        = status,
                 CreatedDate   = IstClock.Now
             });

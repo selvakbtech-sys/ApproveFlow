@@ -95,7 +95,17 @@ builder.Services.AddScoped<IApplicationUrlService, ApplicationUrlService>();
 builder.Services.AddScoped<IPendingApprovalSummaryService, PendingApprovalSummaryService>();
 
 // WhatsApp integration
-builder.Services.AddHttpClient("WhatsApp");
+builder.Services.AddHttpClient("WhatsApp")
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+    {
+        // A silently-dropped TLS connection to graph.facebook.com must never be reused:
+        // reusing a stale pooled connection is the #1 source of intermittent
+        // "An existing connection was forcibly closed by the remote host" (SocketException 10054).
+        // Recycling the pool every couple of minutes forces a fresh handshake instead.
+        PooledConnectionLifetime    = TimeSpan.FromMinutes(2),
+        PooledConnectionIdleTimeout = TimeSpan.FromSeconds(20),
+        ConnectTimeout              = TimeSpan.FromSeconds(15),
+    });
 builder.Services.AddScoped<IWhatsAppService, WhatsAppService>();
 builder.Services.AddHostedService<AgingReminderBackgroundService>();
 builder.Services.AddHostedService<WhatsAppPendingApproveTimeoutService>();
