@@ -27,6 +27,7 @@ public class AppDbContext : DbContext
     public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<WhatsAppPendingClarification> WhatsAppPendingClarifications => Set<WhatsAppPendingClarification>();
     public DbSet<WhatsAppMessageHistory> WhatsAppMessageHistories => Set<WhatsAppMessageHistory>();
+    public DbSet<WhatsAppOutbox> WhatsAppOutbox => Set<WhatsAppOutbox>();
     public DbSet<ApprovalAttachment> ApprovalAttachments => Set<ApprovalAttachment>();
     public DbSet<ApprovalReply> ApprovalReplies => Set<ApprovalReply>();
     public DbSet<UserRequestTypeMapping> UserRequestTypeMappings => Set<UserRequestTypeMapping>();
@@ -146,6 +147,17 @@ public class AppDbContext : DbContext
             e.Property(x => x.MessageType).HasMaxLength(60);
             e.Property(x => x.MessageId).HasMaxLength(200);
             e.Property(x => x.Status).HasMaxLength(20);
+        });
+        mb.Entity<WhatsAppOutbox>(e => {
+            e.ToTable("WhatsAppOutbox");
+            // The poller seeks due rows by (Status, NextAttemptAt) each tick.
+            e.HasIndex(x => new { x.Status, x.NextAttemptAt });
+            e.Property(x => x.PhoneNumberId).HasMaxLength(40);
+            e.Property(x => x.ApiVersion).HasMaxLength(10);
+            e.Property(x => x.ToNumber).HasMaxLength(30);
+            e.Property(x => x.MessageType).HasMaxLength(60);
+            e.Property(x => x.Status).HasMaxLength(20);
+            e.Property(x => x.LastError).HasMaxLength(400);
         });
         mb.Entity<WhatsAppPendingClarification>(e => {
             e.ToTable("WhatsAppPendingClarifications");

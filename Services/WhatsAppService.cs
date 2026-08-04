@@ -20,6 +20,7 @@ public interface IWhatsAppService
     Task LogInboundMessageAsync(int requestId, string mobileNumber, string messageType, string messageText, string? messageId = null, int? approverUserId = null);
     Task SendPlainTextAsync(string toPhone, string message);
     Task<(bool ok, byte[]? bytes, string? mime, string? err)> DownloadInboundMediaAsync(string mediaId);
+    Task ProcessOutboxOnceAsync(CancellationToken ct = default);
 }
 
 public class WhatsAppService : IWhatsAppService
@@ -968,9 +969,10 @@ public class WhatsAppService : IWhatsAppService
         // thrown during the handshake — before any request bytes reach Meta — so retrying it can
         // never double-send. Only that transport failure is retried; a non-2xx response is a real
         // API rejection (bad template, param, etc.) and is returned immediately, never retried.
-        // Backoff is exponential (1s, 2s, 4s, 8s across 5 attempts) so a multi-second network
-        // "bad window" of resets is ridden out rather than exhausted in the first second.
-        const int maxAttempts = 5;
+        // Just ONE quick inline retry (after 1s) so the caller isn't blocked: anything still
+        // failing is handed to the durable WhatsAppOutbox, which resends in the background and
+        // rides out outages lasting minutes without holding up the user's action.
+        const int maxAttempts = 2;
         for (var attempt = 1; ; attempt++)
         {
             // StringContent is single-use (consumed by PostAsync), so rebuild it each attempt.
@@ -1011,9 +1013,147 @@ public class WhatsAppService : IWhatsAppService
             {
                 _log.LogError(ex, "WhatsApp send failed for {Phone} after {Attempt} attempt(s).", normalised, attempt);
                 if (ctx != null)
+                {
                     await SaveMessageHistoryAsync(ctx, normalised, "Outbound", null, "Failed", DescribeException(ex));
+                    // A transport failure (connection reset) never reached Meta — queue it for the
+                    // background outbox to resend once connectivity recovers. Non-transport errors
+                    // are not retryable and are left as a plain Failed record.
+                    if (ex is HttpRequestException)
+                        await EnqueueOutboxAsync(ctx, normalised, phoneNumId, apiVersion, json);
+                }
                 return (false, null);
             }
+        }
+    }
+
+    // ── Outbox: durable background resend for transport failures ──────────────────────
+    // Enqueues the exact payload of a send that died at the transport layer so the background
+    // WhatsAppOutboxService can re-POST it verbatim once connectivity recovers. Never throws —
+    // a queue failure must not break the caller.
+    private async Task EnqueueOutboxAsync(WaMsgContext ctx, string toNumber, string phoneNumId, string apiVersion, string json)
+    {
+        try
+        {
+            var now = IstClock.Now;
+            _db.WhatsAppOutbox.Add(new WhatsAppOutbox
+            {
+                CreatedDate   = now,
+                PhoneNumberId = phoneNumId,
+                ApiVersion    = apiVersion,
+                ToNumber      = toNumber,
+                PayloadJson   = json,
+                MessageType   = ctx.MessageType,
+                RequestId     = ctx.RequestId,
+                WorkflowId    = ctx.WorkflowId,
+                WorkflowLevel = ctx.WorkflowLevel,
+                CreatedBy     = ctx.CreatedBy,
+                MessageText   = ctx.MessageText,
+                Status        = "Pending",
+                Attempts      = 0,
+                NextAttemptAt = now.AddSeconds(60)
+            });
+            await _db.SaveChangesAsync();
+            _log.LogInformation("WA-OUTBOX: queued type={Type} to={To} for background resend.", ctx.MessageType, toNumber);
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "WA-OUTBOX: failed to enqueue type={Type} to={To}", ctx.MessageType, toNumber);
+        }
+    }
+
+    // One raw POST attempt for the outbox resender: no inline retry (the outbox IS the retry) and
+    // no history write (the caller owns history + outbox state). A transport failure throws
+    // HttpRequestException; a non-2xx is returned as ok=false with the status/body.
+    private async Task<(bool ok, string? wamid, int status, string? body)> RawPostOnceAsync(string url, string json, string token, CancellationToken ct)
+    {
+        var client = _http.CreateClient("WhatsApp");
+        client.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+        using var content = new StringContent(json, Encoding.UTF8, "application/json");
+        var resp = await client.PostAsync(url, content, ct);
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        var ok = resp.IsSuccessStatusCode;
+        return (ok, ok ? ExtractMessageId(body) : null, (int)resp.StatusCode, body);
+    }
+
+    // Processes one batch of due outbox rows. Called on a timer by WhatsAppOutboxService.
+    // Each row is saved individually right after its attempt so an already-delivered message is
+    // never resent because of a later failure in the same batch.
+    public async Task ProcessOutboxOnceAsync(CancellationToken ct = default)
+    {
+        var token = _cfg["WhatsApp:BearerToken"];
+        if (string.IsNullOrEmpty(token)) return;
+
+        var maxAttempts = _cfg.GetValue<int>("WhatsApp:OutboxMaxAttempts", 8);
+        var now = IstClock.Now;
+
+        var batch = await _db.WhatsAppOutbox
+            .Where(o => o.Status == "Pending" && o.NextAttemptAt <= now)
+            .OrderBy(o => o.NextAttemptAt)
+            .Take(20)
+            .ToListAsync(ct);
+        if (batch.Count == 0) return;
+
+        foreach (var o in batch)
+        {
+            if (ct.IsCancellationRequested) break;
+
+            var url = $"https://graph.facebook.com/{o.ApiVersion}/{o.PhoneNumberId}/messages";
+            try
+            {
+                var (ok, wamid, status, body) = await RawPostOnceAsync(url, o.PayloadJson, token, ct);
+                if (ok)
+                {
+                    o.Status = "Sent";
+                    // Record the delivered message exactly as a first-attempt send would.
+                    _db.WhatsAppMessageHistories.Add(new WhatsAppMessageHistory
+                    {
+                        RequestId     = o.RequestId,
+                        WorkflowId    = o.WorkflowId,
+                        WorkflowLevel = o.WorkflowLevel,
+                        CreatedBy     = o.CreatedBy,
+                        MessageId     = wamid,
+                        MobileNumber  = o.ToNumber,
+                        Direction     = "Outbound",
+                        MessageType   = o.MessageType,
+                        MessageText   = o.MessageText,
+                        Status        = "Sent",
+                        CreatedDate   = IstClock.Now
+                    });
+                    _log.LogInformation("WA-OUTBOX: delivered id={Id} type={Type} to={To} after {N} attempt(s).",
+                        o.Id, o.MessageType, o.ToNumber, o.Attempts + 1);
+                }
+                else
+                {
+                    // Non-2xx is a real API rejection — resending cannot fix it.
+                    o.Status = "Abandoned";
+                    o.LastError = BuildErrorSummary(status, body);
+                    _log.LogWarning("WA-OUTBOX: abandoned id={Id} (API rejected): {Reason}", o.Id, o.LastError);
+                }
+            }
+            catch (Exception ex)
+            {
+                // Transport failure (or unexpected error) — back off and retry until max attempts.
+                o.Attempts++;
+                o.LastError = DescribeException(ex);
+                if (o.Attempts >= maxAttempts)
+                {
+                    o.Status = "Abandoned";
+                    _log.LogError(ex, "WA-OUTBOX: abandoned id={Id} after {N} attempt(s): {Reason}", o.Id, o.Attempts, o.LastError);
+                }
+                else
+                {
+                    var backoffMin = Math.Min(15, (int)Math.Pow(2, o.Attempts)); // 2,4,8,15,15…
+                    o.NextAttemptAt = IstClock.Now.AddMinutes(backoffMin);
+                    _log.LogWarning("WA-OUTBOX: id={Id} attempt {N} failed ({Reason}); next in {Min}min.",
+                        o.Id, o.Attempts, o.LastError, backoffMin);
+                }
+            }
+
+            // Persist THIS row's outcome immediately so a mid-batch crash can't resend a
+            // message already marked Sent.
+            try { await _db.SaveChangesAsync(ct); }
+            catch (Exception ex) { _log.LogError(ex, "WA-OUTBOX: failed to persist state for id={Id}", o.Id); }
         }
     }
 

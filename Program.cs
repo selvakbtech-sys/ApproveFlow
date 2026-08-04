@@ -109,6 +109,7 @@ builder.Services.AddHttpClient("WhatsApp")
 builder.Services.AddScoped<IWhatsAppService, WhatsAppService>();
 builder.Services.AddHostedService<AgingReminderBackgroundService>();
 builder.Services.AddHostedService<WhatsAppPendingApproveTimeoutService>();
+builder.Services.AddHostedService<WhatsAppOutboxService>();
 
 Directory.CreateDirectory(cfg["AppSettings:FileStoragePath"] ?? "uploads");
 
