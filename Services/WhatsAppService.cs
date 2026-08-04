@@ -587,29 +587,47 @@ public class WhatsAppService : IWhatsAppService
             }
 
             // ONLY the pending_approval_summary template is sent — no free-form or secondary
-            // template fallback. If Meta does not accept it this slot, the reminder is retried at
-            // the next scheduled slot (it is recomputed from current pending state).
+            // template fallback. The reminder matters, so the summary gets several spaced-out
+            // attempts within THIS slot to ride out a transient network reset — this is a
+            // background job, so a couple of minutes of retrying costs nothing and (unlike the
+            // outbox) cannot produce cross-slot duplicates. If every attempt still fails, the
+            // reminder self-heals at the next scheduled slot (recomputed from current pending state).
+            // Tunable: WhatsApp:ReminderRetryAttempts (default 4), WhatsApp:ReminderRetryDelaySeconds (default 45).
             bool sent = false;
             if (!string.IsNullOrWhiteSpace(summaryTemplate))
             {
-                // pending_approval_summary (5): {{1}}=Approver  {{2}}=Total  {{3}}=Summary
-                // {{4}}=In-Office link  {{5}}=Out-of-Office link. The per-type breakdown is one
-                // parameter because a template body is fixed while the number of request types
-                // is not, and a parameter may not carry new-lines (#132018).
-                sent = await SendTemplateAsync(phone, summaryTemplate, new[]
+                int attempts = _cfg.GetValue<int>("WhatsApp:ReminderRetryAttempts", 4);
+                if (attempts < 1) attempts = 1;
+                int delaySec = _cfg.GetValue<int>("WhatsApp:ReminderRetryDelaySeconds", 45);
+
+                for (int attempt = 1; attempt <= attempts && !sent; attempt++)
                 {
-                    s.ApproverName,
-                    s.Total.ToString(),
-                    BuildPendingSummaryLine(s),
-                    inOffice,
-                    outOfOffice
-                },
-                ctx: new WaMsgContext(null, null, $"template:{summaryTemplate}",
-                    $"Pending Approval Reminder: {s.Total} pending", null, s.ApproverUserId));
+                    // pending_approval_summary (5): {{1}}=Approver  {{2}}=Total  {{3}}=Summary
+                    // {{4}}=In-Office link  {{5}}=Out-of-Office link. The per-type breakdown is one
+                    // parameter because a template body is fixed while the number of request types
+                    // is not, and a parameter may not carry new-lines (#132018).
+                    sent = await SendTemplateAsync(phone, summaryTemplate, new[]
+                    {
+                        s.ApproverName,
+                        s.Total.ToString(),
+                        BuildPendingSummaryLine(s),
+                        inOffice,
+                        outOfOffice
+                    },
+                    ctx: new WaMsgContext(null, null, $"template:{summaryTemplate}",
+                        $"Pending Approval Reminder: {s.Total} pending", null, s.ApproverUserId));
+
+                    if (!sent && attempt < attempts)
+                    {
+                        _log.LogWarning("WA-REMINDER: summary not accepted for UserId={Uid} (attempt {A}/{N}); retrying in {D}s.",
+                            s.ApproverUserId, attempt, attempts, delaySec);
+                        await Task.Delay(TimeSpan.FromSeconds(delaySec));
+                    }
+                }
 
                 if (!sent)
-                    _log.LogWarning("WA-REMINDER: template {Template} not accepted for UserId={Uid} — will retry at next slot.",
-                        summaryTemplate, s.ApproverUserId);
+                    _log.LogWarning("WA-REMINDER: summary not delivered for UserId={Uid} after {N} attempts — will retry at next slot.",
+                        s.ApproverUserId, attempts);
             }
             else
             {
