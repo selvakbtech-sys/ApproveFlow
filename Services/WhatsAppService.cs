@@ -55,15 +55,30 @@ public class WhatsAppService : IWhatsAppService
     // notification (and its Approve/Reject/Clarification buttons) still goes out.
     private RequestDocument GetHeaderDocOrDefault(Request r, RequestDocument? doc)
     {
-        if (doc != null) return doc;
+        // Path A — the request already has an attachment: use it as the header, generate nothing.
+        if (doc != null)
+        {
+            _log.LogInformation("WA-DOC: existing attachment found for RequestId={Id} — using '{File}' as the header.",
+                r.RequestId, doc.FileName);
+            return doc;
+        }
+
+        // Path B — no attachment: auto-generate the summary PDF header (unchanged behaviour).
+        _log.LogInformation("WA-DOC: no attachments for RequestId={Id} — auto-generating summary document.", r.RequestId);
         var path = GetStoragePath();
         var stored = $"_summary_{r.RequestId}.pdf";
+        var fullPath = System.IO.Path.Combine(path, stored);
         try
         {
             Directory.CreateDirectory(path);
-            File.WriteAllBytes(System.IO.Path.Combine(path, stored), BuildRequestSummaryPdf(r));
+            File.WriteAllBytes(fullPath, BuildRequestSummaryPdf(r));
+            _log.LogInformation("WA-DOC: document generation successful for RequestId={Id} — '{Path}' ({Bytes} bytes).",
+                r.RequestId, fullPath, new FileInfo(fullPath).Length);
         }
-        catch (Exception ex) { _log.LogError(ex, "WA-DOC: Failed to build summary PDF RequestId={Id}", r.RequestId); }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "WA-DOC: document generation FAILED for RequestId={Id} at '{Path}'.", r.RequestId, fullPath);
+        }
         return new RequestDocument { StoredFileName = stored, FileName = $"{r.RequestNumber}.pdf", ContentType = "application/pdf" };
     }
 
@@ -706,40 +721,32 @@ public class WhatsAppService : IWhatsAppService
         if (string.IsNullOrEmpty(token) || string.IsNullOrEmpty(phoneNumId)) return false;
 
         var normalised = NormalisePhone(toPhone);
+        var effectiveCtx = ctx ?? new WaMsgContext(requestId, null, $"template:{templateName}", "", null, approverId);
 
-        // Upload doc to get media_id — embed as header inside template
+        // Upload doc to get media_id — embed as header inside template. The upload is now resilient
+        // (named client + retry inside UploadMediaAsync): a header upload that failed on a transient
+        // TLS reset used to leave mediaId null, so the template went out HEADERLESS and Meta rejected
+        // it with 132012 — the exact "no-attachment message not sending" symptom.
         string? mediaId = null;
         if (doc != null)
         {
             var fullPath = System.IO.Path.Combine(GetStoragePath(), doc.StoredFileName);
             if (File.Exists(fullPath))
+                mediaId = await UploadMediaAsync(phoneNumId, apiVersion, fullPath,
+                    doc.FileName, doc.ContentType ?? GetMimeType(doc.FileName), token);
+            else
+                _log.LogWarning("WA-DOC: File not found {Path}", fullPath);
+
+            // A required header that still could not be uploaded must NOT be dropped: sending the
+            // template without it is rejected by Meta (132012). Fail cleanly and record it instead
+            // of delivering a broken headerless message.
+            if (mediaId == null)
             {
-                try
-                {
-                    var mimeType = doc.ContentType ?? GetMimeType(doc.FileName);
-                    var fileBytes = await File.ReadAllBytesAsync(fullPath);
-                    using var uploadClient = new System.Net.Http.HttpClient();
-                    uploadClient.DefaultRequestHeaders.Authorization =
-                        new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
-                    using var form = new MultipartFormDataContent();
-                    form.Add(new StringContent("whatsapp"), "messaging_product");
-                    var fc = new ByteArrayContent(fileBytes);
-                    fc.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(mimeType);
-                    form.Add(fc, "file", doc.FileName);
-                    var uploadResp = await uploadClient.PostAsync(
-                        $"https://graph.facebook.com/{apiVersion}/{phoneNumId}/media", form);
-                    var uploadBody = await uploadResp.Content.ReadAsStringAsync();
-                    _log.LogInformation("WA-DOC: Upload {Code}: {Body}", (int)uploadResp.StatusCode, uploadBody);
-                    if (uploadResp.IsSuccessStatusCode)
-                    {
-                        using var j = System.Text.Json.JsonDocument.Parse(uploadBody);
-                        mediaId = j.RootElement.GetProperty("id").GetString();
-                        _log.LogInformation("WA-DOC: media_id={Id} file={File}", mediaId, doc.FileName);
-                    }
-                }
-                catch (Exception ex) { _log.LogError(ex, "WA-DOC: Upload exception {File}", doc.FileName); }
+                _log.LogError("WA-DOC: header upload unavailable for RequestId={Req} — not sending headerless template '{Tpl}'.",
+                    requestId, templateName);
+                await SaveMessageHistoryAsync(effectiveCtx, normalised, "Outbound", null, "Failed", "Header document upload failed");
+                return false;
             }
-            else _log.LogWarning("WA-DOC: File not found {Path}", System.IO.Path.Combine(GetStoragePath(), doc.StoredFileName));
         }
 
         var components = new List<object>();
@@ -791,8 +798,7 @@ public class WhatsAppService : IWhatsAppService
         // (CreatedBy = approverId). This is what lets an incoming REPLY-COMMAND resolve
         // context.id → this history row → RequestId + ApproverId, so the reply can be
         // routed to the correct approval. Does not affect the interactive-button flow.
-        var (ok, _) = await PostToWhatsAppAsync(normalised, payload, token, phoneNumId, apiVersion,
-            ctx ?? new WaMsgContext(requestId, null, $"template:{templateName}", "", null, approverId));
+        var (ok, _) = await PostToWhatsAppAsync(normalised, payload, token, phoneNumId, apiVersion, effectiveCtx);
 
         // Send remaining documents (2nd, 3rd...) as separate messages after template
         if (allDocs != null && allDocs.Count > 1)
@@ -802,6 +808,56 @@ public class WhatsAppService : IWhatsAppService
         }
 
         return ok;
+    }
+
+    // Uploads a document to the Graph API media endpoint and returns its media_id (null on
+    // failure). Uses the resilient named "WhatsApp" client (connection recycling) and retries the
+    // TLS resets that were leaving header uploads null — the root cause of the headerless 132012.
+    // A non-2xx (real rejection: bad media/auth) is not retried.
+    private async Task<string?> UploadMediaAsync(string phoneNumId, string apiVersion,
+        string fullPath, string fileName, string mimeType, string token)
+    {
+        const int maxAttempts = 3;
+        var url = $"https://graph.facebook.com/{apiVersion}/{phoneNumId}/media";
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                var fileBytes = await File.ReadAllBytesAsync(fullPath);
+                var client = _http.CreateClient("WhatsApp");
+                client.DefaultRequestHeaders.Authorization =
+                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+                using var form = new MultipartFormDataContent();
+                form.Add(new StringContent("whatsapp"), "messaging_product");
+                var fc = new ByteArrayContent(fileBytes);
+                fc.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(mimeType);
+                form.Add(fc, "file", fileName);
+
+                var resp = await client.PostAsync(url, form);
+                var body = await resp.Content.ReadAsStringAsync();
+                _log.LogInformation("WA-DOC: Upload {Code}: {Body}", (int)resp.StatusCode, body);
+                if (resp.IsSuccessStatusCode)
+                {
+                    using var j = System.Text.Json.JsonDocument.Parse(body);
+                    var id = j.RootElement.GetProperty("id").GetString();
+                    _log.LogInformation("WA-DOC: media_id={Id} file={File}", id, fileName);
+                    return id;
+                }
+                return null; // real rejection — retrying won't help
+            }
+            catch (HttpRequestException ex) when (attempt < maxAttempts)
+            {
+                var delayMs = 500 * attempt;
+                _log.LogWarning(ex, "WA-DOC: media upload transport failure for {File} (attempt {Attempt}/{Max}); retrying in {Delay}ms.",
+                    fileName, attempt, maxAttempts, delayMs);
+                await Task.Delay(delayMs);
+            }
+            catch (Exception ex)
+            {
+                _log.LogError(ex, "WA-DOC: media upload failed for {File}.", fileName);
+                return null;
+            }
+        }
     }
 
     // ── Send Template WITHOUT Buttons ─────────────────────────
@@ -821,36 +877,17 @@ public class WhatsAppService : IWhatsAppService
 
         var normalised = NormalisePhone(toPhone);
 
-        // Upload doc to get media_id — embed as header inside template
+        // Upload doc to get media_id — embed as header inside template (resilient upload; header
+        // added only when a doc is supplied and the upload succeeds — behaviour unchanged).
         string? mediaId = null;
         if (doc != null)
         {
             var fullPath = System.IO.Path.Combine(GetStoragePath(), doc.StoredFileName);
             if (File.Exists(fullPath))
-            {
-                try
-                {
-                    var mimeType = doc.ContentType ?? GetMimeType(doc.FileName);
-                    var fileBytes = await File.ReadAllBytesAsync(fullPath);
-                    using var uploadClient = new System.Net.Http.HttpClient();
-                    uploadClient.DefaultRequestHeaders.Authorization =
-                        new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
-                    using var form = new MultipartFormDataContent();
-                    form.Add(new StringContent("whatsapp"), "messaging_product");
-                    var fc = new ByteArrayContent(fileBytes);
-                    fc.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(mimeType);
-                    form.Add(fc, "file", doc.FileName);
-                    var uploadResp = await uploadClient.PostAsync(
-                        $"https://graph.facebook.com/{apiVersion}/{phoneNumId}/media", form);
-                    var uploadBody = await uploadResp.Content.ReadAsStringAsync();
-                    if (uploadResp.IsSuccessStatusCode)
-                    {
-                        using var j = System.Text.Json.JsonDocument.Parse(uploadBody);
-                        mediaId = j.RootElement.GetProperty("id").GetString();
-                    }
-                }
-                catch (Exception ex) { _log.LogError(ex, "WA-DOC: Upload exception {File}", doc.FileName); }
-            }
+                mediaId = await UploadMediaAsync(phoneNumId, apiVersion, fullPath,
+                    doc.FileName, doc.ContentType ?? GetMimeType(doc.FileName), token);
+            else
+                _log.LogWarning("WA-DOC: File not found {Path}", fullPath);
         }
 
         var components = new List<object>();
