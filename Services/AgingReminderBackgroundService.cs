@@ -49,7 +49,20 @@ public class AgingReminderBackgroundService : BackgroundService
         while (!stoppingToken.IsCancellationRequested)
         {
             var nowIst = IstClock.Now;
-            var slot   = NextSlotAfter(nowIst);
+
+            // Catch-up: fire any slot for TODAY that is already due but has not gone out yet.
+            // A hosted service dies with its IIS app pool, so when the pool idles/recycles
+            // between two slots and only restarts after the later slot's time, that slot would
+            // otherwise be lost forever (NextSlotAfter only ever looks ahead). FireSlotAsync's
+            // durable guard makes this safe: a slot already sent today is skipped, a missed one
+            // is sent now against the CURRENT pending state.
+            var dueSlot = MostRecentDueSlotToday(nowIst);
+            if (dueSlot.HasValue)
+                await FireSlotAsync(dueSlot.Value, stoppingToken);
+
+            if (stoppingToken.IsCancellationRequested) break;
+
+            var slot = NextSlotAfter(nowIst);
 
             _log.LogInformation("Next WhatsApp pending reminder at {Slot:yyyy-MM-dd HH:mm} IST (in {Minutes} min).",
                 slot, (int)(slot - nowIst).TotalMinutes);
@@ -131,6 +144,27 @@ public class AgingReminderBackgroundService : BackgroundService
             _log.LogWarning(ex, "WA-REMINDER: duplicate-protection check failed for slot {Slot:yyyy-MM-dd HH:mm}; proceeding.", slotStart);
             return false;
         }
+    }
+
+    // The latest configured slot on <paramref name="reference"/>'s own day that is at or before
+    // it (IST), or null when no slot for today is due yet. Used for catch-up on (re)start: it is
+    // deliberately bounded to today so a slot missed on a previous day is never resent — the next
+    // scheduled slot already reflects current pending state. GetScheduleTimes() is sorted ascending,
+    // so the last candidate that qualifies is the most recent due slot.
+    private DateTimeOffset? MostRecentDueSlotToday(DateTimeOffset reference)
+    {
+        var refIst = TimeZoneInfo.ConvertTime(reference, Ist);
+        DateTimeOffset? due = null;
+
+        foreach (var t in GetScheduleTimes())
+        {
+            var candidate = new DateTimeOffset(
+                refIst.Year, refIst.Month, refIst.Day, t.Hour, t.Minute, 0, refIst.Offset);
+            if (candidate <= refIst)
+                due = candidate;
+        }
+
+        return due;
     }
 
     // The earliest configured slot strictly after <paramref name="reference"/> (IST). When

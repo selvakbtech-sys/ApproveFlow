@@ -35,7 +35,7 @@
     <div class="f-group">
       <label class="f-lbl">Status</label>
       <select name="FilterStatus" class="f-ctrl">
-        <option value="">All Pending</option>
+        <option value="">Select Status</option>
         @foreach (var s in new[]{"Pending Approval","Partial Approved","Clarification Needed"})
         { <option value="@s" selected="@(Model.FilterStatus==s)">@s</option> }
       </select>
@@ -110,19 +110,16 @@
     <div class="f-group">
       <label class="f-lbl">Priority</label>
       <select name="FilterPriority" class="f-ctrl">
-                 @foreach (var p in new[]{"Low","Medium","High","Critical"}) { <option value="@p" >@p</option> } 
-        @* @foreach (var p in new[]{"Low","Medium","High","Critical"}) { <option value="@p" @(Model.FilterPriority==p?"selected":"")>@p</option> } *@
+        <option value="">All</option>
+        @foreach (var p in new[]{"Low","Medium","High","Critical"}) { <option value="@p" selected="@(Model.FilterPriority==p)">@p</option> }
       </select>
     </div>
     <div class="f-group">
       <label class="f-lbl">Sort By</label>
       <select name="SortBy" class="f-ctrl">
-          <option value="age">Age ↓</option>
-        <option value="priority" >Priority</option>
-        <option value="amount" >Amount ↓</option> 
-       @*  <option value="age" @(Model.SortBy=="age"?"selected":"")>Age ↓</option>
-        <option value="priority" @(Model.SortBy=="priority"?"selected":"")>Priority</option>
-        <option value="amount" @(Model.SortBy=="amount"?"selected":"")>Amount ↓</option> *@
+        <option value="age" selected="@(Model.SortBy=="age")">Age ↓</option>
+        <option value="priority" selected="@(Model.SortBy=="priority")">Priority</option>
+        <option value="amount" selected="@(Model.SortBy=="amount")">Amount ↓</option>
       </select>
     </div>
     <div style="display:flex;gap:6px;align-items:flex-end">
