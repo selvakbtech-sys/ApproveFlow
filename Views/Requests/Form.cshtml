@@ -242,6 +242,79 @@
 	</div>
 </form>
 
+@* ── Cash Instructions modal (presentation only) ──────────────────────────────
+   Shown when the selected Request Type is a Cash type. Sits OUTSIDE the <form>
+   so its buttons can never submit or alter the request/approval flow. *@
+<div id="ciModal" class="ci-modal" onclick="if(event.target===this)ciClose()">
+	<div class="ci-modal-card" role="dialog" aria-modal="true" aria-labelledby="ciModalTitle">
+		<div class="ci-modal-head">
+			<div id="ciModalTitle" class="ci-modal-title">Cash Approval Instructions</div>
+			<button type="button" class="ci-modal-x" onclick="ciClose()" aria-label="Close">&times;</button>
+		</div>
+		<div class="ci-modal-body">
+			@* Instructions are supplied as an image so they can be updated by simply
+			   replacing wwwroot/images/cash-instructions.png — no code change. The
+			   text list below is a fallback shown only if that file is missing. *@
+			<img id="ciImg" class="ci-img" src="~/images/cash-instructions.png" asp-append-version="true"
+				 alt="Cash Instructions" onerror="ciImgFailed()" />
+			<ol id="ciFallback" class="ci-list" hidden>
+				<li>Purchase Local material (In case of Emergency) pl go to our credit vendor and buy the product in cash (With GST Bill). Estimate/Memo bill is not acceptable. (Attachments: GRN, MIR must be enclosed)</li>
+				<li>Strictly use company bike as per ED sir instruction. Incase of emergency, it is instructed to provide petrol allowance as per calculation (Rs.3/- per km). Round off amount is not acceptable.</li>
+				<li>If Bill Not available (For Mess, Milk and Flower purposes) pl write in White paper and send to Ho with PM sign and cashier sign, If bill available pl send with PM Sign</li>
+				<li>Pl don&rsquo;t write in Round figure for Mess and Food expenses (If bill available in round figure is Acceptable)</li>
+				<li>All payment / Advance voucher must have reciver / PM Sign.</li>
+				<li>For purchase of Water, Flowers Pooja expense, Milk purchase write service bill. (when the amount exceeds 200).</li>
+				<li>For Labour work Labour bill must be attached.</li>
+				<li>Always Book Lynk/Porter/Rapido for every transportation service ( Instructed by ED )</li>
+				<li>Get Approval before spending any expense ( Instructed by ED )</li>
+				<li>Every voucher must have Approval Proof to be attached.</li>
+				<li>For transportation service Approval Proof, Bill, Payment proof, Service Bill must be attached.</li>
+				<li>For Weighment charges Weighment slip has to attached.</li>
+				<li>Attach all supporting bills / solve queries within a week time. Or Cash Budget payment will be on hold.</li>
+				<li>All cash expenses must be closed in that respective day and to be posted in group within 10 am the next moring</li>
+				<li>Request for Cash budget has to be made withn 7 pm of that respective day.</li>
+				<li>All material bills must have seal / MIR Register update and store incharge sign</li>
+				<li>All single expenses get approval from management.</li>
+				<li>All expenses get approval from management.</li>
+			</ol>
+		</div>
+		<div class="ci-modal-foot">
+			<span class="ci-note">Please follow these instructions before raising a cash request.</span>
+			<button type="button" class="btn btn-pri btn-sm" onclick="ciClose()" style="margin-left:auto">Close</button>
+		</div>
+	</div>
+</div>
+
+<style>
+	/* ── Cash Instructions modal ── */
+	.ci-modal{display:none;position:fixed;inset:0;z-index:1000;background:rgba(15,23,42,.45);align-items:flex-start;justify-content:center;padding:6vh 16px 16px;overflow:auto}
+	.ci-modal.show{display:flex}
+	.ci-modal-card{background:var(--card);border:1px solid var(--bdr);border-radius:var(--rl);box-shadow:0 12px 40px rgba(0,0,0,.25);width:100%;max-width:980px;display:flex;flex-direction:column;max-height:88vh;overflow:hidden;animation:ciIn .14s ease-out}
+	@@keyframes ciIn{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}
+	.ci-modal-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 18px;border-bottom:1px solid var(--bdr);flex-shrink:0}
+	.ci-modal-title{font-size:14px;font-weight:700}
+	.ci-modal-x{background:none;border:none;font-size:22px;line-height:1;cursor:pointer;color:var(--txt3);padding:0 2px}
+	.ci-modal-x:hover{color:var(--txt)}
+	.ci-modal-body{padding:6px 18px 12px;overflow:auto;-webkit-overflow-scrolling:touch}
+	.ci-modal-foot{display:flex;align-items:center;gap:14px;padding:10px 18px;border-top:1px solid var(--bdr);background:var(--bg);font-size:11px;color:var(--txt3);flex-wrap:wrap;flex-shrink:0}
+	.ci-img{display:block;width:100%;height:auto;border:1px solid var(--bdr);border-radius:var(--r)}
+	.ci-note{font-size:13.5px;font-weight:700;color:var(--ng)}
+	.ci-list{margin:0;padding:0 0 0 26px;display:flex;flex-direction:column;gap:9px}
+	/* display:flex above beats the UA [hidden] rule, so restate it explicitly */
+	.ci-list[hidden]{display:none}
+	.ci-list li{font-size:12.5px;line-height:1.55;padding-left:2px}
+	.ci-list li::marker{font-weight:700;color:var(--pri)}
+	@@media (max-width:640px){
+		.ci-modal{padding:3vh 10px 10px}
+		.ci-modal-card{max-height:92vh}
+		.ci-modal-body{padding:6px 12px 12px}
+		.ci-img{width:auto;max-width:none;min-width:620px}
+		.ci-list{padding-left:22px}
+		.ci-list li{font-size:12px}
+		.ci-note{font-size:12.5px}
+	}
+</style>
+
 @section Scripts {
 	<script>
 		const rtSel   = document.getElementById('rtSelect');
@@ -268,6 +341,50 @@
 		document.getElementById('locSelect')?.addEventListener('change', loadWf);
 		document.getElementById('deptSelect')?.addEventListener('change', loadWf);
 		if (rtSel?.value) loadWf();
+		// ── Cash Instructions modal ──────────────────────────────────
+		// Presentation only. Opens whenever the user picks a Cash request type and
+		// closes on any other type. Uses an in-page dialog (never window.open), so
+		// popup blockers cannot suppress it.
+		const ciModal = document.getElementById('ciModal');
+
+		// Request types are master data, so match by keyword the same way the rest of
+		// the app does rather than by a hardcoded id.
+		function ciIsCashType(sel) {
+		  if (!sel || !sel.value) return false;
+		  const txt = (sel.options[sel.selectedIndex]?.text || '').toLowerCase();
+		  return /\bcash\b/.test(txt);
+		}
+
+		// The image is the source of truth; fall back to the text list only if it
+		// cannot be loaded, so the modal is never empty.
+		function ciImgFailed() {
+		  const img = document.getElementById('ciImg');
+		  if (img) img.style.display = 'none';
+		  const fb = document.getElementById('ciFallback');
+		  if (fb) fb.hidden = false;
+		}
+
+		function ciOpen() {
+		  if (!ciModal) return;
+		  ciModal.classList.add('show');
+		  document.body.style.overflow = 'hidden';
+		  ciModal.querySelector('.ci-modal-x')?.focus();
+		}
+
+		function ciClose() {
+		  if (!ciModal) return;
+		  ciModal.classList.remove('show');
+		  document.body.style.overflow = '';
+		}
+
+		rtSel?.addEventListener('change', function () {
+		  // Changing to any other type closes it; picking Cash again re-opens it.
+		  ciIsCashType(rtSel) ? ciOpen() : ciClose();
+		});
+
+		document.addEventListener('keydown', function (e) {
+		  if (e.key === 'Escape' && ciModal?.classList.contains('show')) ciClose();
+		});
 		// ── Document handling ────────────────────────────────────────
 		let selectedFiles = new DataTransfer();
 
