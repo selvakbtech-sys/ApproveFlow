@@ -67,6 +67,11 @@ public class ReqListItemVM
 public class RequestFormVM
 {
     public int RequestId { get; set; }
+    // Client-generated UUID identifying ONE submit attempt. Posted as a hidden field by
+    // submit-guard.js so a double-click / browser resend / timeout retry all carry the
+    // same value and collapse into a single request. Never validated as required: a
+    // legacy or scripted post without it simply gets today's behaviour.
+    [MaxLength(64)] public string? IdempotencyKey { get; set; }
     [Required, MaxLength(500)] public string Title { get; set; } = "";
     [MaxLength(500, ErrorMessage = "Description / Justification cannot exceed 500 characters")]
     public string? Description { get; set; }

@@ -43,7 +43,8 @@
     @if (!readOnly && Model.Status == "Draft")
     {
       <a asp-action="Edit" asp-route-id="@Model.RequestId" class="btn btn-sec btn-sm">Edit</a>
-      <form asp-action="Submit" asp-route-id="@Model.RequestId" asp-route-source="@src" method="post" style="display:inline">
+      <form asp-action="Submit" asp-route-id="@Model.RequestId" asp-route-source="@src" method="post" style="display:inline"
+            data-submit-guard data-guard-idempotent="false" data-guard-title="Submitting for approval">
         @Html.AntiForgeryToken()
         <button type="submit" class="btn btn-acc btn-sm"
           onclick="return confirm('Submit for approval?')">
@@ -157,7 +158,8 @@
                 <textarea id="prevClarRemark" class="readonly-remark" readonly>@Model.LatestClarificationComment</textarea>
               </div>
             }
-            <form id="clarificationForm" asp-action="SubmitClarification" asp-route-id="@Model.RequestId" asp-route-source="@src" method="post" enctype="multipart/form-data">
+            <form id="clarificationForm" asp-action="SubmitClarification" asp-route-id="@Model.RequestId" asp-route-source="@src" method="post" enctype="multipart/form-data"
+                  data-submit-guard data-guard-idempotent="false" data-guard-title="Submitting clarification">
               @Html.AntiForgeryToken()
               <div class="form-group" style="margin-bottom:12px">
                 <label class="lbl">Clarification Remarks <span style="color:var(--ng)">*</span></label>
@@ -232,7 +234,8 @@
             </span>
           </div>
           <div class="card-body">
-            <form id="approvalActionForm" asp-action="Action" asp-route-id="@Model.RequestId" asp-route-source="@src" method="post" enctype="multipart/form-data">
+            <form id="approvalActionForm" asp-action="Action" asp-route-id="@Model.RequestId" asp-route-source="@src" method="post" enctype="multipart/form-data"
+                  data-submit-guard data-guard-idempotent="false" data-guard-title="Recording your decision">
               @Html.AntiForgeryToken()
               <div class="form-group" style="margin-bottom:12px">
                 <label class="lbl">Comment</label>
@@ -268,31 +271,12 @@
                 }
                 return true;
               }
-              // Enforce a single action per request on the client: once any button is
-              // pressed (and its inline validation passed), disable ALL action buttons,
-              // show a loading indicator, and block any repeat submit / double-click.
-              // The server still validates independently — this is only UX.
-              (function () {
-                var form = document.getElementById('approvalActionForm');
-                if (!form) return;
-                form.addEventListener('submit', function (e) {
-                  if (form.dataset.submitting === '1') { e.preventDefault(); return; }
-                  // Disabled buttons are not posted, so carry the chosen action in a
-                  // hidden field before disabling the button that was clicked.
-                  var submitter = e.submitter || document.activeElement;
-                  var action = (submitter && submitter.name === 'action') ? submitter.value : null;
-                  if (action) {
-                    var hid = document.createElement('input');
-                    hid.type = 'hidden'; hid.name = 'action'; hid.value = action;
-                    form.appendChild(hid);
-                  }
-                  form.dataset.submitting = '1';
-                  form.querySelectorAll('button[type="submit"]').forEach(function (b) { b.disabled = true; });
-                  if (submitter && submitter.tagName === 'BUTTON') {
-                    submitter.innerHTML = '<span class="spin"></span> Processing…';
-                  }
-                });
-              })();
+              // The single-action guard that used to live here is now the shared
+              // submit-guard.js component, opted into by data-submit-guard on the form
+              // above. It does the same job (carry the clicked action in a hidden field,
+              // then disable every action button) and adds the progress overlay. Running
+              // both would append the "action" field TWICE and MVC would bind
+              // "approved,approved" instead of "approved".
             </script>
           </div>
         </div>
@@ -544,7 +528,12 @@
       <span style="font-size:15px;font-weight:700">Revoke Request</span>
       <button onclick="closeRevokeModal()" type="button" style="background:none;border:none;cursor:pointer;color:var(--txt3);font-size:20px;line-height:1;padding:0 4px">&times;</button>
     </div>
-    <form id="revokeForm" method="post" action="">
+    @* Revoke posts to a URL set at runtime by openRevokeModal(). The guard still
+       applies: one click, one revoke. No idempotency key — Revoke updates an
+       existing request rather than creating one, and the server already refuses a
+       second revoke by status. *@
+    <form id="revokeForm" method="post" action=""
+          data-submit-guard data-guard-idempotent="false" data-guard-title="Revoking request">
       @Html.AntiForgeryToken()
       <div style="padding:20px">
         <div style="font-size:13px;color:var(--txt2);margin-bottom:14px">Please provide the reason for revoking request <strong id="revokeReqNum" class="mono"></strong>.</div>

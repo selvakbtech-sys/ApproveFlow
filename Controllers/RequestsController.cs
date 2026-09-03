@@ -173,16 +173,22 @@ public class RequestsController : BaseCtrl
         }
 
         int requestId;
+        // A replayed POST (double-click, browser resend, retry after a timeout) returns
+        // the request the FIRST post created. Attachments were already stored by that
+        // first post, so the upload block below is skipped -- re-running it would attach
+        // the same files a second time.
+        var isReplay = false;
 
         if (vm.RequestId == 0)
         {
-            var (ok, err, newId) = await _svc.CreateAsync(vm, UserId);
+            var (ok, err, newId, wasReplay) = await _svc.CreateAsync(vm, UserId, vm.IdempotencyKey);
             if (!ok)
             {
                 Err(err!);
                 await ReloadFormDropdowns(vm);
                 return View("Form", vm);
             }
+            isReplay = wasReplay;
             requestId = newId;
         }
         else
@@ -195,6 +201,15 @@ public class RequestsController : BaseCtrl
                 return View("Form", vm);
             }
             requestId = vm.RequestId;
+        }
+
+        if (isReplay)
+        {
+            // Nothing further to do: the original post already saved the files and, if it
+            // was a "submit", already started the approval workflow. Land the user on the
+            // one request that exists.
+            Ok("Request already submitted.");
+            return RedirectToAction("Detail", new { id = requestId });
         }
 
         if (vm.DeleteDocIds?.Any() == true)

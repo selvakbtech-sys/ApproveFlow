@@ -245,6 +245,10 @@ namespace ApproveFlow.MVC.Migrations
                     b.Property<string>("Description")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<string>("IdempotencyKey")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
                     b.Property<bool>("IsRevoked")
                         .HasColumnType("bit");
 
@@ -298,6 +302,10 @@ namespace ApproveFlow.MVC.Migrations
                     b.HasKey("RequestId");
 
                     b.HasIndex("DepartmentId");
+
+                    b.HasIndex("IdempotencyKey")
+                        .IsUnique()
+                        .HasFilter("[IdempotencyKey] IS NOT NULL");
 
                     b.HasIndex("LocationId");
 

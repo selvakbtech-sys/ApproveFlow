@@ -107,6 +107,12 @@ builder.Services.AddHttpClient("WhatsApp")
         ConnectTimeout              = TimeSpan.FromSeconds(15),
     });
 builder.Services.AddScoped<IWhatsAppService, WhatsAppService>();
+
+// Fire-and-forget queue for work that must not block the user's HTTP request
+// (currently the submit/approval WhatsApp notifications). Singleton so the queue
+// outlives the request scope; the drain loop opens a fresh scope per job.
+builder.Services.AddSingleton<IBackgroundJobQueue, BackgroundJobQueue>();
+builder.Services.AddHostedService<BackgroundJobService>();
 builder.Services.AddHostedService<AgingReminderBackgroundService>();
 builder.Services.AddHostedService<WhatsAppPendingApproveTimeoutService>();
 builder.Services.AddHostedService<WhatsAppOutboxService>();

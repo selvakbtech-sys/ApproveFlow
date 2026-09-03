@@ -86,6 +86,10 @@ public class AppDbContext : DbContext
             e.HasOne(x => x.Department).WithMany().HasForeignKey(x => x.DepartmentId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.Requestor).WithMany(u => u.SubmittedRequests).HasForeignKey(x => x.RequestorId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.Workflow).WithMany().HasForeignKey(x => x.WorkflowId).OnDelete(DeleteBehavior.SetNull);
+            // Database-level duplicate protection. Filtered so the many legitimate NULLs
+            // (all rows created before this column, plus non-browser create paths) do not
+            // collide — SQL Server treats NULLs as equal in a plain unique index.
+            e.HasIndex(x => x.IdempotencyKey).IsUnique().HasFilter("[IdempotencyKey] IS NOT NULL");
         });
         mb.Entity<RequestApprover>(e => {
             e.ToTable("RequestApprovers");

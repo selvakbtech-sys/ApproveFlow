@@ -6,6 +6,7 @@
 	// Part 2 — only request types mapped to the logged-in user are loaded. When none
 	// are mapped, block request creation/submission from the UI (server also enforces).
 	bool noRequestTypes = !Model.RequestTypes.Any();
+	string guardTitle = isEdit ? "Saving request" : "Submitting request";
 }
 <div class="pg-hdr">
 	<div>
@@ -15,7 +16,11 @@
 	<a asp-action="Index" class="btn btn-sec">← Back</a>
 </div>
 
-<form asp-action="Save" method="post" enctype="multipart/form-data">
+@* data-submit-guard: disables the submit buttons on the first click, shows the
+   staged progress overlay, and posts an IdempotencyKey so a double-click can only
+   ever create ONE request. See wwwroot/js/submit-guard.js. *@
+<form asp-action="Save" method="post" enctype="multipart/form-data"
+	  data-submit-guard data-guard-title="@guardTitle">
 	@Html.AntiForgeryToken()
 	<input type="hidden" asp-for="RequestId" />
 	@* LocationId and DepartmentId are posted via dropdowns in the form grid below *@

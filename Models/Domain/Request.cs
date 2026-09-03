@@ -29,6 +29,14 @@ public class Request
     public DateTimeOffset? RevokedDate { get; set; }
     [MaxLength(500)]
     public string? RevokedRemark { get; set; }
+    // ── Idempotency: the client generates a UUID per submit attempt and posts it with
+    // the form. A retry of the SAME attempt (double-click, browser resend, timeout retry)
+    // carries the SAME key, so the server returns the request already created instead of
+    // inserting a second one. Nullable and unique-filtered: every pre-existing row and
+    // every non-browser create path (WhatsApp, background jobs) leaves it NULL and is
+    // unaffected. See RequestService.CreateAsync.
+    [MaxLength(64)]
+    public string? IdempotencyKey { get; set; }
     public virtual RequestType RequestType { get; set; } = null!;
     public virtual Location Location { get; set; } = null!;
     public virtual Department Department { get; set; } = null!;

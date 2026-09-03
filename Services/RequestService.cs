@@ -7,7 +7,9 @@ public interface IRequestService
     Task<RequestListVM> GetTerritoryListAsync(int userId, RequestListVM filter, int page, int pageSize);
     Task<RequestFormVM?> GetDetailAsync(int id, int curUserId);
     Task<RequestFormVM> BuildFormAsync(int userId);
-    Task<(bool ok, string? err, int id)> CreateAsync(RequestFormVM vm, int userId);
+    // replay = this exact submit attempt had already created a request; id is that
+    // existing request and NOTHING was inserted. See RequestsController.Save.
+    Task<(bool ok, string? err, int id, bool replay)> CreateAsync(RequestFormVM vm, int userId, string? idempotencyKey = null);
     Task<(bool ok, string? err)> UpdateAsync(RequestFormVM vm, int userId);
     Task<(bool ok, string? err)> SubmitAsync(int requestId, int userId);
     Task<(bool ok, string? err)> ProcessActionAsync(int requestId, int userId, string action, string? comment, IFormFile? approvalFile = null, string? storagePath = null, int maxFileMb = 20);
@@ -29,13 +31,30 @@ public interface IRequestService
 public class RequestService : IRequestService
 {
     private readonly AppDbContext _db;
-    private readonly IWhatsAppService _wa;
     private readonly ILogger<RequestService> _log;
     private readonly IUserMappingService _mapping;
     private readonly IConfiguration _cfg;
     private readonly IApplicationUrlService _urlSvc;
-    public RequestService(AppDbContext db, IWhatsAppService wa, ILogger<RequestService> log, IUserMappingService mapping, IConfiguration cfg, IApplicationUrlService urlSvc)
-    { _db = db; _wa = wa; _log = log; _mapping = mapping; _cfg = cfg; _urlSvc = urlSvc; }
+    private readonly IBackgroundJobQueue _jobs;
+    public RequestService(AppDbContext db, ILogger<RequestService> log, IUserMappingService mapping, IConfiguration cfg, IApplicationUrlService urlSvc, IBackgroundJobQueue jobs)
+    { _db = db; _log = log; _mapping = mapping; _cfg = cfg; _urlSvc = urlSvc; _jobs = jobs; }
+
+    // ── WhatsApp notifications are queued, never awaited ─────────────────────────
+    // Every outbound Meta call used to run inline on the user's request thread. A TLS
+    // reset to graph.facebook.com turned a submit into a 30-90 second wait (3 media-upload
+    // attempts + 2 template attempts at a 15s ConnectTimeout each), which is the window
+    // in which users clicked Submit repeatedly and created duplicates.
+    //
+    // The work itself is unchanged — same service, same methods, same WhatsAppOutbox
+    // fallback on transport failure. Only the thread it runs on changed. Failures are
+    // logged by the queue and can never surface as a user-visible error, which matches
+    // the previous behaviour (every call site already swallowed exceptions).
+    private void QueueWhatsApp(string jobName, int requestId, Func<IWhatsAppService, Task> send) =>
+        _jobs.Enqueue($"{jobName}#{requestId}", async (sp, ct) =>
+        {
+            var wa = sp.GetRequiredService<IWhatsAppService>();
+            await send(wa);
+        });
 
     public async Task<List<ReqListItemVM>> GetAllForExportAsync(RequestListVM filter, int? scopeUserId = null)
     {
@@ -582,22 +601,42 @@ public class RequestService : IRequestService
         };
     }
 
-    public async Task<(bool ok, string? err, int id)> CreateAsync(RequestFormVM vm, int userId)
+    public async Task<(bool ok, string? err, int id, bool replay)> CreateAsync(RequestFormVM vm, int userId, string? idempotencyKey = null)
     {
+        using var perf = new SubmitTimer(_log, "Create", 0, userId);
+        var key = string.IsNullOrWhiteSpace(idempotencyKey) ? null : idempotencyKey.Trim();
+
+        // -- Idempotency, first line of defence --------------------------------
+        // A repeated POST of the SAME user action carries the SAME key. Return the
+        // request that action already created instead of inserting a second one.
+        if (key != null)
+        {
+            var replay = await FindByIdempotencyKeyAsync(key, userId);
+            if (replay.found)
+            {
+                perf.Mark("idempotent-replay");
+                _log.LogInformation("CreateAsync: idempotent replay for Key={Key} -> RequestId={Id}", key, replay.id);
+                return (replay.ok, replay.err, replay.id, true);
+            }
+        }
+        perf.Mark("idempotency-check");
+
         var user = await _db.Users
             .Include(u => u.UserLocations).Include(u => u.UserDepartments)
             .FirstOrDefaultAsync(u => u.UserId == userId);
-        if (user == null) return (false, "User not found.", 0);
+        if (user == null) return (false, "User not found.", 0, false);
 
         var userLocIds = user.UserLocations.Select(l => l.LocationId).ToHashSet();
         var userDeptIds = user.UserDepartments.Select(d => d.DepartmentId).ToHashSet();
 
         int locId = userLocIds.Contains(vm.LocationId) ? vm.LocationId : (userLocIds.FirstOrDefault());
         int deptId = userDeptIds.Contains(vm.DepartmentId) ? vm.DepartmentId : (userDeptIds.FirstOrDefault());
+        perf.Mark("load-user");
 
         var wf = await MatchWorkflowAsync(locId, vm.RequestTypeId, vm.Priority, deptId, userId, vm.Amount);
+        perf.Mark("match-workflow");
 
-        var entity = new Request
+        Request NewEntity() => new Request
         {
             Title = vm.Title,
             Description = vm.Description,
@@ -611,16 +650,73 @@ public class RequestService : IRequestService
             WorkflowId = wf?.WorkflowId,
             Status = "Draft",
             RequestNumber = "",
+            IdempotencyKey = key,
         };
-        _db.Requests.Add(entity);
-        await _db.SaveChangesAsync();
 
-        entity.RequestNumber = $"REQ-{IstClock.Now.Year % 100:D2}-{entity.RequestId:D6}";
-        _db.RequestActionLogs.Add(new RequestActionLog
-        { RequestId = entity.RequestId, ActorUserId = userId, Action = "saved_draft" });
-        await _db.SaveChangesAsync();
-        return (true, null, entity.RequestId);
+        // -- Transaction-safe create -------------------------------------------
+        // The row and its "saved_draft" audit log commit together or not at all. The
+        // DbContext has EnableRetryOnFailure, so a manual BeginTransactionAsync must be
+        // wrapped in an execution strategy -- the strategy owns the retry, and the
+        // delegate rebuilds its tracked state on every attempt so a retry can never
+        // double-add the entity.
+        var newId = 0;
+        var strategy = _db.Database.CreateExecutionStrategy();
+        try
+        {
+            await strategy.ExecuteAsync(async () =>
+            {
+                _db.ChangeTracker.Clear();
+                var entity = NewEntity();
+                await using var tx = await _db.Database.BeginTransactionAsync();
+                _db.Requests.Add(entity);
+                await _db.SaveChangesAsync();
+
+                entity.RequestNumber = $"REQ-{IstClock.Now.Year % 100:D2}-{entity.RequestId:D6}";
+                _db.RequestActionLogs.Add(new RequestActionLog
+                { RequestId = entity.RequestId, ActorUserId = userId, Action = "saved_draft" });
+                await _db.SaveChangesAsync();
+
+                await tx.CommitAsync();
+                newId = entity.RequestId;
+            });
+        }
+        catch (DbUpdateException ex) when (key != null && IsDuplicateKeyViolation(ex))
+        {
+            // -- Idempotency, second line of defence ----------------------------
+            // Two POSTs of the same action raced past the check above and both tried to
+            // insert. The unique index let exactly one through; this is the loser, and
+            // its transaction rolled back, so nothing partial was written. Return the
+            // winner's request -- from the user's point of view their click worked.
+            _db.ChangeTracker.Clear();
+            var winner = await FindByIdempotencyKeyAsync(key, userId);
+            perf.Mark("duplicate-collapsed");
+            _log.LogWarning("CreateAsync: concurrent duplicate collapsed for Key={Key} -> RequestId={Id}", key, winner.id);
+            if (winner.found) return (winner.ok, winner.err, winner.id, true);
+            throw;
+        }
+        perf.Mark("save");
+        return (true, null, newId, false);
     }
+
+    // Looks up the request a given idempotency key already created. Ownership is
+    // re-checked: a key is only ever a replay of its OWN author's action, so another
+    // user presenting it (guessed or copied) is refused rather than handed the row.
+    private async Task<(bool found, bool ok, string? err, int id)> FindByIdempotencyKeyAsync(string key, int userId)
+    {
+        var existing = await _db.Requests.AsNoTracking()
+            .Where(r => r.IdempotencyKey == key)
+            .Select(r => new { r.RequestId, r.RequestorId })
+            .FirstOrDefaultAsync();
+        if (existing == null) return (false, false, null, 0);
+        return existing.RequestorId == userId
+            ? (true, true, null, existing.RequestId)
+            : (true, false, "Not authorized.", 0);
+    }
+
+    // SQL Server signals a unique-index/constraint violation as error 2601 or 2627.
+    private static bool IsDuplicateKeyViolation(DbUpdateException ex) =>
+        ex.InnerException is Microsoft.Data.SqlClient.SqlException sql
+        && (sql.Number == 2601 || sql.Number == 2627);
 
     public async Task<(bool ok, string? err)> UpdateAsync(RequestFormVM vm, int userId)
     {
@@ -643,12 +739,14 @@ public class RequestService : IRequestService
 
     public async Task<(bool ok, string? err)> SubmitAsync(int requestId, int userId)
     {
+        using var perf = new SubmitTimer(_log, "Submit", requestId, userId);
         var r = await _db.Requests.Include(r => r.Approvers)
             .FirstOrDefaultAsync(x => x.RequestId == requestId);
         if (r == null) return (false, "Not found.");
         if (r.RequestorId != userId) return (false, "Not authorized.");
         if (r.Status != "Draft" && r.Status != "Clarification Needed")
             return (false, $"Cannot submit from status '{r.Status}'.");
+        perf.Mark("validate");
 
         if (!r.Approvers.Any())
         {
@@ -796,18 +894,24 @@ public class RequestService : IRequestService
         }
 
         await _db.SaveChangesAsync();
+        perf.Mark("save");
 
-        try
+        // Hand the approver's WhatsApp card to the background queue. This is the change
+        // that took submit from 30-90s down to well under a second on a bad network: the
+        // user's response no longer waits on graph.facebook.com. The message itself is
+        // built and sent by the same code as before, moments later.
+        if (isResubmit && targetApprover != null)
         {
-            if (isResubmit && targetApprover != null)
-                await _wa.SendResubmitToApproverAsync(requestId, targetApprover.ApproverUserId, targetApprover.StepLevel);
-            else
-                await _wa.SendNewRequestToL1Async(requestId);
+            var approverId = targetApprover.ApproverUserId;
+            var stepLevel = targetApprover.StepLevel;
+            QueueWhatsApp("wa-resubmit", requestId,
+                wa => wa.SendResubmitToApproverAsync(requestId, approverId, stepLevel));
         }
-        catch (Exception ex)
+        else
         {
-            _log.LogError(ex, "SubmitAsync: WhatsApp notification failed for RequestId={Id} IsResubmit={Resubmit}", requestId, isResubmit);
+            QueueWhatsApp("wa-new-request", requestId, wa => wa.SendNewRequestToL1Async(requestId));
         }
+        perf.Mark("notify-queued");
 
         // Notification Alert is intentionally NOT sent on submission/resubmission — per spec,
         // observer roles are only notified starting from the first approval action onward
@@ -820,11 +924,14 @@ public class RequestService : IRequestService
         int requestId, int userId, string action, string? comment,
         IFormFile? approvalFile = null, string? storagePath = null, int maxFileMb = 20)
     {
+        using var perf = new SubmitTimer(_log, $"Action:{action}", requestId, userId);
+
         // Comment rules (identical for every level): Approve optional, Reject & Clarification mandatory.
         if (action == "rejected" && string.IsNullOrWhiteSpace(comment))
             return (false, "Rejection remarks are required.");
         if (action == "clarification" && string.IsNullOrWhiteSpace(comment))
             return (false, "Clarification remarks are required.");
+        perf.Mark("validate");
 
         var r = await _db.Requests.Include(r => r.Approvers)
             .FirstOrDefaultAsync(x => x.RequestId == requestId);
@@ -984,32 +1091,35 @@ public class RequestService : IRequestService
             await _db.SaveChangesAsync();
         }
 
-        try
-        {
-            if (action == "approved")
-                await _wa.SendApprovalProgressAsync(requestId, userId);
-            else if (action == "clarification")
-                await _wa.SendClarificationToCreatorAsync(requestId, userId, comment!);
-            else if (action == "rejected")
-                await _wa.SendRejectionToCreatorAsync(requestId, userId, comment!);
+        // Approve / Reject / Clarification notifications are queued for the same reason
+        // as the submit card: the observer-role fan-out below sends one Meta call PER
+        // recipient, serially, so on a bad network an approval could block the approver's
+        // browser for minutes. Ordering within a request is preserved -- the queue has a
+        // single reader and drains in FIFO order.
+        var actingStepLevel = acting.StepLevel;
+        var actionComment = comment;
+        if (action == "approved")
+            QueueWhatsApp("wa-approved", requestId, wa => wa.SendApprovalProgressAsync(requestId, userId));
+        else if (action == "clarification")
+            QueueWhatsApp("wa-clarification", requestId, wa => wa.SendClarificationToCreatorAsync(requestId, userId, actionComment!));
+        else if (action == "rejected")
+            QueueWhatsApp("wa-rejected", requestId, wa => wa.SendRejectionToCreatorAsync(requestId, userId, actionComment!));
 
-            if (notifRoleUsers.Count > 0 && notifViewToken != null)
+        if (notifRoleUsers.Count > 0 && notifViewToken != null)
+        {
+            // Both links come from the same token — the template needs them as two
+            // separate parameters ({{8}} / {{9}}), not as one newline-joined block.
+            // Resolved here, on the request thread, because IApplicationUrlService reads
+            // the current HttpContext, which no longer exists once the job runs.
+            var (inOfficeUrl, outOfOfficeUrl) = _urlSvc.GetRequestViewUrlPair(notifViewToken);
+            foreach (var u in notifRoleUsers)
             {
-                // Both links come from the same token — the template needs them as two
-                // separate parameters ({{8}} / {{9}}), not as one newline-joined block.
-                var (inOfficeUrl, outOfOfficeUrl) = _urlSvc.GetRequestViewUrlPair(notifViewToken);
-                foreach (var u in notifRoleUsers)
-                    await _wa.SendNotificationRoleAlertAsync(
-                        requestId, u.UserId, notifEventLabel, inOfficeUrl, outOfOfficeUrl, acting.StepLevel);
+                var observerId = u.UserId;
+                QueueWhatsApp("wa-observer", requestId, wa => wa.SendNotificationRoleAlertAsync(
+                    requestId, observerId, notifEventLabel, inOfficeUrl, outOfOfficeUrl, actingStepLevel));
             }
         }
-        catch (Exception ex)
-        {
-            _log.LogError(ex, "ProcessAction: WhatsApp notification EXCEPTION RequestId={Id} Action={Action} Message={Msg}",
-                requestId, action, ex.Message);
-            if (ex.InnerException != null)
-                _log.LogError("ProcessAction: InnerException={Inner}", ex.InnerException.Message);
-        }
+        perf.Mark("notify-queued");
 
         return (true, null);
     }
@@ -1025,6 +1135,8 @@ public class RequestService : IRequestService
         int requestId, int userId, string remarks, IFormFile? file = null,
         string? storagePath = null, int maxFileMb = 20)
     {
+        using var perf = new SubmitTimer(_log, "SubmitClarification", requestId, userId);
+
         if (string.IsNullOrWhiteSpace(remarks))
             return (false, "Clarification remarks are required.");
         if (remarks.Length > 500)
@@ -1103,15 +1215,13 @@ public class RequestService : IRequestService
             await _db.SaveChangesAsync();
         }
 
-        // Notify the current approver via the existing resubmit channel (unchanged message).
-        try
-        {
-            await _wa.SendResubmitToApproverAsync(requestId, targetApprover.ApproverUserId, targetApprover.StepLevel);
-        }
-        catch (Exception ex)
-        {
-            _log.LogError(ex, "SubmitClarificationResponse: WhatsApp notify failed RequestId={Id}", requestId);
-        }
+        // Notify the current approver via the existing resubmit channel (unchanged
+        // message, now queued so the requester's page returns immediately).
+        var clarApproverId = targetApprover.ApproverUserId;
+        var clarStepLevel = targetApprover.StepLevel;
+        QueueWhatsApp("wa-clarification-response", requestId,
+            wa => wa.SendResubmitToApproverAsync(requestId, clarApproverId, clarStepLevel));
+        perf.Mark("notify-queued");
 
         return (true, null);
     }
