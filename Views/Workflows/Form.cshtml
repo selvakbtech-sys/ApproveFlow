@@ -124,6 +124,19 @@
                   </select>
                   <input type="hidden" name="Steps[@i].StepLevel" value="@step.StepLevel" data-steplevel="1"/>
                   <input type="hidden" name="Steps[@i].IsAutoAssignDeptManager" value="false"/>
+                  @* Per-level switch for the approval-request WhatsApp card sent to THIS
+                     level's approver. Off suppresses only that message — the approver is
+                     still assigned and still gets the in-app notification, reminders and
+                     every other WhatsApp flow. The trailing hidden field posts "false"
+                     when the box is unchecked. *@
+                  <div class="toggle-wrap" style="margin-top:9px">
+                    <div class="toggle-box">
+                      <input type="checkbox" id="waStep@i" name="Steps[@i].IsWhatsAppEnabled" value="true" data-wa="1" @(step.IsWhatsAppEnabled ? "checked" : "")/>
+                      <label class="toggle-track" for="waStep@i"><span class="toggle-thumb"></span></label>
+                    </div>
+                    <input type="hidden" name="Steps[@i].IsWhatsAppEnabled" value="false" data-wa-hidden="1"/>
+                    <label class="lbl" for="waStep@i" style="cursor:pointer;margin:0">Send WhatsApp to Approver</label>
+                  </div>
                 </div>
                 <button type="button" onclick="removeStep(this)" class="btn btn-ghost btn-sm step-del-btn" style="color:var(--ng);margin-top:2px;@(i==0?"display:none":"")">
                   <svg viewBox="0 0 24 24"><polyline points="3,6 5,6 21,6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
@@ -211,6 +224,9 @@ function buildNotifRoleCheckboxes() {
   ).join('');
 }
 
+// Only ever increments — see addStepBtn.
+let waIdSeq = @(Model.Steps.Count);
+
 function getLevelLabel(lvl) {
   return lvl === 1 ? 'L1' : lvl === 2 ? 'L2' : 'L3';
 }
@@ -229,6 +245,11 @@ function renumberSteps() {
     // keep hidden IsAutoAssignDeptManager in sync
     const hidAutoEl = row.querySelector('[name$=".IsAutoAssignDeptManager"]');
     if (hidAutoEl) hidAutoEl.name = `Steps[${i}].IsAutoAssignDeptManager`;
+    // keep the "Send WhatsApp to Approver" checkbox and its hidden false-fallback in sync
+    const waEl    = row.querySelector('[data-wa]');
+    const waHidEl = row.querySelector('[data-wa-hidden]');
+    if (waEl)    waEl.name    = `Steps[${i}].IsWhatsAppEnabled`;
+    if (waHidEl) waHidEl.name = `Steps[${i}].IsWhatsAppEnabled`;
     const delBtn = row.querySelector('.step-del-btn');
     if (delBtn) delBtn.style.display = i > 0 ? '' : 'none';
   });
@@ -260,6 +281,9 @@ document.getElementById('addStepBtn')?.addEventListener('click', () => {
   if (rows.length >= 3) { alert('Maximum 3 approval levels.'); return; }
   const idx = rows.length;
   const lvl = idx + 1;
+  // Row indexes are reused after a delete, so the checkbox id (used by label "for")
+  // comes from a counter that only ever grows.
+  const waId = `waStep${waIdSeq++}`;
   const div = document.createElement('div');
   div.className = 'card step-row';
   div.style.cssText = 'padding:13px 15px;margin-bottom:10px;border:1px solid var(--bdr)';
@@ -275,6 +299,14 @@ document.getElementById('addStepBtn')?.addEventListener('click', () => {
         </select>
         <input type="hidden" name="Steps[${idx}].StepLevel" value="${lvl}" data-steplevel="1"/>
         <input type="hidden" name="Steps[${idx}].IsAutoAssignDeptManager" value="false"/>
+        <div class="toggle-wrap" style="margin-top:9px">
+          <div class="toggle-box">
+            <input type="checkbox" id="${waId}" name="Steps[${idx}].IsWhatsAppEnabled" value="true" data-wa="1" checked/>
+            <label class="toggle-track" for="${waId}"><span class="toggle-thumb"></span></label>
+          </div>
+          <input type="hidden" name="Steps[${idx}].IsWhatsAppEnabled" value="false" data-wa-hidden="1"/>
+          <label class="lbl" for="${waId}" style="cursor:pointer;margin:0">Send WhatsApp to Approver</label>
+        </div>
       </div>
       <button type="button" class="btn btn-ghost btn-sm step-del-btn" onclick="removeStep(this)" style="color:var(--ng);margin-top:2px">
         <svg viewBox="0 0 24 24"><polyline points="3,6 5,6 21,6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>

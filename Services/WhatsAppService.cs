@@ -139,6 +139,13 @@ public class WhatsAppService : IWhatsAppService
         var l1 = r.Approvers.Where(a => a.StepLevel == 1).FirstOrDefault();
         if (l1 == null) return;
 
+        if (!await IsApproverWhatsAppEnabledAsync(r.WorkflowId, l1.StepLevel))
+        {
+            _log.LogInformation("WA-NEW: L{Lvl} approver WhatsApp is switched off in the workflow — skipping the approval card. RequestId={Id}",
+                l1.StepLevel, requestId);
+            return;
+        }
+
         var phone = await GetPhoneAsync(l1.ApproverUserId);
         if (string.IsNullOrEmpty(phone)) return;
 
@@ -315,7 +322,12 @@ public class WhatsAppService : IWhatsAppService
                 nextStep is null ? "none" : $"L{nextStep.StepLevel}",
                 nextStep?.ApproverUserId.ToString() ?? "none");
 
-            if (nextStep != null)
+            if (nextStep != null && !await IsApproverWhatsAppEnabledAsync(r.WorkflowId, nextStep.StepLevel))
+            {
+                _log.LogInformation("WA-PROGRESS: L{Lvl} approver WhatsApp is switched off in the workflow — skipping the approval card. RequestId={Id}",
+                    nextStep.StepLevel, requestId);
+            }
+            else if (nextStep != null)
             {
                 var nextPhone = await GetPhoneAsync(nextStep.ApproverUserId);
                 if (string.IsNullOrEmpty(nextPhone))
@@ -1344,6 +1356,20 @@ public class WhatsAppService : IWhatsAppService
             .Include(r => r.ActionLogs).ThenInclude(l => l.ActorUser)
             .Include(r => r.Documents)
             .FirstOrDefaultAsync(r => r.RequestId == requestId);
+
+    // Per-level "Send WhatsApp to Approver" switch (WorkflowSteps.IsWhatsAppEnabled).
+    // Gates ONLY the approval-request card sent to that level's approver. Returns true
+    // unless a matching step explicitly says otherwise, so a request with no workflow,
+    // or a level whose step has since been removed, keeps the original behaviour.
+    private async Task<bool> IsApproverWhatsAppEnabledAsync(int? workflowId, int stepLevel)
+    {
+        if (workflowId == null) return true;
+        var step = await _db.WorkflowSteps.AsNoTracking()
+            .Where(w => w.WorkflowId == workflowId.Value && w.StepLevel == stepLevel)
+            .Select(w => (bool?)w.IsWhatsAppEnabled)
+            .FirstOrDefaultAsync();
+        return step ?? true;
+    }
 
     private async Task<string?> GetPhoneAsync(int userId)
     {

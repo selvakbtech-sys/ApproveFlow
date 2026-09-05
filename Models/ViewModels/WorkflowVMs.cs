@@ -56,5 +56,6 @@ public class WfStepFormVM
     public int? ApproverRoleId { get; set; }
     public string ApproverRole { get; set; } = "";
     public bool IsAutoAssignDeptManager { get; set; }
+    public bool IsWhatsAppEnabled { get; set; } = true;
     public List<int> NotificationRoleIds { get; set; } = new();
 }

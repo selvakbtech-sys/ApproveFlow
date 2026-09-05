@@ -103,7 +103,7 @@ public class WorkflowsController : BaseCtrl
                     IsActive      = vm.IsActive,
                 };
                 foreach (var s in vm.Steps.OrderBy(x => x.StepLevel))
-                    wf.Steps.Add(new WorkflowStep { StepLevel = s.StepLevel, ApproverRoleId = s.ApproverRoleId, ApproverUserId = null, IsAutoAssignDeptManager = false });
+                    wf.Steps.Add(new WorkflowStep { StepLevel = s.StepLevel, ApproverRoleId = s.ApproverRoleId, ApproverUserId = null, IsAutoAssignDeptManager = false, IsWhatsAppEnabled = s.IsWhatsAppEnabled });
                 _db.WorkflowDefinitions.Add(wf);
                 await _db.SaveChangesAsync();
 
@@ -146,7 +146,7 @@ public class WorkflowsController : BaseCtrl
                 wf.DepartmentId = vm.DepartmentId; wf.IsActive = vm.IsActive;
                 _db.WorkflowSteps.RemoveRange(wf.Steps);
                 foreach (var s in vm.Steps.OrderBy(x => x.StepLevel))
-                    wf.Steps.Add(new WorkflowStep { StepLevel = s.StepLevel, ApproverRoleId = s.ApproverRoleId, ApproverUserId = null, IsAutoAssignDeptManager = false });
+                    wf.Steps.Add(new WorkflowStep { StepLevel = s.StepLevel, ApproverRoleId = s.ApproverRoleId, ApproverUserId = null, IsAutoAssignDeptManager = false, IsWhatsAppEnabled = s.IsWhatsAppEnabled });
 
                 _db.WorkflowNotificationRoles.RemoveRange(wf.NotificationRoles);
                 foreach (var s in vm.Steps)
@@ -216,6 +216,7 @@ public class WorkflowsController : BaseCtrl
                 ApproverRole = s.ApproverRole != null ? s.ApproverRole.RoleName
                     : (s.ApproverUser != null ? s.ApproverUser.Role.RoleName : ""),
                 IsAutoAssignDeptManager = s.IsAutoAssignDeptManager,
+                IsWhatsAppEnabled = s.IsWhatsAppEnabled,
                 NotificationRoleIds = wf.NotificationRoles.Where(x => x.StepLevel == s.StepLevel).Select(x => x.RoleId).ToList()
             }).ToList();
         return vm;

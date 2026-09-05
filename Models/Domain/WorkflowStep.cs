@@ -13,6 +13,11 @@ public class WorkflowStep
     // created before the role-based change.
     public int? ApproverUserId { get; set; }
     public bool IsAutoAssignDeptManager { get; set; }
+    // Per-level switch for the approval-request WhatsApp card sent to THIS level's
+    // approver when the request reaches it. Off suppresses only that one message —
+    // assignment, in-app notification, reminders and every other WhatsApp flow are
+    // unaffected. Defaults to true so existing workflows keep their current behaviour.
+    public bool IsWhatsAppEnabled { get; set; } = true;
     public virtual WorkflowDefinition Workflow { get; set; } = null!;
     public virtual Role? ApproverRole { get; set; }
     public virtual User? ApproverUser { get; set; }
