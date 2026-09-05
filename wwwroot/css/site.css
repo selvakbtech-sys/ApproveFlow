@@ -96,6 +96,7 @@ textarea.inp{resize:vertical;min-height:80px}
 .toggle-track{position:absolute;inset:0;background:var(--bdr-s);border-radius:11px;transition:background var(--tr);cursor:pointer}
 .toggle-thumb{position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.2);transition:transform var(--tr);pointer-events:none}
 .toggle-box input:checked ~ .toggle-track{background:var(--ok)}
+.toggle-box input:checked ~ .toggle-track .toggle-thumb,
 .toggle-box input:checked ~ .toggle-track ~ .toggle-thumb{transform:translateX(18px)}
 .ms-wrap{position:relative}
 .ms-trigger{display:flex;align-items:center;justify-content:space-between;padding:8px 11px;border:1px solid var(--bdr-s);border-radius:var(--r);background:var(--card);cursor:pointer;font-size:13px;min-height:38px;gap:6px}
