@@ -97,6 +97,14 @@ public class RequestService : IRequestService
         if (!string.IsNullOrEmpty(filter.FilterDateTo) && DateOnly.TryParse(filter.FilterDateTo, out var dt))
             q = q.Where(r => r.CreatedAt.Date <= dt.ToDateTime(TimeOnly.MaxValue));
 
+        // Approved Date — the day an approval was recorded on the request. Uses the same
+        // .Date comparison as the From/To filters above so the three behave alike.
+        if (!string.IsNullOrEmpty(filter.FilterApprovedDate) && DateOnly.TryParse(filter.FilterApprovedDate, out var ad))
+        {
+            var approvedOn = ad.ToDateTime(TimeOnly.MinValue);
+            q = q.Where(r => r.ActionLogs.Any(l => l.Action == "approved" && l.CreatedAt.Date == approvedOn));
+        }
+
         return await q
             .OrderByDescending(r => r.CreatedAt)
             .Select(r => new ReqListItemVM
@@ -146,6 +154,14 @@ public class RequestService : IRequestService
             q = q.Where(r => r.CreatedAt.Date >= df.ToDateTime(TimeOnly.MinValue));
         if (!string.IsNullOrEmpty(f.FilterDateTo) && DateOnly.TryParse(f.FilterDateTo, out var dt))
             q = q.Where(r => r.CreatedAt.Date <= dt.ToDateTime(TimeOnly.MaxValue));
+
+        // Approved Date — the day an approval was recorded on the request. Uses the same
+        // .Date comparison as the From/To filters above so the three behave alike.
+        if (!string.IsNullOrEmpty(f.FilterApprovedDate) && DateOnly.TryParse(f.FilterApprovedDate, out var ad))
+        {
+            var approvedOn = ad.ToDateTime(TimeOnly.MinValue);
+            q = q.Where(r => r.ActionLogs.Any(l => l.Action == "approved" && l.CreatedAt.Date == approvedOn));
+        }
 
         var total = await q.CountAsync();
         // Default order: latest Request Number first. The number is REQ-YY-{RequestId:D6}
@@ -220,6 +236,14 @@ public class RequestService : IRequestService
             q = q.Where(r => r.CreatedAt.Date >= df.ToDateTime(TimeOnly.MinValue));
         if (!string.IsNullOrEmpty(f.FilterDateTo) && DateOnly.TryParse(f.FilterDateTo, out var dt))
             q = q.Where(r => r.CreatedAt.Date <= dt.ToDateTime(TimeOnly.MaxValue));
+
+        // Approved Date — the day an approval was recorded on the request. Uses the same
+        // .Date comparison as the From/To filters above so the three behave alike.
+        if (!string.IsNullOrEmpty(f.FilterApprovedDate) && DateOnly.TryParse(f.FilterApprovedDate, out var ad))
+        {
+            var approvedOn = ad.ToDateTime(TimeOnly.MinValue);
+            q = q.Where(r => r.ActionLogs.Any(l => l.Action == "approved" && l.CreatedAt.Date == approvedOn));
+        }
 
         var total = await q.CountAsync();
         // Default order: latest Request Number first (RequestId descending == request-number
@@ -322,6 +346,14 @@ public class RequestService : IRequestService
             q = q.Where(r => r.CreatedAt.Date >= df.ToDateTime(TimeOnly.MinValue));
         if (!string.IsNullOrEmpty(f.FilterDateTo) && DateOnly.TryParse(f.FilterDateTo, out var dt))
             q = q.Where(r => r.CreatedAt.Date <= dt.ToDateTime(TimeOnly.MaxValue));
+
+        // Approved Date — the day an approval was recorded on the request. Uses the same
+        // .Date comparison as the From/To filters above so the three behave alike.
+        if (!string.IsNullOrEmpty(f.FilterApprovedDate) && DateOnly.TryParse(f.FilterApprovedDate, out var ad))
+        {
+            var approvedOn = ad.ToDateTime(TimeOnly.MinValue);
+            q = q.Where(r => r.ActionLogs.Any(l => l.Action == "approved" && l.CreatedAt.Date == approvedOn));
+        }
 
         var total = await q.CountAsync();
         // Default order: latest Request Number first (RequestId descending == request-number

@@ -133,6 +133,12 @@
       <label class="f-lbl">To Date</label>
       <input type="date" name="FilterDateTo" id="filterDateTo" value="@Model.FilterDateTo" class="f-ctrl" style="width:130px" />
     </div>
+    @* Approved Date — the day an approval was recorded on the request. Independent of
+       the From/To range above, which filters on the CREATED date. *@
+    <div class="f-group" style="flex:0 0 130px">
+      <label class="f-lbl">Approved Date</label>
+      <input type="date" name="FilterApprovedDate" id="filterApprovedDate" value="@Model.FilterApprovedDate" class="f-ctrl" style="width:130px" />
+    </div>
     <div class="f-group" style="flex:0 0 auto">
       <div id="dateRangeError" style="display:none;color:var(--ng,#ef4444);font-size:11px;white-space:nowrap;margin-bottom:4px">From Date cannot be greater than To Date.</div>
       <div style="display:flex;gap:6px">
@@ -286,11 +292,11 @@
               string? pgFilterStatus = isApprovals ? null : Model.FilterStatus;
             }
             @if (Model.PageNumber > 1)
-            { <a class="pb" title="Previous" asp-action="@listAction" asp-route-page="@(Model.PageNumber-1)" asp-route-pageSize="@Model.PageSize" asp-route-dtab="@dashTab" asp-route-FilterMine="@mineToken" asp-route-status="@pgStatusToken" asp-route-SearchTerm="@Model.SearchTerm" asp-route-FilterStatus="@pgFilterStatus" asp-route-FilterTypeId="@Model.FilterTypeId" asp-route-FilterPriority="@Model.FilterPriority" asp-route-FilterDeptId="@Model.FilterDeptId" asp-route-FilterLocationId="@Model.FilterLocationId" asp-route-FilterDateFrom="@Model.FilterDateFrom" asp-route-FilterDateTo="@Model.FilterDateTo">‹</a> }
+            { <a class="pb" title="Previous" asp-action="@listAction" asp-route-page="@(Model.PageNumber-1)" asp-route-pageSize="@Model.PageSize" asp-route-dtab="@dashTab" asp-route-FilterMine="@mineToken" asp-route-status="@pgStatusToken" asp-route-SearchTerm="@Model.SearchTerm" asp-route-FilterStatus="@pgFilterStatus" asp-route-FilterTypeId="@Model.FilterTypeId" asp-route-FilterPriority="@Model.FilterPriority" asp-route-FilterDeptId="@Model.FilterDeptId" asp-route-FilterLocationId="@Model.FilterLocationId" asp-route-FilterDateFrom="@Model.FilterDateFrom" asp-route-FilterDateTo="@Model.FilterDateTo" asp-route-FilterApprovedDate="@Model.FilterApprovedDate">‹</a> }
             @for (int p = Math.Max(1,Model.PageNumber-2); p <= Math.Min(Model.TotalPages,Model.PageNumber+2); p++)
-            { <a class="pb @(p==Model.PageNumber?"active":"")" asp-action="@listAction" asp-route-page="@p" asp-route-pageSize="@Model.PageSize" asp-route-dtab="@dashTab" asp-route-FilterMine="@mineToken" asp-route-status="@pgStatusToken" asp-route-SearchTerm="@Model.SearchTerm" asp-route-FilterStatus="@pgFilterStatus" asp-route-FilterTypeId="@Model.FilterTypeId" asp-route-FilterPriority="@Model.FilterPriority" asp-route-FilterDeptId="@Model.FilterDeptId" asp-route-FilterLocationId="@Model.FilterLocationId" asp-route-FilterDateFrom="@Model.FilterDateFrom" asp-route-FilterDateTo="@Model.FilterDateTo">@p</a> }
+            { <a class="pb @(p==Model.PageNumber?"active":"")" asp-action="@listAction" asp-route-page="@p" asp-route-pageSize="@Model.PageSize" asp-route-dtab="@dashTab" asp-route-FilterMine="@mineToken" asp-route-status="@pgStatusToken" asp-route-SearchTerm="@Model.SearchTerm" asp-route-FilterStatus="@pgFilterStatus" asp-route-FilterTypeId="@Model.FilterTypeId" asp-route-FilterPriority="@Model.FilterPriority" asp-route-FilterDeptId="@Model.FilterDeptId" asp-route-FilterLocationId="@Model.FilterLocationId" asp-route-FilterDateFrom="@Model.FilterDateFrom" asp-route-FilterDateTo="@Model.FilterDateTo" asp-route-FilterApprovedDate="@Model.FilterApprovedDate">@p</a> }
             @if (Model.PageNumber < Model.TotalPages)
-            { <a class="pb" title="Next" asp-action="@listAction" asp-route-page="@(Model.PageNumber+1)" asp-route-pageSize="@Model.PageSize" asp-route-dtab="@dashTab" asp-route-FilterMine="@mineToken" asp-route-status="@pgStatusToken" asp-route-SearchTerm="@Model.SearchTerm" asp-route-FilterStatus="@pgFilterStatus" asp-route-FilterTypeId="@Model.FilterTypeId" asp-route-FilterPriority="@Model.FilterPriority" asp-route-FilterDeptId="@Model.FilterDeptId" asp-route-FilterLocationId="@Model.FilterLocationId" asp-route-FilterDateFrom="@Model.FilterDateFrom" asp-route-FilterDateTo="@Model.FilterDateTo">›</a> }
+            { <a class="pb" title="Next" asp-action="@listAction" asp-route-page="@(Model.PageNumber+1)" asp-route-pageSize="@Model.PageSize" asp-route-dtab="@dashTab" asp-route-FilterMine="@mineToken" asp-route-status="@pgStatusToken" asp-route-SearchTerm="@Model.SearchTerm" asp-route-FilterStatus="@pgFilterStatus" asp-route-FilterTypeId="@Model.FilterTypeId" asp-route-FilterPriority="@Model.FilterPriority" asp-route-FilterDeptId="@Model.FilterDeptId" asp-route-FilterLocationId="@Model.FilterLocationId" asp-route-FilterDateFrom="@Model.FilterDateFrom" asp-route-FilterDateTo="@Model.FilterDateTo" asp-route-FilterApprovedDate="@Model.FilterApprovedDate">›</a> }
           </div>
         }
       </div>
@@ -392,6 +398,7 @@
       FilterMine:       '@(Model.FilterMine ? "true" : "false")',
       FilterDateFrom:   '@Model.FilterDateFrom',
       FilterDateTo:     '@Model.FilterDateTo',
+      FilterApprovedDate: '@Model.FilterApprovedDate',
       SearchTerm:       '@Model.SearchTerm',
       FilterStatus:     '@Model.FilterStatus',
       FilterTypeId:     '@(Model.FilterTypeId?.ToString() ?? "")',

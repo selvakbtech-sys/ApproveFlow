@@ -14,6 +14,10 @@ public class RequestListVM
     public string? FilterPriority { get; set; }
     public string? FilterDateFrom { get; set; }
     public string? FilterDateTo { get; set; }
+    // Approved Date — matches requests approved ON this day. "Approved" is the
+    // "approved" action-log entry, so a multi-level request matches if ANY level
+    // approved that day. Blank means "no date filter", exactly like From/To Date.
+    public string? FilterApprovedDate { get; set; }
     public string? SearchTerm { get; set; }
     public bool FilterMine { get; set; }
     public List<Location> Locations { get; set; } = new();
