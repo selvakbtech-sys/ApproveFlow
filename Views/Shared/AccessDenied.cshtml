@@ -12,7 +12,12 @@
       <div style="font-size:13px;color:var(--txt3);line-height:1.6">
         You do not have permission to perform this action.
       </div>
-      <a asp-controller="Dashboard" asp-action="Index" class="btn btn-sec" style="margin-top:18px;display:inline-flex">← Back to Dashboard</a>
+      @* The Common Dashboard, not the ApproveFlow one. This button is the escape hatch from a
+         403, so it has to land somewhere the user can definitely open: now that permissions
+         bind for every role, /Dashboard needs the "Dashboard" screen right, and a user who
+         lacks it would be bounced straight back to this page. The Common Dashboard needs no
+         screen permission and degrades to a "no module access" note. *@
+      <a asp-controller="CommonDashboard" asp-action="Index" class="btn btn-sec" style="margin-top:18px;display:inline-flex">← Back to Dashboard</a>
     </div>
   </div>
 </div>
