@@ -9,9 +9,10 @@
     var ptitle   = ViewData["Title"]?.ToString() ?? "ApproveFlow";
     var navPage  = ViewData["NavPage"]?.ToString() ?? "";
     bool IsActive(string k) => navPage == k;
-    // Admin sees everything; other roles see only screens where CanView claim exists
+    // Every role — Admin included — sees only the screens its role has CanView ticked for.
+    // The "Admin" short-circuit that used to sit here made the permission matrix decorative
+    // for that role; it now governs the menu like any other. Mirrors BaseCtrl.HasPerm.
     bool CanView(string screen) =>
-        urole == "Admin" ||
         User.Claims.Any(c => c.Type == "perm" && c.Value == screen);
 }
 <!DOCTYPE html>

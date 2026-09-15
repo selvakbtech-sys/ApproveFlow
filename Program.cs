@@ -161,6 +161,35 @@ app.Use(async (context, next) =>
     await next();
 });
 
+// ── Permission-matrix sanity check (read-only, best effort) ───────────────────
+// The Roles & Permissions matrix now binds for EVERY role — the "Admin" short-circuit that
+// used to make it decorative is gone — so screen access depends entirely on RolePermission
+// rows existing. If a deployment ships this build without first running
+// Scripts/BackfillAdminRolePermissions.sql, administrators can find themselves unable to
+// reach the very page that would grant the rows back. This logs a loud warning at boot when
+// no active role held by an active user can open AND edit that screen. It only reads: it
+// never writes rows and never blocks startup, and a database that is simply unreachable at
+// boot is not treated as a failure.
+try
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    bool reachable = db.Roles.Any(r =>
+        r.IsActive &&
+        r.Users.Any(u => u.Status.ToLower() == "active") &&
+        r.Permissions.Any(p => p.ScreenName == "Roles & Permissions" && p.CanView && p.CanEdit));
+    if (!reachable)
+        Console.Error.WriteLine(
+            "[Permissions] WARNING — no active role with an active user can open and edit " +
+            "Roles & Permissions. Nobody can change permissions through the UI. Run " +
+            "Scripts/BackfillAdminRolePermissions.sql against this database to restore the " +
+            "Admin role's rows.");
+}
+catch (Exception ex)
+{
+    Console.Error.WriteLine($"[Permissions] Startup permission check skipped: {ex.Message}");
+}
+
 app.MapControllerRoute("default", "{controller=CommonDashboard}/{action=Index}/{id?}");
 
 // Redirect root to the Common Dashboard (the landing page after login)
