@@ -87,6 +87,10 @@ builder.Services.AddControllersWithViews()
 
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
+// Common Dashboard — ApproveFlow section. The DWO section is served by
+// IDwoDashboardService, which the DWO module registers; it is resolved optionally so a
+// deployment without that module still starts and still renders ApproveFlow.
+builder.Services.AddScoped<IApproveFlowDashboardService, ApproveFlowDashboardService>();
 builder.Services.AddScoped<IRequestService, RequestService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<INotifService, NotifService>();
@@ -157,10 +161,10 @@ app.Use(async (context, next) =>
     await next();
 });
 
-app.MapControllerRoute("default", "{controller=Dashboard}/{action=Index}/{id?}");
+app.MapControllerRoute("default", "{controller=CommonDashboard}/{action=Index}/{id?}");
 
-// Redirect root to dashboard
-app.MapGet("/", () => Results.Redirect("/Dashboard"));
+// Redirect root to the Common Dashboard (the landing page after login)
+app.MapGet("/", () => Results.Redirect("/CommonDashboard"));
 
 app.Run();
 

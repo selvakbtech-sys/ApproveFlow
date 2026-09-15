@@ -59,7 +59,14 @@ public class RequestService : IRequestService
                 r.Requestor.FullName.Contains(filter.SearchTerm));
 
         if (!string.IsNullOrEmpty(filter.FilterStatus))
-            q = q.Where(r => r.Status == filter.FilterStatus);
+        {
+            // Same expansion as the grid (GetListAsync) so the export of a "Submitted"-filtered
+            // list carries exactly the rows the grid showed.
+            var statuses = DashboardStatusFilter.Map(filter.FilterStatus);
+            q = statuses is null
+                ? q.Where(r => r.Status == filter.FilterStatus)
+                : q.Where(r => statuses.Contains(r.Status));
+        }
 
         if (filter.FilterTypeId.HasValue)
             q = q.Where(r => r.RequestTypeId == filter.FilterTypeId);
@@ -114,7 +121,15 @@ public class RequestService : IRequestService
             .AsQueryable();
 
         if (filterUserId.HasValue) q = q.Where(r => r.RequestorId == filterUserId.Value);
-        if (!string.IsNullOrEmpty(f.FilterStatus)) q = q.Where(r => r.Status == f.FilterStatus);
+        if (!string.IsNullOrEmpty(f.FilterStatus))
+        {
+            // Plain statuses keep matching exactly; only the Common Dashboard's multi-status
+            // token ("Submitted") expands, through the shared map the KPI count also uses.
+            var statuses = DashboardStatusFilter.Map(f.FilterStatus);
+            q = statuses is null
+                ? q.Where(r => r.Status == f.FilterStatus)
+                : q.Where(r => statuses.Contains(r.Status));
+        }
         if (f.FilterLocationId.HasValue) q = q.Where(r => r.LocationId == f.FilterLocationId);
         if (f.FilterDeptId.HasValue) q = q.Where(r => r.DepartmentId == f.FilterDeptId);
         if (f.FilterTypeId.HasValue) q = q.Where(r => r.RequestTypeId == f.FilterTypeId);
