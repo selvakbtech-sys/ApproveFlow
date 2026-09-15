@@ -56,12 +56,16 @@ INSERT INTO @Screens (ScreenName, IsReport) VALUES
     (N'Workflow Definition', 0),
     (N'Locations',           0),
     (N'Departments',         0),
-    (N'Request Types',       0);
+    (N'Request Types',       0),
+    -- DWO module screens. Permissioned separately from ApproveFlow, but the Admin role is
+    -- full-access across both, so they are seeded the same way.
+    (N'DWO Register',           0),
+    (N'Management Discussion',  0),
+    (N'DWO Reports',            0);
 
 -- Also cover any screen this deployment already knows about but the list above
--- does not name — the DWO screens are the case that matters, since the full
--- BNR FLOW build carries them and this repository's AllScreens does not. Taking
--- them from the table avoids guessing at names that differ between builds.
+-- does not name, so a build carrying screens this script predates still gets
+-- them. Taking them from the table avoids guessing at names between builds.
 INSERT INTO @Screens (ScreenName, IsReport)
 SELECT DISTINCT rp.ScreenName, 0
 FROM   dbo.RolePermissions AS rp
