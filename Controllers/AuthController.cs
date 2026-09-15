@@ -25,7 +25,8 @@ public class AuthController : Controller
     private IActionResult GoBackOrDashboard(string? returnUrl) =>
         !string.IsNullOrEmpty(returnUrl) && Url.IsLocalUrl(returnUrl)
             ? LocalRedirect(returnUrl)
-            : RedirectToAction("Index", "Dashboard");
+            // Default landing page = the Common Dashboard (ApproveFlow + DWO sections).
+            : RedirectToAction("Index", "CommonDashboard");
 
     [HttpPost("/login"), ValidateAntiForgeryToken]
     public async Task<IActionResult> Login(LoginVM vm)
