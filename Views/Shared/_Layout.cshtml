@@ -70,10 +70,9 @@
          group heading appears only when the role holds at least one of them, so a role with
          no DWO rights — or a deployment without the module — shows nothing here.
 
-         Routes are the DWO module's own, under the /DWO root. /DWO/Register and /DWO/Reports
-         are confirmed; /DWO/Management is still the assumed spelling for the Management
-         Discussion screen and needs checking against the module. Dashboard KPI links are NOT
-         built here: each DWO card carries the URL the module itself supplied. ── *@
+         Routes are the DWO module's own, under the /DWO root, and all three are confirmed
+         against it: /DWO/Register, /DWO/Management and /DWO/Reports. Dashboard KPI links are
+         NOT built here: each DWO card carries the URL the module itself supplied. ── *@
     @if (DwoScreens.All.Any(CanView)) {
     <div class="sb-sec" style="margin-top:8px">DWO</div>
     @if (CanView(DwoScreens.Register)) {
