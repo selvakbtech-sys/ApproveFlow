@@ -15,7 +15,6 @@ public class CommonDashboardController : BaseCtrl
     // Screen names used for section visibility (same claim vocabulary as the rest of the app).
     private const string ApproveFlowScreen = "Requests";
     private const string ApproveFlowDashboardScreen = "Dashboard";
-    private const string DwoScreen = "DWO";
 
     private readonly IApproveFlowDashboardService _approveFlow;
     private readonly IDwoDashboardService? _dwo;
@@ -32,7 +31,11 @@ public class CommonDashboardController : BaseCtrl
     {
         bool isAdmin = UserRole == "Admin";
         bool canViewApproveFlow = HasPerm(ApproveFlowDashboardScreen) || HasPerm(ApproveFlowScreen);
-        bool canViewDwo = HasPerm(DwoScreen);
+        // DWO access = any of the DWO module's screens, the same names the Roles & Permissions
+        // matrix stores and the sidebar gates on. There is no umbrella "DWO" screen: one was
+        // assumed here before the DWO rows existed in the matrix, which made this section
+        // ungrantable, because no row by that name could ever be written.
+        bool canViewDwo = DwoScreens.All.Any(HasPerm);
 
         var vm = new CommonDashboardVM
         {
