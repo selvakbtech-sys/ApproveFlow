@@ -87,10 +87,9 @@ builder.Services.AddControllersWithViews()
 
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
-// Common Dashboard — ApproveFlow section. The DWO section is served by
-// IDwoDashboardService, which the DWO module registers; it is resolved optionally so a
-// deployment without that module still starts and still renders ApproveFlow.
-builder.Services.AddScoped<IApproveFlowDashboardService, ApproveFlowDashboardService>();
+// Common Dashboard — the landing page after login. Serves the ApproveFlow section only;
+// each additional module supplies its own section through its own service.
+builder.Services.AddScoped<ICommonDashboardService, CommonDashboardService>();
 builder.Services.AddScoped<IRequestService, RequestService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<INotifService, NotifService>();

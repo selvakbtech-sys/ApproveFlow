@@ -73,19 +73,3 @@ public static class DashboardStatusFilter
             ? SubmittedStatuses
             : null;
 }
-
-// The six ApproveFlow KPI cards of the Common Dashboard, in display order. Each card carries
-// the exact FilterStatus value it links to, so ApproveFlowDashboardService counts with the
-// very filter the Requests grid will apply when the card is clicked.
-public static class ApproveFlowKpi
-{
-    public static readonly (string Label, string FilterStatus, string Accent)[] Cards =
-    {
-        ("Draft",            RequestStatus.Draft,               "#475569"),
-        ("Submitted",        DashboardStatusFilter.Submitted,   "#0f172a"),
-        ("Pending Approval", RequestStatus.PendingApproval,     "#d97706"),
-        ("Clarification",    RequestStatus.ClarificationNeeded, "#7c3aed"),
-        ("Approved",         RequestStatus.Approved,            "#16a34a"),
-        ("Rejected",         RequestStatus.Rejected,            "#dc2626"),
-    };
-}
