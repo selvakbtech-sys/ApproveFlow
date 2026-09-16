@@ -11,6 +11,15 @@ public class CommonDashboardVM
 {
     // Null when the user may not view the ApproveFlow module — the section is not rendered.
     public ApproveFlowSectionVM? ApproveFlow { get; set; }
+
+    // True when the user holds any DWO screen — the DWO section is rendered.
+    public bool CanViewDwo { get; set; }
+    // Null when the DWO module supplies no dashboard provider in this deployment. The
+    // section still renders (gated and navigable) but its counts show "—" rather than 0.
+    public ApproveFlow.MVC.Models.Dwo.DwoDashboardVM? Dwo { get; set; }
+    // Distinguishes "no DWO provider wired in" from "the module returned no rows", so the
+    // section can explain itself accurately instead of looking empty.
+    public bool DwoProviderRegistered { get; set; }
 }
 
 // The ApproveFlow half. Every figure comes from the Requests table, scoped to what the

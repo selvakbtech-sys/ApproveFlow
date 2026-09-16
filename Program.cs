@@ -87,8 +87,11 @@ builder.Services.AddControllersWithViews()
 
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
-// Common Dashboard — the landing page after login. Serves the ApproveFlow section only;
-// each additional module supplies its own section through its own service.
+// Common Dashboard — the landing page after login. This registration serves the
+// ApproveFlow section; each additional module supplies its own section through its own
+// service. The DWO section reads IDwoDashboardService, which the DWO module registers:
+//     builder.Services.AddScoped<IDwoDashboardService, DwoDashboardService>();
+// It is resolved optionally, so the dashboard works with or without that registration.
 builder.Services.AddScoped<ICommonDashboardService, CommonDashboardService>();
 builder.Services.AddScoped<IRequestService, RequestService>();
 builder.Services.AddScoped<IUserService, UserService>();

@@ -1,4 +1,5 @@
 @model CommonDashboardVM
+@using ApproveFlow.MVC.Models.Dwo
 @{
     ViewData["Title"] = "Dashboard";
     ViewData["NavPage"] = "home";
@@ -29,6 +30,9 @@
 
   .cd-note { border:1px dashed var(--bdr); border-radius:var(--rl,10px); padding:14px 16px;
              font-size:12px; color:var(--txt3); background:var(--card); }
+
+  /* Stands in for a count the DWO module did not supply — never a fabricated 0. */
+  .cd-nodata { font-size:26px; font-weight:800; line-height:1; color:var(--txt3); margin-bottom:5px; }
 </style>
 
 <div class="pg-hdr">
@@ -105,11 +109,92 @@
   </section>
 }
 
-@* ══════════ DWO section goes here ══════════
-   Add a second <section> in exactly this shape, filled from the DWO module's own
-   service. Keep its counts and links entirely separate from the ApproveFlow row above. *@
+@* ══════════ DWO section (DWO data only) ══════════
+   Every figure and link below comes from the DWO module. Nothing here is derived from
+   ApproveFlow data, and no total is combined with the row above. *@
+@if (Model.CanViewDwo)
+{
+  <section class="cd-sec" style="--cd:#0891b2">
+    <div class="cd-sec-hdr">
+      <span class="cd-sec-bar"></span>
+      <div>
+        <div class="cd-sec-title">DWO</div>
+        <div class="cd-sec-sub">Discussion work orders</div>
+      </div>
+      <div class="cd-sec-right">
+        <a href="~/DWO/Register" class="btn btn-ghost btn-sm">Open DWO →</a>
+      </div>
+    </div>
 
-@if (Model.ApproveFlow is null)
+    <div class="cd-kpi-row">
+      @foreach (var (key, label, accent, fallbackUrl) in DwoKpiKeys.Ordered)
+      {
+        var card = Model.Dwo?.Kpis.FirstOrDefault(c => c.Key == key);
+        @* The module may override the link; otherwise the card opens the DWO module's own
+           route. The card navigates either way, so the section is useful before a provider
+           is wired in. *@
+        var url = string.IsNullOrEmpty(card?.Url) ? fallbackUrl : card!.Url;
+        <a href="@url" class="metric-card" style="--mc:@accent">
+          @* A count the module did not supply shows "—". A 0 would read as "none", which
+             this application cannot state on the DWO module's behalf. *@
+          @if (card is null) { <div class="cd-nodata">—</div> }
+          else               { <div class="metric-num">@card.Count</div> }
+          <div class="metric-lbl">@(card?.Label ?? label)</div>
+        </a>
+      }
+    </div>
+
+    <div class="card">
+      <div class="card-hdr">
+        <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+        Recent Discussions
+        <div class="card-hdr-right">
+          <a href="~/DWO/Register" class="btn btn-ghost btn-sm">View all →</a>
+        </div>
+      </div>
+      @if (Model.Dwo is { } dwo && dwo.RecentDiscussions.Any())
+      {
+        <div class="tbl-wrap">
+          <table class="tbl">
+            <thead>
+              <tr><th>Discussion No</th><th>Project</th><th>Department</th><th>Status</th><th>Due Date</th></tr>
+            </thead>
+            <tbody>
+              @foreach (var d in dwo.RecentDiscussions)
+              {
+                <tr>
+                  <td style="font-family:monospace;font-size:11px;font-weight:600">
+                    @if (!string.IsNullOrEmpty(d.Url)) { <a href="@d.Url" style="color:inherit">@d.DiscussionNo</a> }
+                    else { @d.DiscussionNo }
+                  </td>
+                  <td style="font-size:12px">@d.Project</td>
+                  <td style="font-size:12px;color:var(--txt2)">@d.Department</td>
+                  <td><span class="badge @Sc(d.Status)">@d.Status</span></td>
+                  <td style="font-size:12px;color:var(--txt3);white-space:nowrap">@(d.DueDate?.ToString("dd MMM yyyy") ?? "-")</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+      else if (Model.DwoProviderRegistered)
+      {
+        <div class="tbl-empty">No discussions yet</div>
+      }
+      else
+      {
+        @* No DWO dashboard provider in this deployment. Said plainly, so an empty table is
+           never mistaken for "the DWO module has no discussions". *@
+        <div class="cd-note">
+          DWO figures are not available on this dashboard yet — the DWO module has not
+          registered a dashboard provider. The links above open the DWO screens as usual.
+        </div>
+      }
+    </div>
+  </section>
+}
+
+@if (Model.ApproveFlow is null && !Model.CanViewDwo)
 {
   <div class="cd-note">You do not have access to any module yet. Please contact your administrator.</div>
 }

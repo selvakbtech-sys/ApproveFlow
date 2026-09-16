@@ -1,11 +1,17 @@
 namespace ApproveFlow.MVC.Controllers;
 
+using ApproveFlow.MVC.Models.Dwo;
+
 // The Common Dashboard — the landing page after login.
 //
-// It renders one section per module and performs NO calculation of its own: each section's
-// figures come from that module's own service, and no total is ever combined across
-// sections. Today that is the ApproveFlow section; the DWO section plugs in the same way
-// (see the seam at the bottom of Index).
+// It renders one section per module and performs NO calculation of its own: ApproveFlow
+// figures come from ICommonDashboardService, DWO figures from IDwoDashboardService, and
+// neither total is ever combined with the other.
+//
+// IDwoDashboardService is resolved OPTIONALLY: the DWO module ships its own implementation
+// and registers it. Where it is absent the DWO section still renders — permission-gated,
+// with working links — but shows no counts, rather than zeros that would misstate DWO data
+// this application cannot see.
 public class CommonDashboardController : BaseCtrl
 {
     // Screen names as the Roles & Permissions matrix stores them.
@@ -13,8 +19,15 @@ public class CommonDashboardController : BaseCtrl
     private const string DashboardScreen = "Dashboard";
 
     private readonly ICommonDashboardService _svc;
+    private readonly IDwoDashboardService? _dwo;
 
-    public CommonDashboardController(ICommonDashboardService svc) { _svc = svc; }
+    // The DWO provider is looked up rather than required, so the application still starts —
+    // and the ApproveFlow section still works — where the DWO module registers none.
+    public CommonDashboardController(ICommonDashboardService svc, IServiceProvider sp)
+    {
+        _svc = svc;
+        _dwo = sp.GetService<IDwoDashboardService>();
+    }
 
     public async Task<IActionResult> Index(CancellationToken ct)
     {
@@ -36,11 +49,19 @@ public class CommonDashboardController : BaseCtrl
             vm.ApproveFlow = await _svc.GetApproveFlowAsync(scopeUserId, ct);
         }
 
-        // ── DWO section seam ───────────────────────────────────────────────────────
-        // The DWO module owns its own data and routes, so its figures must come from the
-        // DWO module itself rather than be derived here. Nothing is rendered for it until
-        // that is wired in — a fabricated 0 would read as "no discussions", a statement
-        // about DWO data this controller is in no position to make.
+        // DWO access = any of the DWO module's screens — the same names the Roles &
+        // Permissions matrix stores and the sidebar gates on. There is no umbrella "DWO"
+        // screen, so checking one would be ungrantable: no row by that name is ever written.
+        vm.CanViewDwo            = DwoScreens.All.Any(HasPerm);
+        vm.DwoProviderRegistered = _dwo is not null;
+
+        if (_dwo is not null && vm.CanViewDwo)
+        {
+            // Identity is passed through; the DWO module applies its OWN permission model
+            // and returns figures already scoped to this user.
+            vm.Dwo = await _dwo.GetDashboardAsync(
+                new DwoUserContext { UserId = UserId, Role = UserRole, IsAdmin = isAdmin }, ct);
+        }
 
         ViewBag.IsAdmin  = isAdmin;
         ViewBag.UserRole = UserRole;
