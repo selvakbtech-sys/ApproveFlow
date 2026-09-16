@@ -53,7 +53,9 @@ public class CommonDashboardController : BaseCtrl
         // DWO access = any of the DWO module's screens — the same names the Roles &
         // Permissions matrix stores and the sidebar gates on. There is no umbrella "DWO"
         // screen, so checking one would be ungrantable: no row by that name is ever written.
-        vm.CanViewDwo            = DwoScreens.All.Any(HasPerm);
+        // The names come from this dashboard's own DwoDashboardScreens, so the build does
+        // not depend on a DwoScreens shape that varies between trees.
+        vm.CanViewDwo            = DwoDashboardScreens.All.Any(HasPerm);
         vm.DwoProviderRegistered = _dwo is not null;
 
         if (_dwo is not null && vm.CanViewDwo)

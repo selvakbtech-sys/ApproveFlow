@@ -40,6 +40,23 @@ public class DwoDashboardVM
     public List<DwoRecentDiscussionVM> RecentDiscussions { get; set; } = new();
 }
 
+// The DWO module's screen names as the Roles & Permissions matrix stores them.
+//
+// Declared HERE rather than read from RoleVMs.DwoScreens so the Common Dashboard depends on
+// nothing outside its own files: a tree whose DwoScreens predates this dashboard has no
+// such member, and referencing it fails the build. The strings are the matrix's, so the
+// dashboard, the sidebar and the matrix still gate on identical values.
+public static class DwoDashboardScreens
+{
+    public const string Register             = "DWO Register";
+    public const string ManagementDiscussion = "Management Discussion";
+    public const string Reports              = "DWO Reports";
+
+    // Holding ANY of these means the user has some DWO access — what the dashboard's DWO
+    // section keys off, the same rule the sidebar's DWO group uses.
+    public static readonly string[] All = { Register, ManagementDiscussion, Reports };
+}
+
 // Canonical keys, display order, default labels and the DWO screen each card opens.
 //
 // The URLs are the DWO module's own routes, the same three the sidebar links to
