@@ -1,4 +1,4 @@
--- ============================================================================
+﻿-- ============================================================================
 -- AddDwoModule — creates the DWO (Discussion Work Order) module tables and the
 -- Company master, and registers the four DWO permission screens.
 --
@@ -185,23 +185,27 @@ END
 GO
 
 -- ── Permission rows ─────────────────────────────────────────────────────────
--- Adds the four DWO screens to every existing role with all rights OFF, so no role
+-- Adds the three DWO screens to every existing role with all rights OFF, so no role
 -- silently gains access. Grant them from Roles & Permissions:
 --   "DWO Register"          View → the DWO dashboard, My Discussions and the register
 --                           Approve → HOD powers (review, send back, reject, build a Set)
---   "Management Discussion" View/Approve → the Management page and its actions
 --   "DWO Reports"           View → the Reports page
 --   "Companies"             the Company master
--- Admin bypasses the matrix entirely and already sees everything.
+-- Management is not a matrix row: Admin, or the approver at the highest step level of an
+-- active Workflow Definition, is Management. Admin bypasses the matrix entirely.
 INSERT INTO dbo.RolePermissions (RoleId, ScreenName, CanView, CanCreate, CanEdit, CanApprove, CanDelete, UpdatedAt)
 SELECT r.RoleId, s.ScreenName, 0, 0, 0, 0, 0, SYSDATETIMEOFFSET()
 FROM   dbo.Roles r
 CROSS JOIN (VALUES
-    ('DWO Register'), ('Management Discussion'), ('DWO Reports'), ('Companies')
+    ('DWO Register'), ('DWO Reports'), ('Companies')
 ) AS s(ScreenName)
 WHERE NOT EXISTS (
     SELECT 1 FROM dbo.RolePermissions rp
     WHERE rp.RoleId = r.RoleId AND rp.ScreenName = s.ScreenName);
+GO
+
+-- The retired "Management Discussion" row (earlier builds seeded it). Safe to re-run.
+DELETE FROM dbo.RolePermissions WHERE ScreenName = 'Management Discussion';
 GO
 
 -- ── Starter companies ───────────────────────────────────────────────────────

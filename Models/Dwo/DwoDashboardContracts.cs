@@ -31,7 +31,7 @@ public class DwoUserContext
     // The DWO permission flags, read from the caller's claims exactly as DwoController does
     // for its own pages, so the dashboard scopes identically to the grids its cards open.
     public bool CanViewRegister { get; set; }   // "DWO Register" (view)
-    public bool IsManagement    { get; set; }   // "Management Discussion|Approve" — global scope
+    public bool IsManagement    { get; set; }   // Admin or top Workflow Definition approver — global scope
     public bool IsHod           { get; set; }   // "DWO Register|Approve"
 }
 

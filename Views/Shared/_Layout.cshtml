@@ -1,4 +1,4 @@
-@using System.Security.Claims
+﻿@using System.Security.Claims
 @inject ApproveFlow.MVC.Services.INotifService NotifSvc
 @{
     var uid      = int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var x) ? x : 0;
@@ -86,7 +86,7 @@
        New module. Rendered as its own section using the same .sb-sec / .nav-link
        components as every other group, so the existing navigation is untouched. Each
        link is gated by the DWO permission screens (see DwoScreens). *@
-    @if (CanView(DwoScreens.Register) || CanView(DwoScreens.Management) || CanView(DwoScreens.Reports))
+    @if (CanView(DwoScreens.Register) || CanView(DwoScreens.Reports))
     {
     <details class="sb-group" data-sb-group="dwo" open>
       <summary class="sb-sec">DWO <svg class="sb-chev" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6,9 12,15 18,9" stroke-width="2.5"/></svg></summary>
@@ -107,15 +107,6 @@
     <a asp-controller="Dwo" asp-action="Sets" class="nav-link @(IsActive("dwosets")?"active":"")">
       <svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 2l9 5-9 5-9-5 9-5z"/><polyline points="3,12 12,17 21,12" stroke-width="1.8"/><polyline points="3,17 12,22 21,17" stroke-width="1.8"/></svg>
       Sets
-    </a>
-    }
-    @if (CanView(DwoScreens.Management)) {
-    @* Opens with the live statuses pre-selected (a list route value becomes repeated
-       FilterStatus= parameters); the page's "All" chip clears it. *@
-    <a href="@Url.Action("Management", "Dwo", new Microsoft.AspNetCore.Routing.RouteValueDictionary { ["FilterStatus"] = DwoStatus.ManagementDefaultFilter })"
-       class="nav-link @(IsActive("dwomanagement")?"active":"")">
-      <svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4" stroke-width="1.8"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M23 21v-2a4 4 0 00-3-3.87"/></svg>
-      Management Discussion
     </a>
     }
     @if (CanView(DwoScreens.Reports)) {

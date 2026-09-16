@@ -1,4 +1,4 @@
-namespace ApproveFlow.MVC.Services;
+﻿namespace ApproveFlow.MVC.Services;
 
 // ─────────────────────────────────────────────────────────────
 // DWO (Discussion Work Order) module — all data access and workflow.
@@ -82,7 +82,31 @@ public class DwoService : IDwoService
             .FirstOrDefaultAsync(u => u.UserId == actor.UserId);
         actor.UserName = user?.FullName ?? actor.UserName;
         actor.DepartmentIds = user?.UserDepartments.Select(ud => ud.DepartmentId).ToList() ?? new();
+        // Admin (passed in by the controller) is always Management; everyone else is
+        // Management when the Workflow Definition module puts them at the top approval level.
+        if (!actor.IsManagement && user != null)
+        {
+            var (roleIds, userIds) = await ManagementFromWorkflowsAsync();
+            actor.IsManagement = roleIds.Contains(user.RoleId) || userIds.Contains(user.UserId);
+        }
         return actor;
+    }
+
+    // Management is defined by the Workflow Definition module: the approver at the highest
+    // step level of every active workflow. Role-based steps yield the role; legacy
+    // user-pinned steps yield the user. Nothing in the DWO module hardcodes a role name.
+    private async Task<(HashSet<int> roleIds, HashSet<int> userIds)> ManagementFromWorkflowsAsync()
+    {
+        var topSteps = await _db.WorkflowSteps
+            .Where(s => s.Workflow.IsActive &&
+                        s.StepLevel == _db.WorkflowSteps
+                            .Where(x => x.WorkflowId == s.WorkflowId)
+                            .Max(x => x.StepLevel))
+            .Select(s => new { s.ApproverRoleId, s.ApproverUserId })
+            .ToListAsync();
+        return (
+            topSteps.Where(s => s.ApproverRoleId.HasValue).Select(s => s.ApproverRoleId!.Value).ToHashSet(),
+            topSteps.Where(s => s.ApproverUserId.HasValue).Select(s => s.ApproverUserId!.Value).ToHashSet());
     }
 
     // Management sees every department; everyone else only the ones they are mapped to.
@@ -137,7 +161,6 @@ public class DwoService : IDwoService
     private IQueryable<DwoPoint> GridBase(DwoActor actor, string mode) => mode switch
     {
         DwoGridMode.Mine       => _db.DwoPoints.Where(p => p.RaisedByUserId == actor.UserId),
-        DwoGridMode.Management => _db.DwoPoints,   // Management page — always global
         _                      => ScopedPoints(actor),
     };
 
@@ -1351,12 +1374,13 @@ public class DwoService : IDwoService
                          ud.User.Role.Permissions.Any(rp => rp.ScreenName == DwoScreens.Register && rp.CanApprove))
             .Select(ud => ud.UserId).Distinct().ToListAsync();
 
-    // Management = every active user whose role carries Approve on Management Discussion.
+    // Management = every active user at the top approval level of the Workflow Definitions
+    // (see ManagementFromWorkflowsAsync).
     private async Task NotifyManagementAsync(string message)
     {
+        var (roleIds, userIds) = await ManagementFromWorkflowsAsync();
         var ids = await _db.Users
-            .Where(u => u.Status == "active" &&
-                        u.Role.Permissions.Any(rp => rp.ScreenName == DwoScreens.Management && rp.CanApprove))
+            .Where(u => u.Status == "active" && (roleIds.Contains(u.RoleId) || userIds.Contains(u.UserId)))
             .Select(u => u.UserId).ToListAsync();
         foreach (var id in ids) QueueNotification(id, "dwo_action_required", message);
         if (ids.Count > 0) await _db.SaveChangesAsync();

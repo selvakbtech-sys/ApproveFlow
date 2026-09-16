@@ -1,4 +1,4 @@
-namespace ApproveFlow.MVC.Controllers;
+﻿namespace ApproveFlow.MVC.Controllers;
 
 public class DashboardController : BaseCtrl
 {
@@ -36,7 +36,7 @@ public class DashboardController : BaseCtrl
             {
                 UserId       = UserId,
                 UserName     = User.FindFirstValue(ClaimTypes.Name) ?? "",
-                IsManagement = HasPerm(DwoScreens.Management, Perm.Approve),
+                IsManagement = UserRole == "Admin",   // others resolved from the Workflow Definitions
                 IsHod        = HasPerm(DwoScreens.Register, Perm.Approve),
             }));
         }

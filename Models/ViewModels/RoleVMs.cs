@@ -1,4 +1,4 @@
-namespace ApproveFlow.MVC.Models.ViewModels;
+﻿namespace ApproveFlow.MVC.Models.ViewModels;
 
 public class RoleListVM
 {
@@ -33,9 +33,9 @@ public class RoleFormVM
         "Locations", "Departments", "Request Types",
         // ── DWO module ──
         // Approve carries the module's role meaning: Approve on "DWO Register" makes a
-        // user an HOD for their mapped departments; Approve on "Management Discussion"
-        // makes them Management. See DwoScreens.
-        DwoScreens.Register, DwoScreens.Management, DwoScreens.Reports, DwoScreens.Companies
+        // user an HOD for their mapped departments. Management is not a matrix row — it is
+        // the top approval level of the Workflow Definitions. See DwoScreens.
+        DwoScreens.Register, DwoScreens.Reports, DwoScreens.Companies
     };
     public static readonly string[] ReportScreens = { "Dashboard" };
 }

@@ -1,4 +1,4 @@
-namespace ApproveFlow.MVC.Models.ViewModels;
+﻿namespace ApproveFlow.MVC.Models.ViewModels;
 
 // ─────────────────────────────────────────────────────────────
 // Who the current user is, in DWO terms. Derived once per request from the granular
@@ -12,7 +12,7 @@ public class DwoActor
     public string UserName { get; set; } = "";
 
     // Management: sees every department and performs the close/hold/follow-up/reassign
-    // actions. Backed by "Management Discussion|Approve".
+    // actions. Admin, or the top approval level of the Workflow Definitions.
     public bool IsManagement { get; set; }
     // HOD: reviews Submitted points in their own department and bundles them into Sets.
     // Backed by "DWO Register|Approve".
@@ -108,7 +108,6 @@ public static class DwoGridMode
 {
     public const string Register   = "register";    // department register
     public const string Mine       = "mine";        // My Discussions — created by me
-    public const string Management = "management";  // Management Discussion page
 }
 
 public class DwoPointRowVM

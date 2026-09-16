@@ -1,4 +1,4 @@
-namespace ApproveFlow.MVC.Models;
+﻿namespace ApproveFlow.MVC.Models;
 
 // Central definition of the DWO discussion-point statuses. These nine names are fixed by
 // the approved prototype and must not be renamed — the register chips, the dashboard KPIs
@@ -20,20 +20,6 @@ public static class DwoStatus
     {
         Draft, Submitted, ChangeRequested, Rejected,
         ManagementDiscussion, FollowUp, Hold, Reassigned, Closed
-    };
-
-    // Chips shown by default on the Management Discussion page. The pre-review statuses
-    // (Draft/Submitted/Change Requested/Rejected) stay reachable through the Status filter.
-    public static readonly string[] ManagementChips =
-    {
-        ManagementDiscussion, FollowUp, Hold, Reassigned, Closed
-    };
-
-    // What the Management Discussion page opens with from the sidebar: the live work.
-    // Clearing the chips shows every status.
-    public static readonly string[] ManagementDefaultFilter =
-    {
-        ManagementDiscussion, FollowUp, Hold
     };
 
     // Badge class in site.css for each status (reuses the existing .badge-* palette).
@@ -107,12 +93,12 @@ public static class DwoPriority
 // breaks the workflow:
 //   Register|View     → DWO Dashboard, My Discussions, Discussion Register
 //   Register|Approve  → HOD powers (review, send back, reject, build a Set)
-//   Management|View   → the Management Discussion page
-//   Management|Approve→ Management powers (close, hold, follow-up, reassign, appointments)
+// Management powers (close, hold, follow-up, reassign, appointments) are not a permission
+// row: a user is Management when they are Admin or sit at the highest approval level of an
+// active Workflow Definition (DwoService.ManagementFromWorkflowsAsync).
 public static class DwoScreens
 {
     public const string Register   = "DWO Register";
-    public const string Management = "Management Discussion";
     public const string Reports    = "DWO Reports";
     public const string Companies  = "Companies";
 }

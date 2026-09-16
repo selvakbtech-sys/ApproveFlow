@@ -1,15 +1,14 @@
-@model DwoRegisterVM
+﻿@model DwoRegisterVM
 @{
     // One grid serves three pages — Discussion Register, My Discussions and Management
     // Discussion. Mode decides the heading, the chip set, the action URL and whether the
     // HOD Set-builder column appears, so the three can never drift apart.
     bool isMine = Model.Mode == DwoGridMode.Mine;
-    bool isMgmt = Model.Mode == DwoGridMode.Management;
-    string action = isMine ? "MyDiscussions" : isMgmt ? "Management" : "Register";
-    ViewData["Title"] = isMine ? "Discussion Point" : isMgmt ? "Management Discussion" : "Discussion Register";
-    ViewData["NavPage"] = isMine ? "dwomine" : isMgmt ? "dwomanagement" : "dworegister";
+    string action = isMine ? "MyDiscussions" : "Register";
+    ViewData["Title"] = isMine ? "Discussion Point" : "Discussion Register";
+    ViewData["NavPage"] = isMine ? "dwomine" : "dworegister";
 
-    var chipStatuses = isMgmt ? DwoStatus.ManagementChips : DwoStatus.All;
+    var chipStatuses = DwoStatus.All;
     // The tick column builds a Set: an HOD from their own department's Submitted rows,
     // Management from any department's (SubmitSetAsync enforces both). Never on My Discussions.
     bool showPick = (Model.Actor.IsHod || Model.Actor.IsManagement) && !isMine;
@@ -94,14 +93,6 @@
     </a>
   }
 </div>
-
-@if (isMgmt && Model.FilterStatus.Count == 0)
-{
-  <div class="alert alert-in" style="margin-bottom:10px">
-    Showing every status. The pre-review ones — Draft, Submitted, Change Requested and Rejected —
-    have no chip here; reach them through the Status filter.
-  </div>
-}
 
 <form method="get" asp-action="@action">
   <input type="hidden" name="pageSize" value="@Model.PageSize"/>

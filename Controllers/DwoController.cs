@@ -1,4 +1,4 @@
-namespace ApproveFlow.MVC.Controllers;
+﻿namespace ApproveFlow.MVC.Controllers;
 
 // DWO (Discussion Work Order) module. Every screen and action lives here; nothing in this
 // controller reaches into the Request/Approval flow, and no existing controller calls into
@@ -18,12 +18,13 @@ public class DwoController : BaseCtrl
         AllowedPageSizes.Contains(size) ? size : DefaultPageSize;
 
     // The caller's DWO identity, derived from the granular permission claims. Admin gets
-    // Management powers, matching how BaseCtrl.HasPerm already treats Admin everywhere else.
+    // Management powers, matching how BaseCtrl.HasPerm already treats Admin everywhere else;
+    // otherwise BuildActorAsync resolves Management from the Workflow Definitions.
     private async Task<DwoActor> ActorAsync() => await _svc.BuildActorAsync(new DwoActor
     {
         UserId         = UserId,
         UserName       = User.FindFirstValue(ClaimTypes.Name) ?? "",
-        IsManagement   = HasPerm(DwoScreens.Management, Perm.Approve),
+        IsManagement   = UserRole == "Admin",
         IsHod          = HasPerm(DwoScreens.Register, Perm.Approve),
         CanCreate      = HasPerm(DwoScreens.Register, Perm.Create),
         CanEditOwn     = HasPerm(DwoScreens.Register, Perm.Edit),
@@ -68,16 +69,6 @@ public class DwoController : BaseCtrl
         if (DenyIfNoPerm(DwoScreens.Register) is { } d) return d;
         var vm = await _svc.GetRegisterAsync(filter, await ActorAsync(), DwoGridMode.Register, page, NormalizePageSize(pageSize));
         return View(vm);
-    }
-
-    public async Task<IActionResult> Management(DwoRegisterVM filter, int page = 1, int pageSize = DefaultPageSize)
-    {
-        if (DenyIfNoPerm(DwoScreens.Management) is { } d) return d;
-        // The Management page is global (never department-scoped) and shows only the
-        // post-review statuses as chips; Draft/Submitted/Change Requested/Rejected stay
-        // reachable through the Status filter.
-        var vm = await _svc.GetRegisterAsync(filter, await ActorAsync(), DwoGridMode.Management, page, NormalizePageSize(pageSize));
-        return View("Register", vm);
     }
 
     public async Task<IActionResult> Sets(int? deptId, string? status)
@@ -130,9 +121,9 @@ public class DwoController : BaseCtrl
     [HttpGet]
     public async Task<IActionResult> AddToSet(int setId, string? returnUrl = null)
     {
-        if (!HasPerm(DwoScreens.Management, Perm.Approve) && !HasPerm(DwoScreens.Register, Perm.Approve))
-            return Deny();
-        var vm = await _svc.NewFormForSetAsync(setId, await ActorAsync());
+        var actor = await ActorAsync();
+        if (!actor.IsManagement && !actor.IsHod) return Deny();
+        var vm = await _svc.NewFormForSetAsync(setId, actor);
         if (vm == null)
         {
             Err("That Set is not open for new discussions, or it is not yours to manage.");
@@ -188,13 +179,12 @@ public class DwoController : BaseCtrl
     public async Task<IActionResult> Save(DwoPointFormVM vm, string saveAction = "draft", string? returnUrl = null)
     {
         bool intoSet = vm.PointId == 0 && vm.SetId > 0;
+        var actor = await ActorAsync();
         if (intoSet)
         {
-            if (!HasPerm(DwoScreens.Management, Perm.Approve) && !HasPerm(DwoScreens.Register, Perm.Approve))
-                return Deny();
+            if (!actor.IsManagement && !actor.IsHod) return Deny();
         }
         else if (DenyIfNoPerm(DwoScreens.Register, vm.PointId == 0 ? Perm.Create : Perm.Edit) is { } d) return d;
-        var actor = await ActorAsync();
         var (ok, err, _) = await _svc.SavePointAsync(vm, actor, saveAction, StoragePath(), MaxFileMb());
         if (!ok)
         {
@@ -251,16 +241,18 @@ public class DwoController : BaseCtrl
     [HttpPost, ValidateAntiForgeryToken]
     public async Task<IActionResult> ScheduleAppointment(int setId, DateOnly date, string? note, string? returnUrl = null)
     {
-        if (DenyIfNoPerm(DwoScreens.Management, Perm.Approve) is { } d) return d;
-        var (ok, err) = await _svc.ScheduleAppointmentAsync(setId, await ActorAsync(), date, note);
+        var actor = await ActorAsync();
+        if (!actor.IsManagement) return Deny();
+        var (ok, err) = await _svc.ScheduleAppointmentAsync(setId, actor, date, note);
         return Back(ok, err, "Appointment scheduled.", returnUrl);
     }
 
     [HttpPost, ValidateAntiForgeryToken]
     public async Task<IActionResult> PostponeAppointment(int setId, DateOnly date, string? reason, string? returnUrl = null)
     {
-        if (DenyIfNoPerm(DwoScreens.Management, Perm.Approve) is { } d) return d;
-        var (ok, err) = await _svc.PostponeAppointmentAsync(setId, await ActorAsync(), date, reason);
+        var actor = await ActorAsync();
+        if (!actor.IsManagement) return Deny();
+        var (ok, err) = await _svc.PostponeAppointmentAsync(setId, actor, date, reason);
         return Back(ok, err, "Appointment postponed.", returnUrl);
     }
 
@@ -280,13 +272,14 @@ public class DwoController : BaseCtrl
         int id, string action, string? remarks, int? followUpOwnerId, DateOnly? dueDate,
         int? targetDepartmentId, IFormFile? file, string? returnUrl = null)
     {
-        if (DenyIfNoPerm(DwoScreens.Management, Perm.Approve) is { } d) return d;
+        var actor = await ActorAsync();
+        if (!actor.IsManagement) return Deny();
         var input = new DwoDiscussInput
         {
             Remarks = remarks, FollowUpOwnerId = followUpOwnerId, DueDate = dueDate,
             TargetDepartmentId = targetDepartmentId, File = file,
         };
-        var (ok, err) = await _svc.DiscussAsync(id, await ActorAsync(), action, input, StoragePath(), MaxFileMb());
+        var (ok, err) = await _svc.DiscussAsync(id, actor, action, input, StoragePath(), MaxFileMb());
         var msg = action switch
         {
             "close"    => "Discussion closed.",
@@ -301,8 +294,9 @@ public class DwoController : BaseCtrl
     [HttpPost, ValidateAntiForgeryToken]
     public async Task<IActionResult> Resume(int id, string? returnUrl = null)
     {
-        if (DenyIfNoPerm(DwoScreens.Management, Perm.Approve) is { } d) return d;
-        var (ok, err) = await _svc.ResumeAsync(id, await ActorAsync());
+        var actor = await ActorAsync();
+        if (!actor.IsManagement) return Deny();
+        var (ok, err) = await _svc.ResumeAsync(id, actor);
         return Back(ok, err, "Moved back to management discussion.", returnUrl);
     }
 
@@ -332,8 +326,7 @@ public class DwoController : BaseCtrl
     // ─────────────────────────────────────────────────────────
     public async Task<IActionResult> Export(DwoRegisterVM filter, string mode = DwoGridMode.Register)
     {
-        var screen = mode == DwoGridMode.Management ? DwoScreens.Management : DwoScreens.Register;
-        if (DenyIfNoPerm(screen) is { } d) return d;
+        if (DenyIfNoPerm(DwoScreens.Register) is { } d) return d;
         var rows = await _svc.GetRegisterForExportAsync(filter, await ActorAsync(), mode);
 
         var sb = new System.Text.StringBuilder();
