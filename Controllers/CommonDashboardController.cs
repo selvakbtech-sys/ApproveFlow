@@ -14,9 +14,8 @@ using ApproveFlow.MVC.Models.Dwo;
 // this application cannot see.
 public class CommonDashboardController : BaseCtrl
 {
-    // Screen names as the Roles & Permissions matrix stores them.
-    private const string RequestsScreen  = "Requests";
-    private const string DashboardScreen = "Dashboard";
+    // Screen name as the Roles & Permissions matrix stores it.
+    private const string RequestsScreen = "Requests";
 
     private readonly ICommonDashboardService _svc;
     private readonly IDwoDashboardService? _dwo;
@@ -33,9 +32,11 @@ public class CommonDashboardController : BaseCtrl
     {
         bool isAdmin = UserRole == "Admin";
 
-        // Either screen grants the ApproveFlow section: a user who can reach the Requests
-        // grid can see a summary of it, and so can one granted the Dashboard screen.
-        bool canViewApproveFlow = HasPerm(DashboardScreen) || HasPerm(RequestsScreen);
+        // The section is gated on the SAME screen its links lead to. Every card and every
+        // row opens a RequestsController action, and each of those guards on "Requests" —
+        // so granting the section on the Dashboard screen as well would show a user counts
+        // they may see but rows they may not, and every click would land on Access Denied.
+        bool canViewApproveFlow = HasPerm(RequestsScreen);
 
         var vm = new CommonDashboardVM();
 
