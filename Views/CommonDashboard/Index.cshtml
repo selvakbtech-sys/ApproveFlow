@@ -3,21 +3,23 @@
 @{
     ViewData["Title"] = "Dashboard";
     ViewData["NavPage"] = "home";
-    bool isAdmin = ViewBag.IsAdmin == true;
 
     string Sc(string s) => s switch {
         "Approved"=>"badge-green","Rejected"=>"badge-red","Pending Approval"=>"badge-blue","Open"=>"badge-blue",
         "Partial Approved"=>"badge-sky","Clarification Needed"=>"badge-amber","Draft"=>"badge-gray",
-        "Closed"=>"badge-green","Pending"=>"badge-amber",_=>"badge-gray" };
+        "Closed"=>"badge-green","Pending"=>"badge-amber",
+        // DWO statuses
+        "Submitted"=>"badge-blue","Management Discussion"=>"badge-sky","Follow-up"=>"badge-amber",
+        "Change Requested"=>"badge-amber","Hold"=>"badge-gray","Reassigned"=>"badge-sky",_=>"badge-gray" };
     string Ds(string s) => s == "Open" ? "Pending Approval" : s;
 }
 
 @* ── Common Dashboard ────────────────────────────────────────────────────────────
-   ApproveFlow and DWO each get their own KPI row and their own recent-records grid,
-   sharing only the card design. No count, record or link crosses between them. *@
+   Each module gets its own KPI row and its own recent-records grid, sharing only the
+   card design. No count, record or link crosses between sections. All styling reuses
+   the existing site.css classes so the current theme is untouched. *@
 
 <style>
-  /* Same card metrics for BOTH sections — the rows differ only in their data source. */
   .cd-kpi-row { display:grid; grid-template-columns:repeat(6,1fr); gap:12px; margin-bottom:18px; }
   @@media(max-width:1100px) { .cd-kpi-row { grid-template-columns:repeat(3,1fr); } }
   @@media(max-width:640px)  { .cd-kpi-row { grid-template-columns:repeat(2,1fr); } }
@@ -29,14 +31,11 @@
   .cd-sec-sub { font-size:11px; color:var(--txt3); }
   .cd-sec-right { margin-left:auto; }
 
-  /* A card with no destination (DWO module not wired in) must not look clickable. */
-  .metric-card.cd-static { cursor:default; }
-  .metric-card.cd-static:hover { transform:none; box-shadow:none; border-color:var(--bdr); }
-  .metric-card.cd-static:hover::after { transform:scaleX(0); }
-  .cd-nodata { font-size:26px; font-weight:800; line-height:1; color:var(--txt3); margin-bottom:5px; }
-
   .cd-note { border:1px dashed var(--bdr); border-radius:var(--rl,10px); padding:14px 16px;
              font-size:12px; color:var(--txt3); background:var(--card); }
+
+  /* Stands in for a count the DWO module did not supply — never a fabricated 0. */
+  .cd-nodata { font-size:26px; font-weight:800; line-height:1; color:var(--txt3); margin-bottom:5px; }
 </style>
 
 <div class="pg-hdr">
@@ -46,7 +45,7 @@
   </div>
 </div>
 
-@* ══════════ SECTION 1 — ApproveFlow (ApproveFlow data only) ══════════ *@
+@* ══════════ ApproveFlow section (ApproveFlow data only) ══════════ *@
 @if (Model.ApproveFlow is { } af)
 {
   <section class="cd-sec" style="--cd:#2563eb">
@@ -57,7 +56,7 @@
         <div class="cd-sec-sub">@(af.IsGlobalScope ? "All approval requests" : "Your approval requests")</div>
       </div>
       <div class="cd-sec-right">
-        <a asp-controller="Requests" asp-action="Index" asp-route-dtab="home" class="btn btn-ghost btn-sm">Open ApproveFlow →</a>
+        <a asp-controller="Requests" asp-action="Index" class="btn btn-ghost btn-sm">Open ApproveFlow →</a>
       </div>
     </div>
 
@@ -65,8 +64,7 @@
       @foreach (var k in af.Kpis)
       {
         @* FilterStatus is the SAME value the count was made with, so the grid total matches. *@
-        <a asp-controller="Requests" asp-action="Index"
-           asp-route-FilterStatus="@k.FilterStatus" asp-route-dtab="home"
+        <a asp-controller="Requests" asp-action="Index" asp-route-FilterStatus="@k.FilterStatus"
            class="metric-card" style="--mc:@k.Accent">
           <div class="metric-num">@k.Count</div>
           <div class="metric-lbl">@k.Label</div>
@@ -77,9 +75,9 @@
     <div class="card">
       <div class="card-hdr">
         <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-        ApproveFlow Recent Requests
+        Recent Requests
         <div class="card-hdr-right">
-          <a asp-controller="Requests" asp-action="Index" asp-route-dtab="home" class="btn btn-ghost btn-sm">View all →</a>
+          <a asp-controller="Requests" asp-action="Index" class="btn btn-ghost btn-sm">View all →</a>
         </div>
       </div>
       @if (af.RecentRequests.Any())
@@ -114,7 +112,9 @@
   </section>
 }
 
-@* ══════════ SECTION 2 — DWO (DWO data only) ══════════ *@
+@* ══════════ DWO section (DWO data only) ══════════
+   Every figure and link below comes from the DWO module. Nothing here is derived from
+   ApproveFlow data, and no total is combined with the row above. *@
 @if (Model.CanViewDwo)
 {
   <section class="cd-sec" style="--cd:#0891b2">
@@ -124,88 +124,76 @@
         <div class="cd-sec-title">DWO</div>
         <div class="cd-sec-sub">Discussion work orders</div>
       </div>
-      @{ var dwoRootUrl = Model.Dwo?.DiscussionsUrl; }
-      @if (!string.IsNullOrEmpty(dwoRootUrl))
-      {
-        <div class="cd-sec-right"><a href="@dwoRootUrl" class="btn btn-ghost btn-sm">Open DWO →</a></div>
-      }
+      <div class="cd-sec-right">
+        <a href="~/DWO/Register" class="btn btn-ghost btn-sm">Open DWO →</a>
+      </div>
     </div>
 
     <div class="cd-kpi-row">
-      @foreach (var (key, label, accent) in DwoKpiKeys.Ordered)
+      @foreach (var (key, label, accent, fallbackUrl) in DwoKpiKeys.Ordered)
       {
         var card = Model.Dwo?.Kpis.FirstOrDefault(c => c.Key == key);
-        @* A card the DWO module did not supply shows "—", never a fabricated 0. *@
-        @if (card != null && !string.IsNullOrEmpty(card.Url))
-        {
-          <a href="@card.Url" class="metric-card" style="--mc:@accent">
-            <div class="metric-num">@card.Count</div>
-            <div class="metric-lbl">@(card.Label ?? label)</div>
-            @if (!string.IsNullOrEmpty(card.Hint)) { <div class="metric-hint">@card.Hint</div> }
-          </a>
-        }
-        else
-        {
-          <div class="metric-card cd-static" style="--mc:@accent">
-            @if (card is null) { <div class="cd-nodata">—</div> }
-            else               { <div class="metric-num">@card.Count</div> }
-            <div class="metric-lbl">@(card?.Label ?? label)</div>
-          </div>
-        }
+        @* The module may override the link; otherwise the card opens the DWO module's own
+           route. The card navigates either way, so the section is useful before a provider
+           is wired in. *@
+        var url = string.IsNullOrEmpty(card?.Url) ? fallbackUrl : card!.Url;
+        <a href="@url" class="metric-card" style="--mc:@accent">
+          @* A count the module did not supply shows "—". A 0 would read as "none", which
+             this application cannot state on the DWO module's behalf. *@
+          @if (card is null) { <div class="cd-nodata">—</div> }
+          else               { <div class="metric-num">@card.Count</div> }
+          <div class="metric-lbl">@(card?.Label ?? label)</div>
+        </a>
       }
     </div>
 
-    @if (Model.Dwo is { } dwo)
-    {
-      <div class="card">
-        <div class="card-hdr">
-          <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
-          DWO Recent Discussions
-          @if (!string.IsNullOrEmpty(dwo.DiscussionsUrl))
-          {
-            <div class="card-hdr-right"><a href="@dwo.DiscussionsUrl" class="btn btn-ghost btn-sm">View all →</a></div>
-          }
+    <div class="card">
+      <div class="card-hdr">
+        <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+        Recent Discussions
+        <div class="card-hdr-right">
+          <a href="~/DWO/Register" class="btn btn-ghost btn-sm">View all →</a>
         </div>
-        @if (dwo.RecentDiscussions.Any())
-        {
-          <div class="tbl-wrap">
-            <table class="tbl">
-              <thead>
-                <tr><th>Discussion No</th><th>Project</th><th>Department</th><th>Status</th><th>Due Date</th></tr>
-              </thead>
-              <tbody>
-                @foreach (var d in dwo.RecentDiscussions)
-                {
-                  <tr>
-                    <td style="font-family:monospace;font-size:11px;font-weight:600">
-                      @if (!string.IsNullOrEmpty(d.Url)) { <a href="@d.Url" style="color:inherit">@d.DiscussionNo</a> }
-                      else { @d.DiscussionNo }
-                    </td>
-                    <td style="font-size:12px">@d.Project</td>
-                    <td style="font-size:12px;color:var(--txt2)">@d.Department</td>
-                    <td><span class="badge @Sc(d.Status)">@d.Status</span></td>
-                    <td style="font-size:12px;color:var(--txt3);white-space:nowrap">@(d.DueDate?.ToString("dd MMM yyyy") ?? "-")</td>
-                  </tr>
-                }
-              </tbody>
-            </table>
-          </div>
-        }
-        else
-        {
-          <div class="tbl-empty">No discussions yet</div>
-        }
       </div>
-    }
-    else
-    {
-      @* No DWO provider in this deployment. Counts are deliberately left blank rather than
-         shown as 0, which would misreport the DWO module's data. *@
-      <div class="cd-note">
-        The DWO module is not connected to this deployment, so its figures cannot be read.
-        They appear as soon as a DWO provider is registered.
-      </div>
-    }
+      @if (Model.Dwo is { } dwo && dwo.RecentDiscussions.Any())
+      {
+        <div class="tbl-wrap">
+          <table class="tbl">
+            <thead>
+              <tr><th>Discussion No</th><th>Title</th><th>Department</th><th>Status</th><th>Due Date</th></tr>
+            </thead>
+            <tbody>
+              @foreach (var d in dwo.RecentDiscussions)
+              {
+                <tr>
+                  <td style="font-family:monospace;font-size:11px;font-weight:600">
+                    @if (!string.IsNullOrEmpty(d.Url)) { <a href="@d.Url" style="color:inherit">@d.DiscussionNo</a> }
+                    else { @d.DiscussionNo }
+                  </td>
+                  <td style="font-size:12px">@d.Title</td>
+                  <td style="font-size:12px;color:var(--txt2)">@d.Department</td>
+                  <td><span class="badge @Sc(d.Status)">@d.Status</span></td>
+                  <td style="font-size:12px;color:var(--txt3);white-space:nowrap">@(d.DueDate?.ToString("dd MMM yyyy") ?? "-")</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+      else if (Model.DwoProviderRegistered)
+      {
+        <div class="tbl-empty">No discussions yet</div>
+      }
+      else
+      {
+        @* No DWO dashboard provider in this deployment. Said plainly, so an empty table is
+           never mistaken for "the DWO module has no discussions". *@
+        <div class="cd-note">
+          DWO figures are not available on this dashboard yet — the DWO module has not
+          registered a dashboard provider. The links above open the DWO screens as usual.
+        </div>
+      }
+    </div>
   </section>
 }
 

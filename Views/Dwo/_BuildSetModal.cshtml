@@ -1,0 +1,68 @@
+@model DwoActor
+@{
+    // The HOD's route to Management: bundle the ticked Submitted points with a supporting
+    // pack and a requested appointment date. Every point moves to Management Discussion
+    // together, under one DWO number.
+    var points = ViewBag.Points as List<DwoPointRowVM> ?? new List<DwoPointRowVM>();
+    var todayStr = DateOnly.FromDateTime(IstClock.Now.DateTime).ToString("yyyy-MM-dd");
+}
+
+<form asp-action="SubmitSet" method="post" enctype="multipart/form-data">
+  @Html.AntiForgeryToken()
+  <input type="hidden" name="returnUrl" value=""/>
+
+  <div class="modal-hdr">
+    <div>
+      <div class="modal-title">Submit Set to Management</div>
+      <div class="modal-sub">@points.Count discussion(s) · submitted by @Model.UserName</div>
+    </div>
+    <button type="button" class="modal-x" onclick="dwoCloseModal()">&times;</button>
+  </div>
+
+  <div class="modal-body">
+    <div class="tbl-wrap" style="max-height:220px;overflow-y:auto;margin-bottom:14px">
+      <table class="tbl">
+        <thead><tr><th>DWO No</th><th>Title</th><th>Task ID</th><th>Priority</th></tr></thead>
+        <tbody>
+          @foreach (var p in points)
+          {
+            <tr>
+              <td><span class="mono" style="font-size:11px">@p.PointNumber</span></td>
+              <td style="font-weight:600">@p.Title</td>
+              <td style="font-size:12px;color:var(--txt2)">@(string.IsNullOrEmpty(p.TaskId) ? "—" : p.TaskId)</td>
+              <td><span class="badge @DwoPriority.Badge(p.Priority)">@p.Priority</span></td>
+            </tr>
+            <input type="hidden" name="PointIds" value="@p.PointId"/>
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <div class="form-grid fg2">
+      <div class="form-group full">
+        <label class="lbl">Supporting documents <span class="req">*</span></label>
+        <input type="file" name="SupportingFiles" class="inp" multiple required/>
+        <div class="hint">At least one file is required — the pack management reads before the appointment.</div>
+      </div>
+      <div class="form-group full">
+        <label class="lbl">Summary document</label>
+        <input type="file" name="SummaryFile" class="inp"/>
+        <div class="hint">Optional single file summarising the whole Set.</div>
+      </div>
+      <div class="form-group">
+        @* Also enforced server-side; the browser minimum is only a convenience. *@
+        <label class="lbl">Requested appointment date <span class="req">*</span></label>
+        <input type="date" name="RequestedAppointmentDate" class="inp" required min="@todayStr"/>
+      </div>
+      <div class="form-group full">
+        <label class="lbl">Notes for management</label>
+        <textarea name="AppointmentNotes" class="inp" rows="2" placeholder="Anything management should know before the appointment"></textarea>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-actions">
+    <button type="button" class="btn btn-sec" onclick="dwoCloseModal()">Cancel</button>
+    <button type="submit" class="btn btn-acc">Submit Set to Management</button>
+  </div>
+</form>

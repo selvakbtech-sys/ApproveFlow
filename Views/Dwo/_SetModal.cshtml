@@ -1,0 +1,165 @@
+@model DwoSetDetailVM
+@{
+    var s = Model.Set;
+    var apptDate = s.ScheduledDate ?? s.RequestedAppointmentDate;
+    var todayStr = DateOnly.FromDateTime(IstClock.Now.DateTime).ToString("yyyy-MM-dd");
+    bool canAppoint = Model.Actor.IsManagement && !Model.IsCompleted;
+    // Management or the owning HOD may add a point straight into a Set that is still open.
+    bool canAddPoint = Model.CanManage && !Model.IsCompleted;
+    var addUrl = Url.Action("AddToSet", new { setId = s.SetId, returnUrl = Url.Action("Sets") });
+}
+
+<div class="modal-hdr">
+  <div>
+    <div class="modal-title"><span class="mono">@s.SetNumber</span> · @s.Department.DeptName</div>
+    <div class="modal-sub">
+      Submitted by @s.SubmittedByUser.FullName on @s.SubmittedAt.ToString("dd MMM yyyy")
+      · @Model.Points.Count discussion(s)
+    </div>
+    <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+      <span class="badge @(Model.IsCompleted ? "badge-green" : "badge-sky")">
+        @(Model.IsCompleted ? "Completed" : "Awaiting Discussion")
+      </span>
+      <span class="badge @DwoAppointmentStatus.Badge(s.AppointmentStatus)">
+        @s.AppointmentStatus · @apptDate.ToString("dd MMM yyyy")
+      </span>
+    </div>
+  </div>
+  <button type="button" class="modal-x" onclick="dwoCloseModal()">&times;</button>
+</div>
+
+<div class="modal-body">
+  @if (!string.IsNullOrEmpty(s.AppointmentNotes))
+  {
+    <div class="alert alert-in" style="margin-bottom:12px"><strong>Notes:</strong> @s.AppointmentNotes</div>
+  }
+
+  <div class="lbl" style="margin-bottom:6px;display:flex;justify-content:space-between;align-items:center">
+    <span>Discussions in this Set</span>
+    @if (canAddPoint)
+    {
+      <a href="@addUrl" class="btn btn-acc btn-sm">+ Add point for discussion</a>
+    }
+  </div>
+  <div class="tbl-wrap" style="margin-bottom:14px">
+    <table class="tbl">
+      <thead><tr><th>DWO No</th><th>Title</th><th>Priority</th><th>Status</th></tr></thead>
+      <tbody>
+        @foreach (var p in Model.Points)
+        {
+          <tr style="cursor:pointer" onclick="location.href='@Url.Action("Detail", new { id = p.PointId })'">
+            <td><span class="mono" style="font-size:11px">@p.PointNumber</span></td>
+            <td style="font-weight:600">@p.Title</td>
+            <td><span class="badge @DwoPriority.Badge(p.Priority)">@p.Priority</span></td>
+            <td><span class="badge @DwoStatus.Badge(p.Status)">@p.Status</span></td>
+          </tr>
+        }
+        @if (!Model.Points.Any())
+        {
+          <tr><td colspan="4" class="tbl-empty">This Set has no discussions left on it.</td></tr>
+        }
+      </tbody>
+    </table>
+  </div>
+
+  <div class="lbl" style="margin-bottom:6px">Supporting documents</div>
+  @if (Model.SupportingDocuments.Any())
+  {
+    @foreach (var a in Model.SupportingDocuments)
+    {
+      <a class="dwo-filebadge" asp-action="Download" asp-route-id="@a.AttachmentId">📎 @a.FileName <span style="color:var(--txt3)">@a.FormattedSize</span></a>
+    }
+  }
+  else { <div class="dwo-empty">None.</div> }
+
+  <div class="lbl" style="margin:14px 0 6px">Summary document</div>
+  @if (Model.SummaryFile != null)
+  {
+    <a class="dwo-filebadge" asp-action="Download" asp-route-id="@Model.SummaryFile.AttachmentId">📎 @Model.SummaryFile.FileName</a>
+  }
+  else { <div class="dwo-empty">None.</div> }
+
+  <div class="lbl" style="margin:16px 0 6px">Timeline</div>
+  <div class="timeline">
+    @foreach (var h in Model.History)
+    {
+      <div class="tl-item">
+        <div class="tl-icon">•</div>
+        <div class="tl-content">
+          <div class="tl-actor">@h.Action</div>
+          <div class="tl-meta">@h.ActorName · @h.CreatedAt.ToString("dd MMM yyyy, hh:mm tt") IST</div>
+          @if (!string.IsNullOrEmpty(h.Note)) { <div class="tl-comment">@h.Note</div> }
+        </div>
+      </div>
+    }
+    @if (!Model.History.Any()) { <div class="dwo-empty">Nothing recorded yet.</div> }
+  </div>
+
+  @* ── Action panes ── *@
+  @if (Model.CanManage)
+  {
+    <div data-dwo-pane id="paneSummary" hidden style="margin-top:16px;border-top:1px solid var(--bdr);padding-top:14px">
+      <form asp-action="SaveSummaryFile" method="post" enctype="multipart/form-data">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="setId" value="@s.SetId"/>
+        <input type="hidden" name="returnUrl" value=""/>
+        <label class="lbl">@(Model.SummaryFile == null ? "Add" : "Replace") summary document <span class="req">*</span></label>
+        <input type="file" name="file" class="inp" required/>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+          <button type="button" class="btn btn-sec" onclick="dwoHidePanes()">Cancel</button>
+          <button type="submit" class="btn btn-acc">Save</button>
+        </div>
+      </form>
+    </div>
+  }
+
+  @if (canAppoint)
+  {
+    <div data-dwo-pane id="paneSchedule" hidden style="margin-top:16px;border-top:1px solid var(--bdr);padding-top:14px">
+      <form asp-action="ScheduleAppointment" method="post">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="setId" value="@s.SetId"/>
+        <input type="hidden" name="returnUrl" value=""/>
+        <label class="lbl">Appointment date <span class="req">*</span></label>
+        <input type="date" name="date" class="inp" required min="@todayStr" value="@s.RequestedAppointmentDate.ToString("yyyy-MM-dd")"/>
+        <label class="lbl" style="margin-top:10px">Note</label>
+        <textarea name="note" class="inp" rows="2" placeholder="Time, venue, anything the HOD should know"></textarea>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+          <button type="button" class="btn btn-sec" onclick="dwoHidePanes()">Cancel</button>
+          <button type="submit" class="btn btn-ok">Confirm schedule</button>
+        </div>
+      </form>
+    </div>
+
+    <div data-dwo-pane id="panePostpone" hidden style="margin-top:16px;border-top:1px solid var(--bdr);padding-top:14px">
+      <form asp-action="PostponeAppointment" method="post">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="setId" value="@s.SetId"/>
+        <input type="hidden" name="returnUrl" value=""/>
+        <label class="lbl">New appointment date <span class="req">*</span></label>
+        <input type="date" name="date" class="inp" required min="@todayStr"/>
+        <label class="lbl" style="margin-top:10px">Reason</label>
+        <textarea name="reason" class="inp" rows="2" placeholder="Why the appointment is moving"></textarea>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+          <button type="button" class="btn btn-sec" onclick="dwoHidePanes()">Cancel</button>
+          <button type="submit" class="btn btn-acc">Confirm postponement</button>
+        </div>
+      </form>
+    </div>
+  }
+</div>
+
+<div class="modal-actions">
+  <button type="button" class="btn btn-sec" onclick="dwoCloseModal()">Close</button>
+  @if (Model.CanManage)
+  {
+    <button type="button" class="btn btn-sec" onclick="dwoShowPane('paneSummary')">
+      @(Model.SummaryFile == null ? "Add" : "Update") summary file
+    </button>
+  }
+  @if (canAppoint)
+  {
+    <button type="button" class="btn btn-sec" onclick="dwoShowPane('panePostpone')">Postpone appointment</button>
+    <button type="button" class="btn btn-acc" onclick="dwoShowPane('paneSchedule')">Schedule appointment</button>
+  }
+</div>

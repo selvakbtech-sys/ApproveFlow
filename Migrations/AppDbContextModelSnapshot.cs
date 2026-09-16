@@ -110,6 +110,42 @@ namespace ApproveFlow.MVC.Migrations
                     b.ToTable("ApprovalReplies", (string)null);
                 });
 
+            modelBuilder.Entity("ApproveFlow.MVC.Models.Domain.Company", b =>
+                {
+                    b.Property<int>("CompanyId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("CompanyId"));
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<string>("CompanyName")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("CompanyId");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.ToTable("Companies", (string)null);
+                });
+
             modelBuilder.Entity("ApproveFlow.MVC.Models.Domain.Department", b =>
                 {
                     b.Property<int>("DepartmentId")
@@ -144,6 +180,326 @@ namespace ApproveFlow.MVC.Migrations
                         .IsUnique();
 
                     b.ToTable("Departments", (string)null);
+                });
+
+            modelBuilder.Entity("ApproveFlow.MVC.Models.Domain.DwoAttachment", b =>
+                {
+                    b.Property<int>("AttachmentId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("AttachmentId"));
+
+                    b.Property<string>("ContentType")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<long>("FileSizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<int?>("PointId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("SetId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("StoredFileName")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTimeOffset>("UploadedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("UploadedByUserId")
+                        .HasColumnType("int");
+
+                    b.HasKey("AttachmentId");
+
+                    b.HasIndex("PointId");
+
+                    b.HasIndex("SetId");
+
+                    b.HasIndex("UploadedByUserId");
+
+                    b.ToTable("DwoAttachments", (string)null);
+                });
+
+            modelBuilder.Entity("ApproveFlow.MVC.Models.Domain.DwoFollowUp", b =>
+                {
+                    b.Property<int>("FollowUpId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("FollowUpId"));
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int?>("CompletedByUserId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("CompletionNote")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateOnly>("DueDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<int>("OwnerUserId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("PointId")
+                        .HasColumnType("int");
+
+                    b.HasKey("FollowUpId");
+
+                    b.HasIndex("CompletedByUserId");
+
+                    b.HasIndex("PointId");
+
+                    b.HasIndex("OwnerUserId", "DueDate");
+
+                    b.ToTable("DwoFollowUps", (string)null);
+                });
+
+            modelBuilder.Entity("ApproveFlow.MVC.Models.Domain.DwoHistory", b =>
+                {
+                    b.Property<int>("HistoryId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("HistoryId"));
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
+
+                    b.Property<string>("ActorName")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<int?>("ActorUserId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<int?>("PointId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("SetId")
+                        .HasColumnType("int");
+
+                    b.HasKey("HistoryId");
+
+                    b.HasIndex("ActorUserId");
+
+                    b.HasIndex("PointId");
+
+                    b.HasIndex("SetId");
+
+                    b.ToTable("DwoHistory", (string)null);
+                });
+
+            modelBuilder.Entity("ApproveFlow.MVC.Models.Domain.DwoPoint", b =>
+                {
+                    b.Property<int>("PointId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("PointId"));
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)");
+
+                    b.Property<int>("CompanyId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("DepartmentId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("LocationId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("OriginPointId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("PointNumber")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<string>("Priority")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<int?>("RaisedByUserId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ReviewRemarks")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<DateTimeOffset?>("ReviewedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int?>("ReviewedByUserId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("SetId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<string>("TaskId")
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(250)
+                        .HasColumnType("nvarchar(250)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("PointId");
+
+                    b.HasIndex("CompanyId");
+
+                    b.HasIndex("LocationId");
+
+                    b.HasIndex("OriginPointId");
+
+                    b.HasIndex("PointNumber")
+                        .IsUnique()
+                        .HasFilter("[PointNumber] <> ''");
+
+                    b.HasIndex("ReviewedByUserId");
+
+                    b.HasIndex("SetId");
+
+                    b.HasIndex("DepartmentId", "Status");
+
+                    b.HasIndex("RaisedByUserId", "Status");
+
+                    b.ToTable("DwoPoints", (string)null);
+                });
+
+            modelBuilder.Entity("ApproveFlow.MVC.Models.Domain.DwoReferenceLink", b =>
+                {
+                    b.Property<int>("LinkId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("LinkId"));
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("PointId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.HasKey("LinkId");
+
+                    b.HasIndex("PointId");
+
+                    b.ToTable("DwoReferenceLinks", (string)null);
+                });
+
+            modelBuilder.Entity("ApproveFlow.MVC.Models.Domain.DwoSet", b =>
+                {
+                    b.Property<int>("SetId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("SetId"));
+
+                    b.Property<string>("AppointmentNotes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("AppointmentStatus")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("DepartmentId")
+                        .HasColumnType("int");
+
+                    b.Property<DateOnly>("RequestedAppointmentDate")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly?>("ScheduledDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("SetNumber")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<DateTimeOffset>("SubmittedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("SubmittedByUserId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("SetId");
+
+                    b.HasIndex("DepartmentId");
+
+                    b.HasIndex("SetNumber")
+                        .IsUnique()
+                        .HasFilter("[SetNumber] <> ''");
+
+                    b.HasIndex("SubmittedByUserId");
+
+                    b.ToTable("DwoSets", (string)null);
                 });
 
             modelBuilder.Entity("ApproveFlow.MVC.Models.Domain.Location", b =>
@@ -796,6 +1152,79 @@ namespace ApproveFlow.MVC.Migrations
                     b.ToTable("WhatsAppMessageHistory", (string)null);
                 });
 
+            modelBuilder.Entity("ApproveFlow.MVC.Models.Domain.WhatsAppOutbox", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ApiVersion")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset>("CreatedDate")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<string>("MessageText")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("MessageType")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)");
+
+                    b.Property<DateTimeOffset>("NextAttemptAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("PhoneNumberId")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<int?>("RequestId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("ToNumber")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<int?>("WorkflowId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("WorkflowLevel")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Status", "NextAttemptAt");
+
+                    b.ToTable("WhatsAppOutbox", (string)null);
+                });
+
             modelBuilder.Entity("ApproveFlow.MVC.Models.Domain.WhatsAppPendingClarification", b =>
                 {
                     b.Property<int>("Id")
@@ -1001,6 +1430,166 @@ namespace ApproveFlow.MVC.Migrations
                         .IsRequired();
 
                     b.Navigation("Request");
+                });
+
+            modelBuilder.Entity("ApproveFlow.MVC.Models.Domain.DwoAttachment", b =>
+                {
+                    b.HasOne("ApproveFlow.MVC.Models.Domain.DwoPoint", "Point")
+                        .WithMany("Attachments")
+                        .HasForeignKey("PointId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("ApproveFlow.MVC.Models.Domain.DwoSet", "Set")
+                        .WithMany("Attachments")
+                        .HasForeignKey("SetId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("ApproveFlow.MVC.Models.Domain.User", "UploadedByUser")
+                        .WithMany()
+                        .HasForeignKey("UploadedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Point");
+
+                    b.Navigation("Set");
+
+                    b.Navigation("UploadedByUser");
+                });
+
+            modelBuilder.Entity("ApproveFlow.MVC.Models.Domain.DwoFollowUp", b =>
+                {
+                    b.HasOne("ApproveFlow.MVC.Models.Domain.User", "CompletedByUser")
+                        .WithMany()
+                        .HasForeignKey("CompletedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("ApproveFlow.MVC.Models.Domain.User", "OwnerUser")
+                        .WithMany()
+                        .HasForeignKey("OwnerUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("ApproveFlow.MVC.Models.Domain.DwoPoint", "Point")
+                        .WithMany("FollowUps")
+                        .HasForeignKey("PointId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("CompletedByUser");
+
+                    b.Navigation("OwnerUser");
+
+                    b.Navigation("Point");
+                });
+
+            modelBuilder.Entity("ApproveFlow.MVC.Models.Domain.DwoHistory", b =>
+                {
+                    b.HasOne("ApproveFlow.MVC.Models.Domain.User", "ActorUser")
+                        .WithMany()
+                        .HasForeignKey("ActorUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("ApproveFlow.MVC.Models.Domain.DwoPoint", "Point")
+                        .WithMany("History")
+                        .HasForeignKey("PointId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("ApproveFlow.MVC.Models.Domain.DwoSet", "Set")
+                        .WithMany("History")
+                        .HasForeignKey("SetId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.Navigation("ActorUser");
+
+                    b.Navigation("Point");
+
+                    b.Navigation("Set");
+                });
+
+            modelBuilder.Entity("ApproveFlow.MVC.Models.Domain.DwoPoint", b =>
+                {
+                    b.HasOne("ApproveFlow.MVC.Models.Domain.Company", "Company")
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("ApproveFlow.MVC.Models.Domain.Department", "Department")
+                        .WithMany()
+                        .HasForeignKey("DepartmentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("ApproveFlow.MVC.Models.Domain.Location", "Location")
+                        .WithMany()
+                        .HasForeignKey("LocationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("ApproveFlow.MVC.Models.Domain.DwoPoint", "OriginPoint")
+                        .WithMany()
+                        .HasForeignKey("OriginPointId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("ApproveFlow.MVC.Models.Domain.User", "RaisedByUser")
+                        .WithMany()
+                        .HasForeignKey("RaisedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("ApproveFlow.MVC.Models.Domain.User", "ReviewedByUser")
+                        .WithMany()
+                        .HasForeignKey("ReviewedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("ApproveFlow.MVC.Models.Domain.DwoSet", "Set")
+                        .WithMany("Points")
+                        .HasForeignKey("SetId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Company");
+
+                    b.Navigation("Department");
+
+                    b.Navigation("Location");
+
+                    b.Navigation("OriginPoint");
+
+                    b.Navigation("RaisedByUser");
+
+                    b.Navigation("ReviewedByUser");
+
+                    b.Navigation("Set");
+                });
+
+            modelBuilder.Entity("ApproveFlow.MVC.Models.Domain.DwoReferenceLink", b =>
+                {
+                    b.HasOne("ApproveFlow.MVC.Models.Domain.DwoPoint", "Point")
+                        .WithMany("ReferenceLinks")
+                        .HasForeignKey("PointId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Point");
+                });
+
+            modelBuilder.Entity("ApproveFlow.MVC.Models.Domain.DwoSet", b =>
+                {
+                    b.HasOne("ApproveFlow.MVC.Models.Domain.Department", "Department")
+                        .WithMany()
+                        .HasForeignKey("DepartmentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("ApproveFlow.MVC.Models.Domain.User", "SubmittedByUser")
+                        .WithMany()
+                        .HasForeignKey("SubmittedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Department");
+
+                    b.Navigation("SubmittedByUser");
                 });
 
             modelBuilder.Entity("ApproveFlow.MVC.Models.Domain.Notification", b =>
@@ -1281,6 +1870,26 @@ namespace ApproveFlow.MVC.Migrations
             modelBuilder.Entity("ApproveFlow.MVC.Models.Domain.Department", b =>
                 {
                     b.Navigation("UserDepartments");
+                });
+
+            modelBuilder.Entity("ApproveFlow.MVC.Models.Domain.DwoPoint", b =>
+                {
+                    b.Navigation("Attachments");
+
+                    b.Navigation("FollowUps");
+
+                    b.Navigation("History");
+
+                    b.Navigation("ReferenceLinks");
+                });
+
+            modelBuilder.Entity("ApproveFlow.MVC.Models.Domain.DwoSet", b =>
+                {
+                    b.Navigation("Attachments");
+
+                    b.Navigation("History");
+
+                    b.Navigation("Points");
                 });
 
             modelBuilder.Entity("ApproveFlow.MVC.Models.Domain.Location", b =>

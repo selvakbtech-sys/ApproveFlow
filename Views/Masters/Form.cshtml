@@ -1,9 +1,9 @@
 @model MasterFormVM
 @{
     bool isEdit = Model.Id > 0;
-    string typeLabel = Model.EntityType switch { "locations"=>"Location","departments"=>"Department","requesttypes"=>"Request Type",_=>"Item" };
+    string typeLabel = Model.EntityType switch { "locations"=>"Location","departments"=>"Department","requesttypes"=>"Request Type","companies"=>"Company",_=>"Item" };
     ViewData["Title"] = (isEdit ? "Edit " : "New ") + typeLabel;
-    string navKey = Model.EntityType switch { "locations"=>"locations","departments"=>"departments","requesttypes"=>"reqtypes",_=>"" };
+    string navKey = Model.EntityType switch { "locations"=>"locations","departments"=>"departments","requesttypes"=>"reqtypes","companies"=>"companies",_=>"" };
     ViewData["NavPage"] = navKey;
 }
 <div class="pg-hdr">

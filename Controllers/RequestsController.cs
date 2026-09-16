@@ -54,11 +54,10 @@ public class RequestsController : BaseCtrl
     {
         if (DenyIfNoPerm("Requests") is { } r1) return r1;
         ViewBag.UserRole = UserRole;
-        // Show the Delete button on exactly the rights the Delete action enforces
-        // (DenyIfNoPerm("Requests", Perm.Delete)). It used to add an "Admin" short-circuit and
-        // read the DB separately; with the matrix now binding for every role that would offer
-        // an Admin a button their own Delete request is refused.
-        ViewBag.CanDelete = HasPerm("Requests", Perm.Delete);
+        ViewBag.CanDelete = UserRole == "Admin" ||
+            await _db.Users.Where(u => u.UserId == UserId)
+                .Select(u => u.Role.Permissions.Any(p => p.ScreenName == "Requests" && p.CanDelete))
+                .FirstOrDefaultAsync();
         int? scopeUser = ScopeUserId(filter.FilterMine);
         return View(await _svc.GetListAsync(filter, page, NormalizePageSize(pageSize), scopeUser, UserId));
     }
@@ -115,11 +114,10 @@ public class RequestsController : BaseCtrl
         // Null for the desktop flow, so every existing link on this page renders unchanged.
         ViewBag.Source = SourceTag(source);
         ViewBag.UserRole = UserRole;
-        // Show the Delete button on exactly the rights the Delete action enforces
-        // (DenyIfNoPerm("Requests", Perm.Delete)). It used to add an "Admin" short-circuit and
-        // read the DB separately; with the matrix now binding for every role that would offer
-        // an Admin a button their own Delete request is refused.
-        ViewBag.CanDelete = HasPerm("Requests", Perm.Delete);
+        ViewBag.CanDelete = UserRole == "Admin" ||
+            await _db.Users.Where(u => u.UserId == UserId)
+                .Select(u => u.Role.Permissions.Any(p => p.ScreenName == "Requests" && p.CanDelete))
+                .FirstOrDefaultAsync();
         return View(vm);
     }
 

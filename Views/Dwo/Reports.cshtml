@@ -1,0 +1,89 @@
+@model DwoReportVM
+@{
+    ViewData["Title"] = "DWO Reports";
+    ViewData["NavPage"] = "dworeports";
+    // Every report runs through the same service call and the same department scope as the
+    // register, so a report can never show a discussion the user could not open.
+}
+
+<div class="pg-hdr">
+  <div>
+    <div class="pg-title">@Model.Heading</div>
+    <div class="pg-sub">@Model.Rows.Count row@(Model.Rows.Count == 1 ? "" : "s")</div>
+  </div>
+  <div class="pg-actions">
+    <a asp-action="ExportReport" asp-route-Report="@Model.Report"
+       asp-route-FilterDeptId="@Model.FilterDeptId" asp-route-FilterCompanyId="@Model.FilterCompanyId"
+       asp-route-FromDate="@Model.FromDate?.ToString("yyyy-MM-dd")" asp-route-ToDate="@Model.ToDate?.ToString("yyyy-MM-dd")"
+       class="btn btn-sec btn-sm">Export Excel</a>
+    <button type="button" class="btn btn-sec btn-sm" onclick="window.print()">Print</button>
+  </div>
+</div>
+
+<div class="dwo-chips">
+  @foreach (var (key, label) in DwoReportKind.All)
+  {
+    <a asp-action="Reports" asp-route-Report="@key"
+       asp-route-FilterDeptId="@Model.FilterDeptId" asp-route-FilterCompanyId="@Model.FilterCompanyId"
+       asp-route-FromDate="@Model.FromDate?.ToString("yyyy-MM-dd")" asp-route-ToDate="@Model.ToDate?.ToString("yyyy-MM-dd")"
+       class="dwo-chip @(Model.Report == key ? "active" : "")">@label</a>
+  }
+</div>
+
+<form method="get" asp-action="Reports">
+  <input type="hidden" name="Report" value="@Model.Report"/>
+  <div class="filter-bar" style="gap:8px">
+    <div class="f-group" style="flex:0 0 180px">
+      <label class="f-lbl">Department</label>
+      <select name="FilterDeptId" class="f-ctrl" style="width:100%">
+        <option value="">All</option>
+        @foreach (var d in Model.Departments)
+        { <option value="@d.DepartmentId" selected="@(Model.FilterDeptId == d.DepartmentId)">@d.DeptName</option> }
+      </select>
+    </div>
+    <div class="f-group" style="flex:0 0 180px">
+      <label class="f-lbl">Company</label>
+      <select name="FilterCompanyId" class="f-ctrl" style="width:100%">
+        <option value="">All</option>
+        @foreach (var c in Model.Companies)
+        { <option value="@c.CompanyId" selected="@(Model.FilterCompanyId == c.CompanyId)">@c.CompanyName</option> }
+      </select>
+    </div>
+    <div class="f-group" style="flex:0 0 140px">
+      <label class="f-lbl">From</label>
+      <input type="date" name="FromDate" value="@Model.FromDate?.ToString("yyyy-MM-dd")" class="f-ctrl" style="width:100%"/>
+    </div>
+    <div class="f-group" style="flex:0 0 140px">
+      <label class="f-lbl">To</label>
+      <input type="date" name="ToDate" value="@Model.ToDate?.ToString("yyyy-MM-dd")" class="f-ctrl" style="width:100%"/>
+    </div>
+    <div class="f-group" style="flex:0 0 auto;display:flex;align-items:flex-end;gap:6px">
+      <button type="submit" class="btn btn-pri btn-sm">Run</button>
+      <a asp-action="Reports" asp-route-Report="@Model.Report" class="btn btn-sec btn-sm">Clear</a>
+    </div>
+  </div>
+</form>
+
+<div class="card">
+  <div class="tbl-wrap">
+    <table class="tbl" data-grid>
+      <thead>
+        <tr>
+          @foreach (var c in Model.Columns) { <th>@c</th> }
+        </tr>
+      </thead>
+      <tbody>
+        @if (!Model.Rows.Any())
+        {
+          <tr><td colspan="@Math.Max(1, Model.Columns.Count)" class="tbl-empty">Nothing to report for these filters.</td></tr>
+        }
+        @foreach (var row in Model.Rows)
+        {
+          <tr>
+            @foreach (var cell in row) { <td style="font-size:12.5px">@cell</td> }
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+</div>

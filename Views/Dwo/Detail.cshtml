@@ -1,0 +1,438 @@
+@model DwoPointDetailVM
+@{
+    var p = Model.Point;
+    ViewData["Title"] = "Discussion Details";
+    ViewData["NavPage"] = "dworegister";
+
+    var tab = ViewBag.Tab as string ?? "details";
+    // The list this page was opened from. Back returns there with its filters, chip and
+    // page intact; the action forms come back to this page so the user sees the result.
+    var listUrl = ViewBag.ReturnUrl as string;
+    var backUrl = string.IsNullOrEmpty(listUrl) ? Url.Action("Register") : listUrl;
+    var selfUrl = Url.Action("Detail", new { id = p.PointId, tab, returnUrl = listUrl });
+
+    var originalDocs = Model.Attachments.Where(a => a.Kind == DwoAttachmentKind.Point).ToList();
+    var followUpDocs = Model.Attachments.Where(a => a.Kind == DwoAttachmentKind.FollowUpCompletion).ToList();
+    var actionDocs   = Model.Attachments.Where(a => a.Kind == DwoAttachmentKind.Action).ToList();
+    var todayStr = DateOnly.FromDateTime(IstClock.Now.DateTime).ToString("yyyy-MM-dd");
+}
+
+<div class="pg-hdr">
+  <div>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <div class="pg-title">@p.PointNumber</div>
+      <span class="badge @DwoStatus.Badge(p.Status)">@p.Status</span>
+      <span class="badge @DwoPriority.Badge(p.Priority)">@p.Priority</span>
+      @if (Model.IsFollowUpOverdue) { <span class="badge badge-red">Follow-up overdue</span> }
+      @if (Model.Set != null) { <span class="badge badge-gray">Set @Model.Set.SetNumber</span> }
+    </div>
+    <div class="pg-sub" style="font-size:20px;font-weight:700;color:var(--txt)">@p.Title</div>
+  </div>
+  <div class="pg-actions">
+    <a href="@backUrl" class="btn btn-sec btn-sm">← Back</a>
+    <button type="button" class="btn btn-sec btn-sm" onclick="window.print()">Print</button>
+    @if (Model.CanEdit)
+    {
+      <a asp-action="Edit" asp-route-id="@p.PointId" asp-route-returnUrl="@selfUrl" class="btn btn-sec btn-sm">Edit</a>
+    }
+    @if (Model.CanSubmit)
+    {
+      <form asp-action="Submit" method="post" style="display:inline"
+            data-submit-guard data-guard-idempotent="false" data-guard-title="Submitting discussion">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="id" value="@p.PointId"/>
+        <input type="hidden" name="returnUrl" value="@selfUrl"/>
+        <button type="submit" class="btn btn-acc btn-sm">@(Model.Actor.IsManagement ? "Create Discussion" : "Submit to HOD")</button>
+      </form>
+    }
+    @if (Model.CanWithdraw)
+    {
+      <form asp-action="Withdraw" method="post" style="display:inline"
+            onsubmit="return confirm('Withdraw this discussion? It goes back to Draft.')">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="id" value="@p.PointId"/>
+        <input type="hidden" name="returnUrl" value="@selfUrl"/>
+        <button type="submit" class="btn btn-ng btn-sm">Withdraw</button>
+      </form>
+    }
+    @if (Model.CanCompleteFollowUp)
+    {
+      <button type="button" class="btn btn-acc btn-sm" onclick="dwoShowPane('paneCompleteFu')">Complete follow-up</button>
+    }
+    @if (Model.CanBuildSet)
+    {
+      @* Opens the same Build Set modal the Register grid uses, pre-loaded with this point.
+         The modal's returnUrl is filled from the live location, so a successful submit
+         lands back on this page showing the point in Management Discussion. *@
+      <button type="button" class="btn btn-acc btn-sm" onclick="dwoLoadModal('@Url.Action("BuildSetModal", new { ids = p.PointId })', true)">
+        Add to Set &amp; Request Appointment
+      </button>
+    }
+    @if (Model.CanReview)
+    {
+      <button type="button" class="btn btn-sec btn-sm" onclick="dwoShowPane('paneSendBack')">Send back</button>
+      <button type="button" class="btn btn-ng btn-sm"  onclick="dwoShowPane('paneReject')">Reject</button>
+    }
+    @if (Model.CanResume)
+    {
+      <form asp-action="Resume" method="post" style="display:inline">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="id" value="@p.PointId"/>
+        <input type="hidden" name="returnUrl" value="@selfUrl"/>
+        <button type="submit" class="btn btn-acc btn-sm">Resume discussion</button>
+      </form>
+    }
+    @if (Model.CanDiscuss)
+    {
+      <button type="button" class="btn btn-sec btn-sm" onclick="dwoShowPane('paneReassign')">Reassign</button>
+      <button type="button" class="btn btn-sec btn-sm" onclick="dwoShowPane('paneHold')">Hold</button>
+      <button type="button" class="btn btn-sec btn-sm" onclick="dwoShowPane('paneFollowUp')">Schedule follow-up</button>
+      <button type="button" class="btn btn-ok btn-sm"  onclick="dwoShowPane('paneClose')">Discuss &amp; Close</button>
+    }
+  </div>
+</div>
+
+<div class="tabs">
+  <a asp-action="Detail" asp-route-id="@p.PointId" asp-route-tab="details"   asp-route-returnUrl="@listUrl" class="tab @(tab=="details"?"active":"")">Details</a>
+  <a asp-action="Detail" asp-route-id="@p.PointId" asp-route-tab="timeline"  asp-route-returnUrl="@listUrl" class="tab @(tab=="timeline"?"active":"")">Timeline <span class="tab-cnt">@Model.History.Count</span></a>
+  <a asp-action="Detail" asp-route-id="@p.PointId" asp-route-tab="documents" asp-route-returnUrl="@listUrl" class="tab @(tab=="documents"?"active":"")">Documents <span class="tab-cnt">@Model.Attachments.Count</span></a>
+</div>
+
+@* ── Status banners — shown on every tab, they are the reason the page was opened ── *@
+@if (p.Status == DwoStatus.ChangeRequested && !string.IsNullOrEmpty(p.ReviewRemarks))
+{
+  <div class="alert alert-wa" style="margin-bottom:12px"><strong>Change requested:</strong> @p.ReviewRemarks</div>
+}
+@if (p.Status == DwoStatus.Rejected && !string.IsNullOrEmpty(p.ReviewRemarks))
+{
+  <div class="alert alert-err" style="margin-bottom:12px"><strong>Rejected:</strong> @p.ReviewRemarks</div>
+}
+@if (p.Status == DwoStatus.Reassigned)
+{
+  <div class="alert alert-in" style="margin-bottom:12px">
+    This discussion was reassigned to another department and is now read-only.
+    @if (!string.IsNullOrEmpty(p.ReviewRemarks)) { <text>@p.ReviewRemarks</text> }
+  </div>
+}
+@if (Model.OriginPoint != null)
+{
+  <div class="alert alert-in" style="margin-bottom:12px">
+    Created by reassignment from <span class="mono">@Model.OriginPoint.PointNumber</span>.
+  </div>
+}
+@if (Model.OpenFollowUp is { } fu)
+{
+  <div class="alert @(fu.IsOverdue ? "alert-err" : "alert-wa")" style="margin-bottom:12px">
+    <strong>Follow-up:</strong> @fu.OwnerUser.FullName · due @fu.DueDate.ToString("dd MMM yyyy")
+    @if (fu.IsOverdue) { <text>· overdue</text> }
+    @if (!string.IsNullOrEmpty(fu.Notes)) { <text> — @fu.Notes</text> }
+  </div>
+}
+
+@if (tab == "details")
+{
+  <div class="m-collapse" style="display:grid;grid-template-columns:1fr 320px;gap:16px;align-items:start">
+    <div class="card">
+      <div style="padding:16px 18px;border-bottom:1px solid var(--bdr)">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--txt3);margin-bottom:14px">Discussion Information</div>
+        <div class="m-collapse-2" style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:16px">
+          <div><div class="info-lbl">Task ID</div><div class="info-val">@(string.IsNullOrEmpty(p.TaskId) ? "—" : p.TaskId)</div></div>
+          <div><div class="info-lbl">Category</div><div class="info-val">@p.Category</div></div>
+          <div><div class="info-lbl">Company</div><div class="info-val">@p.Company.CompanyName</div></div>
+          <div><div class="info-lbl">Site</div><div class="info-val">@p.Location.LocationName</div></div>
+        </div>
+        <div class="m-collapse-2" style="border-top:1px solid var(--bg);padding-top:14px;display:grid;grid-template-columns:repeat(4,1fr);gap:16px">
+          <div><div class="info-lbl">Department</div><div class="info-val">@p.Department.DeptName</div></div>
+          <div><div class="info-lbl">Raised By</div><div class="info-val">@(p.RaisedByUser?.FullName ?? "Unassigned (reassigned)")</div></div>
+          <div><div class="info-lbl">Raised On</div><div class="info-val">@p.CreatedAt.ToString("dd MMM yyyy hh:mm tt")</div></div>
+          <div><div class="info-lbl">Reviewed On</div><div class="info-val">@(p.ReviewedAt?.ToString("dd MMM yyyy") ?? "—")</div></div>
+        </div>
+      </div>
+
+      <div style="padding:14px 18px;border-bottom:1px solid var(--bdr)">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--txt3);margin-bottom:8px">Description</div>
+        <div style="font-size:13px;color:var(--txt2);line-height:1.7;white-space:pre-wrap;background:var(--bg);border:1px solid var(--bdr);border-radius:var(--r);padding:10px 13px">@p.Description</div>
+      </div>
+
+      <div style="padding:14px 18px">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--txt3);margin-bottom:8px">Reference Links</div>
+        @if (Model.ReferenceLinks.Any())
+        {
+          @foreach (var link in Model.ReferenceLinks)
+          {
+            <div style="font-size:12.5px;margin-bottom:4px">
+              <a href="@link.Url" target="_blank" rel="noopener noreferrer">@link.Url</a>
+            </div>
+          }
+        }
+        else { <div style="font-size:13px;color:var(--txt3)">—</div> }
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div class="card">
+        <div class="card-hdr">Attachments</div>
+        <div class="card-body">
+          @if (originalDocs.Any())
+          {
+            @foreach (var a in originalDocs)
+            {
+              <a class="dwo-filebadge" asp-action="Download" asp-route-id="@a.AttachmentId">
+                📎 @a.FileName <span style="color:var(--txt3)">@a.FormattedSize</span>
+              </a>
+            }
+          }
+          else { <div class="dwo-empty">None.</div> }
+        </div>
+      </div>
+
+      @if (Model.Set != null)
+      {
+        <div class="card">
+          <div class="card-hdr">Set</div>
+          <div class="card-body">
+            <div style="font-size:13px;margin-bottom:8px">
+              <span class="mono">@Model.Set.SetNumber</span> ·
+              <span class="badge @DwoAppointmentStatus.Badge(Model.Set.AppointmentStatus)">@Model.Set.AppointmentStatus</span>
+            </div>
+            <button type="button" class="btn btn-sec btn-sm" style="width:100%;justify-content:center"
+                    onclick="dwoLoadModal('/Dwo/SetModal/@Model.Set.SetId', true)">
+              View full Set →
+            </button>
+          </div>
+        </div>
+      }
+    </div>
+  </div>
+}
+
+@if (tab == "timeline")
+{
+  <div class="card">
+    <div class="card-body">
+      @if (!Model.History.Any()) { <div class="dwo-empty">Nothing recorded yet.</div> }
+      <div class="timeline">
+        @foreach (var h in Model.History)
+        {
+          <div class="tl-item">
+            <div class="tl-icon">•</div>
+            <div class="tl-content">
+              <div class="tl-actor">@h.Action</div>
+              <div class="tl-meta">@h.ActorName · @h.CreatedAt.ToString("dd MMM yyyy, hh:mm tt") IST</div>
+              @if (!string.IsNullOrEmpty(h.Note)) { <div class="tl-comment">@h.Note</div> }
+            </div>
+          </div>
+        }
+      </div>
+    </div>
+  </div>
+}
+
+@if (tab == "documents")
+{
+  <div class="card">
+    <div class="card-body">
+      <div class="lbl" style="margin-bottom:6px">Original attachments</div>
+      @if (originalDocs.Any())
+      {
+        @foreach (var a in originalDocs)
+        { <a class="dwo-filebadge" asp-action="Download" asp-route-id="@a.AttachmentId">📎 @a.FileName <span style="color:var(--txt3)">@a.FormattedSize</span></a> }
+      }
+      else { <div class="dwo-empty">None.</div> }
+
+      <div class="lbl" style="margin:14px 0 6px">Follow-up documents</div>
+      @if (followUpDocs.Any())
+      {
+        @foreach (var a in followUpDocs)
+        { <a class="dwo-filebadge" asp-action="Download" asp-route-id="@a.AttachmentId">📎 @a.FileName <span style="color:var(--txt3)">@a.FormattedSize</span></a> }
+      }
+      else { <div class="dwo-empty">None.</div> }
+
+      <div class="lbl" style="margin:14px 0 6px">Resolution &amp; action documents</div>
+      @if (actionDocs.Any())
+      {
+        @foreach (var a in actionDocs)
+        { <a class="dwo-filebadge" asp-action="Download" asp-route-id="@a.AttachmentId">📎 @a.FileName <span style="color:var(--txt3)">@a.FormattedSize</span></a> }
+      }
+      else { <div class="dwo-empty">None.</div> }
+    </div>
+  </div>
+}
+
+@* ── Action panes. Rendered up front and revealed by the header buttons, so acting on a
+     discussion never costs another page load. ── *@
+@if (Model.CanReview)
+{
+  <div data-dwo-pane id="paneSendBack" hidden class="card" style="margin-top:14px">
+    <div class="card-hdr">Send back for clarification</div>
+    <div class="card-body">
+      <form asp-action="Review" method="post">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="id" value="@p.PointId"/>
+        <input type="hidden" name="action" value="send_back"/>
+        <input type="hidden" name="returnUrl" value="@selfUrl"/>
+        <label class="lbl">Note to the raiser <span class="req">*</span></label>
+        <textarea name="note" class="inp" rows="3" required placeholder="What needs to change before this can go forward?"></textarea>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+          <button type="button" class="btn btn-sec" onclick="dwoHidePanes()">Cancel</button>
+          <button type="submit" class="btn btn-pri">Send back for clarification</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div data-dwo-pane id="paneReject" hidden class="card" style="margin-top:14px">
+    <div class="card-hdr">Reject discussion</div>
+    <div class="card-body">
+      <form asp-action="Review" method="post" onsubmit="return confirm('Reject this discussion? The raiser will be notified.')">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="id" value="@p.PointId"/>
+        <input type="hidden" name="action" value="reject"/>
+        <input type="hidden" name="returnUrl" value="@selfUrl"/>
+        <label class="lbl">Rejection reason <span class="req">*</span></label>
+        <textarea name="note" class="inp" rows="3" required placeholder="Why is this being rejected?"></textarea>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+          <button type="button" class="btn btn-sec" onclick="dwoHidePanes()">Cancel</button>
+          <button type="submit" class="btn btn-ng">Reject</button>
+        </div>
+      </form>
+    </div>
+  </div>
+}
+
+@if (Model.CanDiscuss)
+{
+  <div data-dwo-pane id="paneClose" hidden class="card" style="margin-top:14px">
+    <div class="card-hdr">Discuss &amp; Close</div>
+    <div class="card-body">
+      <form asp-action="Discuss" method="post" enctype="multipart/form-data"
+            onsubmit="return confirm('Close this discussion? This is the final decision.')">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="id" value="@p.PointId"/>
+        <input type="hidden" name="action" value="close"/>
+        <input type="hidden" name="returnUrl" value="@selfUrl"/>
+        <label class="lbl">Resolution remarks <span class="req">*</span></label>
+        <textarea name="remarks" class="inp" rows="3" required placeholder="The decision taken"></textarea>
+        <label class="lbl" style="margin-top:10px">Supporting document</label>
+        <input type="file" name="file" class="inp"/>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+          <button type="button" class="btn btn-sec" onclick="dwoHidePanes()">Cancel</button>
+          <button type="submit" class="btn btn-ok">Discuss &amp; Close</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div data-dwo-pane id="paneFollowUp" hidden class="card" style="margin-top:14px">
+    <div class="card-hdr">Schedule follow-up</div>
+    <div class="card-body">
+      <form asp-action="Discuss" method="post" enctype="multipart/form-data">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="id" value="@p.PointId"/>
+        <input type="hidden" name="action" value="followup"/>
+        <input type="hidden" name="returnUrl" value="@selfUrl"/>
+        <div class="form-grid fg2">
+          <div class="form-group">
+            <label class="lbl">Follow-up owner <span class="req">*</span></label>
+            <select name="followUpOwnerId" class="inp" required>
+              <option value="">Select…</option>
+              @foreach (var u in Model.FollowUpOwners)
+              { <option value="@u.UserId">@u.FullName</option> }
+            </select>
+          </div>
+          <div class="form-group">
+            @* Enforced again server-side — the browser minimum is a convenience, not the rule. *@
+            <label class="lbl">Due date <span class="req">*</span></label>
+            <input type="date" name="dueDate" class="inp" required min="@todayStr"/>
+          </div>
+          <div class="form-group full">
+            <label class="lbl">Notes</label>
+            <textarea name="remarks" class="inp" rows="2" placeholder="What the owner needs to do"></textarea>
+          </div>
+          <div class="form-group full">
+            <label class="lbl">Supporting document</label>
+            <input type="file" name="file" class="inp"/>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+          <button type="button" class="btn btn-sec" onclick="dwoHidePanes()">Cancel</button>
+          <button type="submit" class="btn btn-acc">Schedule follow-up</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div data-dwo-pane id="paneHold" hidden class="card" style="margin-top:14px">
+    <div class="card-hdr">Put on hold</div>
+    <div class="card-body">
+      <form asp-action="Discuss" method="post" enctype="multipart/form-data"
+            onsubmit="return confirm('Put this discussion on hold?')">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="id" value="@p.PointId"/>
+        <input type="hidden" name="action" value="hold"/>
+        <input type="hidden" name="returnUrl" value="@selfUrl"/>
+        <label class="lbl">Hold reason <span class="req">*</span></label>
+        <textarea name="remarks" class="inp" rows="3" required placeholder="Why is this being held?"></textarea>
+        <label class="lbl" style="margin-top:10px">Supporting document</label>
+        <input type="file" name="file" class="inp"/>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+          <button type="button" class="btn btn-sec" onclick="dwoHidePanes()">Cancel</button>
+          <button type="submit" class="btn btn-pri">Put on hold</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div data-dwo-pane id="paneReassign" hidden class="card" style="margin-top:14px">
+    <div class="card-hdr">Reassign to another department</div>
+    <div class="card-body">
+      <form asp-action="Discuss" method="post" enctype="multipart/form-data"
+            onsubmit="return confirm('Reassign this discussion? The original becomes read-only and a new draft is created in the target department.')">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="id" value="@p.PointId"/>
+        <input type="hidden" name="action" value="reassign"/>
+        <input type="hidden" name="returnUrl" value="@selfUrl"/>
+        <label class="lbl">Target department <span class="req">*</span></label>
+        <select name="targetDepartmentId" class="inp" required>
+          <option value="">Select…</option>
+          @foreach (var d in Model.Departments)
+          { <option value="@d.DepartmentId">@d.DeptName</option> }
+        </select>
+        <label class="lbl" style="margin-top:10px">Remarks</label>
+        <textarea name="remarks" class="inp" rows="2" placeholder="Why the other department should take this on"></textarea>
+        <label class="lbl" style="margin-top:10px">Supporting document</label>
+        <input type="file" name="file" class="inp"/>
+        <div class="hint" style="margin-top:8px">
+          References and attachments are copied to the new draft, and the origin number is kept in its timeline.
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+          <button type="button" class="btn btn-sec" onclick="dwoHidePanes()">Cancel</button>
+          <button type="submit" class="btn btn-pri">Reassign</button>
+        </div>
+      </form>
+    </div>
+  </div>
+}
+
+@if (Model.CanCompleteFollowUp)
+{
+  <div data-dwo-pane id="paneCompleteFu" hidden class="card" style="margin-top:14px">
+    <div class="card-hdr">Complete follow-up</div>
+    <div class="card-body">
+      <form asp-action="CompleteFollowUp" method="post" enctype="multipart/form-data">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="id" value="@p.PointId"/>
+        <input type="hidden" name="returnUrl" value="@selfUrl"/>
+        <label class="lbl">What was done <span class="req">*</span></label>
+        <textarea name="note" class="inp" rows="3" required placeholder="Summarise the follow-up action taken"></textarea>
+        <label class="lbl" style="margin-top:10px">Completion document</label>
+        <input type="file" name="file" class="inp"/>
+        <div class="hint" style="margin-top:8px">Completing the follow-up sends this discussion back to Management.</div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+          <button type="button" class="btn btn-sec" onclick="dwoHidePanes()">Cancel</button>
+          <button type="submit" class="btn btn-acc">Send back to management</button>
+        </div>
+      </form>
+    </div>
+  </div>
+}

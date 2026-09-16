@@ -1,0 +1,222 @@
+@model DwoDashboardVM
+@{
+    ViewData["Title"] = "DWO Dashboard";
+    ViewData["NavPage"] = "dwodashboard";
+
+    // Every KPI card links to the register pre-filtered on the same status it counts, so a
+    // card's number and the grid it opens can never disagree.
+    var trendMax = Model.MonthlyTrend.Values.DefaultIfEmpty(0).Max();
+    var statusMax = Model.ByStatus.Values.DefaultIfEmpty(0).Max();
+    var deptMax = Model.ByDepartment.Values.DefaultIfEmpty(0).Max();
+}
+
+<div class="pg-hdr">
+  <div>
+    <div class="pg-title">DWO Dashboard</div>
+    <div class="pg-sub">@IstClock.Now.ToString("dddd, dd MMMM yyyy") · @Model.Actor.RoleLabel</div>
+  </div>
+  <div class="pg-actions">
+    @if (Model.Actor.CanCreate)
+    {
+      <a asp-action="Create" class="btn btn-acc">
+        <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        New Discussion
+      </a>
+    }
+  </div>
+</div>
+
+<div class="dwo-kpis">
+  <a asp-action="Register" class="metric-card" style="--mc:#071B46">
+    <div class="metric-num">@Model.Total</div>
+    <div class="metric-lbl">Total Discussions</div>
+    <div class="metric-hint">All statuses</div>
+  </a>
+  <a asp-action="Register" asp-route-FilterStatus="@DwoStatus.Draft" class="metric-card" style="--mc:#6B7280">
+    <div class="metric-num">@Model.Draft</div>
+    <div class="metric-lbl">Draft</div>
+    <div class="metric-hint">Not yet submitted</div>
+  </a>
+  <a asp-action="Register" asp-route-FilterStatus="@DwoStatus.Submitted" class="metric-card" style="--mc:#071B46">
+    <div class="metric-num">@Model.Submitted</div>
+    <div class="metric-lbl">Submitted</div>
+    <div class="metric-hint">Awaiting HOD review</div>
+  </a>
+  <a asp-action="Register" asp-route-FilterStatus="@DwoStatus.ManagementDiscussion" class="metric-card" style="--mc:#F59E0B">
+    <div class="metric-num">@Model.ManagementDiscussion</div>
+    <div class="metric-lbl">Management Discussion</div>
+    <div class="metric-hint">With management</div>
+  </a>
+  <a asp-action="Register" asp-route-FilterStatus="@DwoStatus.FollowUp" class="metric-card" style="--mc:#d97706">
+    <div class="metric-num">@Model.FollowUp</div>
+    <div class="metric-lbl">Follow-up</div>
+    <div class="metric-hint">@Model.Overdue.Count overdue</div>
+  </a>
+  <a asp-action="Register" asp-route-FilterStatus="@DwoStatus.Closed" class="metric-card" style="--mc:#16a34a">
+    <div class="metric-num">@Model.Closed</div>
+    <div class="metric-lbl">Closed</div>
+    <div class="metric-hint">Decided</div>
+  </a>
+</div>
+
+<div class="dwo-cols">
+  <div>
+    @* ── Left panel ── *@
+    <div class="card">
+      <div class="card-hdr">My Pending Discussions</div>
+      <div class="card-body">
+        @if (!Model.MyPending.Any()) { <div class="dwo-empty">Nothing waiting on you.</div> }
+        @foreach (var r in Model.MyPending)
+        {
+          <div class="dwo-mini">
+            <a href="@Url.Action("Detail", "Dwo", new { id = r.PointId })">@r.Title</a>
+            <span class="dwo-mini-meta"><span class="badge @DwoStatus.Badge(r.Status)">@r.Status</span></span>
+          </div>
+        }
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-hdr">Recently Created</div>
+      <div class="card-body">
+        @if (!Model.RecentlyCreated.Any()) { <div class="dwo-empty">No discussions yet.</div> }
+        @foreach (var r in Model.RecentlyCreated)
+        {
+          <div class="dwo-mini">
+            <a href="@Url.Action("Detail", "Dwo", new { id = r.PointId })">@r.Title</a>
+            <span class="dwo-mini-meta">@r.CreatedAt.ToString("dd MMM")</span>
+          </div>
+        }
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-hdr">Change Requested</div>
+      <div class="card-body">
+        @if (!Model.ChangeRequested.Any()) { <div class="dwo-empty">Nothing sent back.</div> }
+        @foreach (var r in Model.ChangeRequested)
+        {
+          <div class="dwo-mini">
+            <a href="@Url.Action("Detail", "Dwo", new { id = r.PointId })">@r.Title</a>
+            <span class="dwo-mini-meta">@r.DeptName</span>
+          </div>
+        }
+      </div>
+    </div>
+  </div>
+
+  <div>
+    @* ── Right panel ── *@
+    <div class="card">
+      <div class="card-hdr">Follow-up Due Today</div>
+      <div class="card-body">
+        @if (!Model.FollowUpDueToday.Any()) { <div class="dwo-empty">Nothing due today.</div> }
+        @foreach (var r in Model.FollowUpDueToday)
+        {
+          <div class="dwo-mini">
+            <a href="@Url.Action("Detail", "Dwo", new { id = r.PointId })">@r.Title</a>
+            <span class="dwo-mini-meta">@r.FollowUpOwnerName</span>
+          </div>
+        }
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-hdr">Overdue</div>
+      <div class="card-body">
+        @if (!Model.Overdue.Any()) { <div class="dwo-empty">Nothing overdue.</div> }
+        @foreach (var r in Model.Overdue)
+        {
+          <div class="dwo-mini">
+            <a href="@Url.Action("Detail", "Dwo", new { id = r.PointId })">@r.Title</a>
+            <span class="dwo-mini-meta">
+              <span class="badge badge-red">@r.FollowUpDueDate?.ToString("dd MMM")</span>
+            </span>
+          </div>
+        }
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-hdr">Department Wise Count</div>
+      <div class="card-body">
+        @if (!Model.ByDepartment.Any()) { <div class="dwo-empty">No data yet.</div> }
+        @foreach (var kv in Model.ByDepartment)
+        {
+          var pct = deptMax > 0 ? kv.Value * 100.0 / deptMax : 0;
+          <div style="margin-bottom:10px">
+            <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
+              <span style="color:var(--txt2)">@kv.Key</span>
+              <span style="font-weight:600">@kv.Value</span>
+            </div>
+            <div class="pbar"><div class="pbar-fill" style="width:@pct.ToString("F0")%"></div></div>
+          </div>
+        }
+      </div>
+    </div>
+  </div>
+</div>
+
+@* ── Charts. Same CSS-bar treatment as the main ApproveFlow dashboard — no chart library
+     is used anywhere in this app. ── *@
+<div class="dwo-charts" style="margin-top:14px">
+  <div class="card">
+    <div class="card-hdr">Monthly Discussion Trend</div>
+    <div class="card-body">
+      @if (trendMax == 0) { <div class="dwo-empty">No data yet.</div> }
+      @foreach (var kv in Model.MonthlyTrend)
+      {
+        var parts = kv.Key.Split('-');
+        var label = new DateTime(int.Parse(parts[0]), int.Parse(parts[1]), 1).ToString("MMM yy");
+        var pct = trendMax > 0 ? kv.Value * 100.0 / trendMax : 0;
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:12px">
+          <span style="width:48px;flex-shrink:0;color:var(--txt3)">@label</span>
+          <div class="pbar" style="flex:1"><div class="pbar-fill" style="width:@pct.ToString("F0")%"></div></div>
+          <span style="width:24px;text-align:right;font-weight:600">@kv.Value</span>
+        </div>
+      }
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-hdr">Status Distribution</div>
+    <div class="card-body">
+      @if (statusMax == 0) { <div class="dwo-empty">No data yet.</div> }
+      @foreach (var st in DwoStatus.All)
+      {
+        var n = Model.ByStatus.GetValueOrDefault(st, 0);
+        if (n == 0) { continue; }
+        var pct = statusMax > 0 ? n * 100.0 / statusMax : 0;
+        <div style="margin-bottom:10px">
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
+            <span style="color:var(--txt2)">@st</span>
+            <span style="font-weight:600">@n</span>
+          </div>
+          <div class="pbar"><div class="pbar-fill" style="width:@pct.ToString("F0")%"></div></div>
+        </div>
+      }
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-hdr">Department Performance</div>
+    <div class="card-body">
+      <div class="hint" style="margin-bottom:10px">Closed discussions per department.</div>
+      @if (!Model.DepartmentClosed.Any()) { <div class="dwo-empty">Nothing closed yet.</div> }
+      @{ var closedMax = Model.DepartmentClosed.Values.DefaultIfEmpty(0).Max(); }
+      @foreach (var kv in Model.DepartmentClosed)
+      {
+        var pct = closedMax > 0 ? kv.Value * 100.0 / closedMax : 0;
+        <div style="margin-bottom:10px">
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
+            <span style="color:var(--txt2)">@kv.Key</span>
+            <span style="font-weight:600;color:var(--acc-h)">@kv.Value</span>
+          </div>
+          <div style="height:6px;background:var(--bg);border-radius:4px;overflow:hidden">
+            <div style="height:100%;width:@pct.ToString("F0")%;background:var(--acc);border-radius:4px"></div>
+          </div>
+        </div>
+      }
+    </div>
+  </div>
+</div>

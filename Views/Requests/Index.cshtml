@@ -23,8 +23,7 @@
     // and it drives the "← Back" button, which returns to that exact dashboard tab. Absent
     // (the page reached from the nav menu) nothing is rendered and the page is unchanged.
     var dtabRaw = Context.Request.Query["dtab"].ToString();
-    // "home" is the Common Dashboard; the rest are tabs of the ApproveFlow dashboard.
-    string? dashTab = new[]{ "home", "requests", "approvals", "territory", "admin" }.Contains(dtabRaw) ? dtabRaw : null;
+    string? dashTab = new[]{ "requests", "approvals", "territory", "admin" }.Contains(dtabRaw) ? dtabRaw : null;
     // This grid's own URL — handed to the Detail page as ?ret= so its Back button returns
     // here with the KPI filter, search term and page number intact.
     var retUrl = $"{Context.Request.Path}{Context.Request.QueryString}";
@@ -40,17 +39,9 @@
     @* Back to the dashboard tab this list was opened from (dashboard KPI click-through only) *@
     @if (dashTab != null)
     {
-      @* Literal URLs — dashTab is whitelisted to one of the fixed tokens above. "home" came
-         from the Common Dashboard; every other token is an ApproveFlow dashboard tab, which
-         that page resolves server-side from ?tab=. *@
-      @if (dashTab == "home")
-      {
-        <a href="~/CommonDashboard" class="btn btn-sec btn-sm">← Back</a>
-      }
-      else
-      {
-        <a href="~/Dashboard?tab=@dashTab" class="btn btn-sec btn-sm">← Back</a>
-      }
+      @* Literal URL — dashTab is whitelisted to one of four fixed tokens above, and this
+         leaves no doubt that ?tab= reaches the Dashboard, which resolves it server-side. *@
+      <a href="~/Dashboard?tab=@dashTab" class="btn btn-sec btn-sm">← Back</a>
     }
     @* Excel Download Button - downloads immediately using the current grid filters/search *@
     <button type="button" onclick="exportExcel(this)" class="btn btn-sec btn-sm" title="Export to CSV"
@@ -97,9 +88,7 @@
       {
         <select name="FilterStatus" class="f-ctrl" style="width:100%">
           <option value="">All</option>
-          @* "Submitted" is the Common Dashboard token for "everything out of Draft"; it is
-             expanded by DashboardStatusFilter, the same map the KPI count uses. *@
-          @foreach (var s in new[]{"Draft",DashboardStatusFilter.Submitted,"Pending Approval","Partial Approved","Approved","Rejected","Clarification Needed","Revoked","Deleted"})
+          @foreach (var s in new[]{"Draft","Pending Approval","Partial Approved","Approved","Rejected","Clarification Needed","Revoked","Deleted"})
           { <option value="@s" selected="@(Model.FilterStatus==s)">@s</option> }
         </select>
       }

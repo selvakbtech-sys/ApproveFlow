@@ -1,0 +1,99 @@
+@model DwoSetListVM
+@{
+    ViewData["Title"] = "Sets";
+    ViewData["NavPage"] = "dwosets";
+    // A Set is Completed once no discussion on it is still in Management Discussion — the
+    // same rule the row's own IsCompleted uses, so the chips and the grid always agree.
+}
+
+<div class="pg-hdr">
+  <div>
+    <div class="pg-title">Sets</div>
+    <div class="pg-sub">@Model.Items.Count Set@(Model.Items.Count == 1 ? "" : "s") · @Model.Actor.RoleLabel</div>
+  </div>
+</div>
+
+<div class="dwo-chips">
+  <a asp-action="Sets" asp-route-deptId="@Model.FilterDeptId"
+     class="dwo-chip @(string.IsNullOrEmpty(Model.FilterStatus) ? "active" : "")">
+    All <span class="n">@Model.StatusCounts.Values.Sum()</span>
+  </a>
+  <a asp-action="Sets" asp-route-deptId="@Model.FilterDeptId" asp-route-status="awaiting"
+     class="dwo-chip @(Model.FilterStatus == "awaiting" ? "active" : "")">
+    Awaiting Discussion <span class="n">@Model.StatusCounts.GetValueOrDefault("awaiting", 0)</span>
+  </a>
+  <a asp-action="Sets" asp-route-deptId="@Model.FilterDeptId" asp-route-status="completed"
+     class="dwo-chip @(Model.FilterStatus == "completed" ? "active" : "")">
+    Completed <span class="n">@Model.StatusCounts.GetValueOrDefault("completed", 0)</span>
+  </a>
+</div>
+
+<form method="get" asp-action="Sets">
+  @if (!string.IsNullOrEmpty(Model.FilterStatus)) { <input type="hidden" name="status" value="@Model.FilterStatus"/> }
+  <div class="filter-bar" style="gap:8px">
+    <div class="f-group" style="flex:0 0 200px">
+      <label class="f-lbl">Department</label>
+      <select name="deptId" class="f-ctrl" style="width:100%">
+        <option value="">All</option>
+        @foreach (var d in Model.Departments)
+        { <option value="@d.DepartmentId" selected="@(Model.FilterDeptId == d.DepartmentId)">@d.DeptName</option> }
+      </select>
+    </div>
+    <div class="f-group" style="flex:0 0 auto;display:flex;align-items:flex-end;gap:6px">
+      <button type="submit" class="btn btn-pri btn-sm">Filter</button>
+      <a asp-action="Sets" class="btn btn-sec btn-sm">Clear</a>
+    </div>
+  </div>
+</form>
+
+<div class="card">
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>DWO No</th>
+          <th>Department</th>
+          <th>Discussions</th>
+          <th>Appointment</th>
+          <th>Submitted By</th>
+          <th>Submitted On</th>
+          <th>Discussion Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        @if (!Model.Items.Any())
+        {
+          <tr>
+            <td colspan="7" class="tbl-empty">
+              No Sets yet. An HOD builds one from the Discussion Register by ticking Submitted
+              discussions and requesting a management appointment.
+            </td>
+          </tr>
+        }
+        @foreach (var s in Model.Items)
+        {
+          <tr style="cursor:pointer" onclick="dwoLoadModal('/Dwo/SetModal/@s.SetId', true)">
+            <td><span class="mono" style="font-size:11px">@s.SetNumber</span></td>
+            <td style="font-size:12px">@s.DeptName</td>
+            <td>
+              @s.PointCount
+              @if (s.UndecidedCount > 0)
+              { <span class="badge badge-amber" style="margin-left:4px">@s.UndecidedCount pending</span> }
+            </td>
+            <td>
+              <span class="badge @DwoAppointmentStatus.Badge(s.AppointmentStatus)">@s.AppointmentStatus</span>
+              <div style="font-size:11px;color:var(--txt3)">@s.AppointmentDate?.ToString("dd MMM yyyy")</div>
+            </td>
+            <td style="font-size:12px">@s.SubmittedByName</td>
+            <td style="font-size:11px;color:var(--txt3);white-space:nowrap">@s.SubmittedAt.ToString("dd MMM yyyy")</td>
+            <td>
+              <span class="badge @(s.IsCompleted ? "badge-green" : "badge-sky")">
+                @(s.IsCompleted ? "Completed" : "Awaiting Discussion")
+              </span>
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+</div>
