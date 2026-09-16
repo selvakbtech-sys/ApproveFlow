@@ -1,4 +1,5 @@
 using ApproveFlow.MVC.Data;
+using ApproveFlow.MVC.Models.Dwo;
 using ApproveFlow.MVC.Services;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
@@ -87,12 +88,12 @@ builder.Services.AddControllersWithViews()
 
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
-// Common Dashboard — the landing page after login. This registration serves the
-// ApproveFlow section; each additional module supplies its own section through its own
-// service. The DWO section reads IDwoDashboardService, which the DWO module registers:
-//     builder.Services.AddScoped<IDwoDashboardService, DwoDashboardService>();
-// It is resolved optionally, so the dashboard works with or without that registration.
+// Common Dashboard — the landing page after login. Each module fills its own section
+// through its own service, and no figure is ever combined across them.
 builder.Services.AddScoped<ICommonDashboardService, CommonDashboardService>();
+// The DWO section. Resolved optionally by the controller, so removing this line degrades
+// the section to "—" counts with working links rather than breaking the dashboard.
+builder.Services.AddScoped<IDwoDashboardService, DwoDashboardService>();
 builder.Services.AddScoped<IRequestService, RequestService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<INotifService, NotifService>();
