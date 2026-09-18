@@ -22,6 +22,10 @@ public class DwoActor
     public bool CanEditOwn { get; set; }
     public bool CanWithdraw { get; set; }
     public bool CanViewReports { get; set; }
+    // Set Edit permission ("Sets|Edit"): unlocks Draft Sets — save a bundle as a Draft, add
+    // points to it, remove them, grow the pack, submit or discard. Without it an HOD still
+    // has the original Build Set & Submit path, and sees Drafts read-only.
+    public bool CanEditSets { get; set; }
 
     // Departments the user is mapped to in User Master. Empty for Management, which is
     // never scoped by department.
@@ -115,6 +119,9 @@ public class DwoPointRowVM
     public int PointId { get; set; }
     public string PointNumber { get; set; } = "";
     public string? SetNumber { get; set; }
+    public bool SetIsDraft { get; set; }             // on a Draft Set — still tickable into no other Set
+    public bool IsReassignedCopy { get; set; }       // landed here by reassignment (OriginPointId set)
+    public string DisplayStatus => DwoStatus.Display(Status, SetIsDraft);
     public string? TaskId { get; set; }
     public string Title { get; set; } = "";
     public string Category { get; set; } = "";
@@ -208,6 +215,7 @@ public class DwoPointDetailVM
     // ── What the current user may do with this point right now ──
     public bool CanEdit { get; set; }
     public bool CanSubmit { get; set; }
+    public bool CanTakeUp { get; set; }              // target department: claim a reassigned copy
     // HOD (own department) or Management may bundle this Submitted point into a Set from here.
     public bool CanBuildSet { get; set; }
     public bool CanWithdraw { get; set; }
@@ -224,10 +232,11 @@ public class DwoPointDetailVM
 // ─────────────────────────────────────────────────────────────
 public class DwoSetListVM
 {
+    public int? OpenSetId { get; set; }              // popup to open on load (back from a review)
     public List<DwoSetRowVM> Items { get; set; } = new();
     public List<Department> Departments { get; set; } = new();
     public int? FilterDeptId { get; set; }
-    public string? FilterStatus { get; set; }        // awaiting | completed
+    public string? FilterStatus { get; set; }        // draft | awaiting | completed
     public Dictionary<string, int> StatusCounts { get; set; } = new();
     public DwoActor Actor { get; set; } = new();
 }
@@ -236,6 +245,9 @@ public class DwoSetRowVM
 {
     public int SetId { get; set; }
     public string SetNumber { get; set; } = "";
+    public string? Title { get; set; }
+    public string Status { get; set; } = DwoSetStatus.Submitted;
+    public bool IsDraft => Status == DwoSetStatus.Draft;
     public string DeptName { get; set; } = "";
     public int PointCount { get; set; }
     public int UndecidedCount { get; set; }
@@ -244,7 +256,7 @@ public class DwoSetRowVM
     public string SubmittedByName { get; set; } = "";
     public DateTimeOffset SubmittedAt { get; set; }
     // A Set is Completed once no point on it is still in Management Discussion.
-    public bool IsCompleted => UndecidedCount == 0 && PointCount > 0;
+    public bool IsCompleted => !IsDraft && UndecidedCount == 0 && PointCount > 0;
 }
 
 public class DwoSetDetailVM
@@ -257,16 +269,58 @@ public class DwoSetDetailVM
     public DwoActor Actor { get; set; } = new();
     public bool CanManage { get; set; }              // Management, or the owning HOD
     public bool IsCompleted { get; set; }
+    public bool IsDraft { get; set; }
+    public bool CanEditDraft { get; set; }           // Draft only: the HOD who owns it (or its creator)
 }
 
 // Payload for the HOD's "Build Set & Submit to Management" modal.
 public class DwoSetSubmitVM
 {
+    // 0 = build a new Set; otherwise the Draft Set the ticked points join (or, with no
+    // PointIds, the Draft being submitted from the Set screen).
+    public int DraftSetId { get; set; }
+    public string? Title { get; set; }
     public List<int> PointIds { get; set; } = new();
     public DateOnly? RequestedAppointmentDate { get; set; }
     public string? AppointmentNotes { get; set; }
     public List<IFormFile>? SupportingFiles { get; set; }
     public IFormFile? SummaryFile { get; set; }
+}
+
+// ─────────────────────────────────────────────────────────────
+// "Add to Draft Set" picker — the HOD's ticked Submitted points, and the Draft Sets of
+// the same department they may join. Filters round-trip on the modal's own URL.
+// ─────────────────────────────────────────────────────────────
+public class DwoDraftSetPickerVM
+{
+    public List<int> PointIds { get; set; } = new();
+    public string? Search { get; set; }
+    public int? FilterCompanyId { get; set; }
+    public int? FilterLocationId { get; set; }
+    public int Page { get; set; } = 1;
+    public int PageSize { get; set; } = 10;
+    public int TotalCount { get; set; }
+    public int TotalPages => Math.Max(1, (int)Math.Ceiling(TotalCount / (double)PageSize));
+
+    public List<DwoDraftSetPickRowVM> Items { get; set; } = new();
+    public List<Company> Companies { get; set; } = new();
+    public List<Location> Locations { get; set; } = new();
+    public string? DeptName { get; set; }
+    // Set when the ticked points cannot join any Draft (mixed departments, none Submitted…).
+    public string? Problem { get; set; }
+    public DwoActor Actor { get; set; } = new();
+}
+
+public class DwoDraftSetPickRowVM
+{
+    public int SetId { get; set; }
+    public string SetNumber { get; set; } = "";
+    public string? Title { get; set; }
+    public string Companies { get; set; } = "";       // distinct company names of its points
+    public string Sites { get; set; } = "";           // distinct site names of its points
+    public string CreatedByName { get; set; } = "";
+    public DateTimeOffset UpdatedAt { get; set; }
+    public int PointCount { get; set; }
 }
 
 // ─────────────────────────────────────────────────────────────

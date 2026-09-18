@@ -2,13 +2,13 @@
 // Loaded from _Layout.cshtml, so it runs on authenticated pages only
 // (the Login page uses Layout = null and never includes this file).
 //
-// Logs the user out after 5 minutes of no activity, resetting the timer on
+// Logs the user out after 15 minutes of no activity, resetting the timer on
 // any mouse/keyboard/scroll/touch input. Also intercepts AJAX 401/403
 // responses and synchronises timeout/logout across browser tabs.
 (function () {
   'use strict';
 
-  var IDLE_LIMIT   = 5 * 60 * 1000;                 // 5 minutes
+  var IDLE_LIMIT   = 15 * 60 * 1000;                // 15 minutes — matches ExpireTimeSpan in Program.cs
   var ACTIVITY_KEY = 'af_lastActivity';             // shared across tabs
   var LOGOUT_KEY   = 'af_sessionLoggedOut';         // broadcast on logout
   var EXPIRED_MSG  = 'Your session has expired due to inactivity. Please login again.';

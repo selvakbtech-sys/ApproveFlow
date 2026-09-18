@@ -175,11 +175,19 @@
   <div class="dwo-selbar" id="dwoSetBar">
     <div>
       <strong id="dwoSetCount">0</strong> discussion(s) selected for a Set.
-      <span style="color:var(--txt2)">Tick Submitted rows, then bundle them with supporting documents and a requested management appointment.</span>
+      <span style="color:var(--txt2)">Tick Submitted rows (or discussions reassigned to you), then bundle them with supporting documents and a requested management appointment — or save the bundle as a Draft first.</span>
     </div>
-    <button type="button" class="btn btn-acc btn-sm" id="dwoSetBtn" disabled onclick="dwoOpenBuildSet()">
-      Build Set &amp; Submit to Management
-    </button>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      @if (Model.Actor.CanEditSets)
+      {
+        <button type="button" class="btn btn-sec btn-sm dwo-setact" disabled onclick="dwoOpenDraftPicker()">
+          Add to Draft Set
+        </button>
+      }
+      <button type="button" class="btn btn-acc btn-sm dwo-setact" id="dwoSetBtn" disabled onclick="dwoOpenBuildSet()">
+        Build Set
+      </button>
+    </div>
   </div>
 }
 
@@ -228,7 +236,7 @@
             <td>
               <span class="mono" style="font-size:11px">@r.PointNumber</span>
               @if (!string.IsNullOrEmpty(r.SetNumber))
-              { <div style="font-size:10px;color:var(--txt3)">@r.SetNumber</div> }
+              { <div style="font-size:10px;color:var(--txt3)">@r.SetNumber@(r.SetIsDraft ? " (draft)" : "")</div> }
             </td>
             <td style="font-size:12px;color:var(--txt2)">@(string.IsNullOrEmpty(r.TaskId) ? "—" : r.TaskId)</td>
             <td style="font-weight:600;max-width:280px">@r.Title</td>
@@ -237,7 +245,7 @@
             <td style="font-size:12px">@r.LocationName</td>
             <td><span class="badge @DwoPriority.Badge(r.Priority)">@r.Priority</span></td>
             <td>
-              <span class="badge @DwoStatus.Badge(r.Status)">@r.Status</span>
+              <span class="badge @DwoStatus.Badge(r.DisplayStatus)">@r.DisplayStatus</span>
               @if (r.IsFollowUpOverdue)
               { <span class="badge badge-red" style="margin-left:4px">Overdue</span> }
             </td>

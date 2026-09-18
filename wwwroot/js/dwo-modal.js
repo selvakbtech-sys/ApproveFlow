@@ -116,15 +116,37 @@
     var bar = document.getElementById('dwoSetBar');
     if (!bar) return;
     var count = document.getElementById('dwoSetCount');
-    var btn = document.getElementById('dwoSetBtn');
     if (count) count.textContent = ids.length;
-    if (btn) btn.disabled = ids.length === 0;
+    document.querySelectorAll('.dwo-setact').forEach(function (b) { b.disabled = ids.length === 0; });
   };
 
   window.dwoOpenBuildSet = function () {
     var ids = window.dwoSelectedIds();
     if (ids.length === 0) return;
     loadModal('/Dwo/BuildSetModal?ids=' + encodeURIComponent(ids.join(',')), true);
+  };
+
+  // "Add to Draft Set": picker of the Draft Sets the ticked points may join (large panel).
+  // The picker's search/filter/pager call dwoReloadDraftPicker, which re-fetches the same
+  // partial with the form's current values (the point ids ride along as hidden inputs).
+  window.dwoOpenDraftPicker = function () {
+    var ids = window.dwoSelectedIds();
+    if (ids.length === 0) return;
+    loadModal('/Dwo/DraftSetPicker?ids=' + encodeURIComponent(ids.join(',')), true);
+  };
+
+  window.dwoReloadDraftPicker = function (page) {
+    var form = document.getElementById('dwoDraftPickerFilter');
+    if (!form) return;
+    var params = new URLSearchParams(new FormData(form));
+    if (page) params.set('Page', page);
+    loadModal('/Dwo/DraftSetPicker?' + params.toString(), true);
+  };
+
+  // The Add button wakes up once a Set is chosen.
+  window.dwoDraftPicked = function () {
+    var btn = document.getElementById('dwoDraftAddBtn');
+    if (btn) btn.disabled = !document.querySelector('input[name="setId"]:checked');
   };
 
   // ── Create/Edit form: repeatable reference-link rows ──────

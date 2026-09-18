@@ -11,7 +11,11 @@ public interface ICommonDashboardService
 
 public class CommonDashboardService : ICommonDashboardService
 {
-    private const int RecentRequestCount = 8;
+    private const int TrendMonths = 6;
+    private const int TopTypes = 6;
+
+    private static readonly string[] Palette =
+        { "#2563eb", "#0891b2", "#16a34a", "#d97706", "#7c3aed", "#dc2626", "#64748b" };
 
     private readonly AppDbContext _db;
     public CommonDashboardService(AppDbContext db) { _db = db; }
@@ -46,19 +50,52 @@ public class CommonDashboardService : ICommonDashboardService
             });
         }
 
-        vm.RecentRequests = await scoped
-            .OrderByDescending(r => r.RequestId)
-            .Take(RecentRequestCount)
-            .Select(r => new CommonRecentRequestVM
-            {
-                RequestId     = r.RequestId,
-                RequestNumber = r.RequestNumber,
-                Category      = r.RequestType.TypeName,
-                RequestedBy   = r.Requestor.FullName,
-                Status        = r.Status,
-                Date          = r.CreatedAt,
-            })
+        // ── Trend: requests raised per month vs. approved, last six months (IST) ──
+        var now = IstClock.Now;
+        var firstMonth = new DateTimeOffset(now.Year, now.Month, 1, 0, 0, 0, now.Offset).AddMonths(-(TrendMonths - 1));
+        var monthly = await scoped
+            .Where(r => r.CreatedAt >= firstMonth)
+            .GroupBy(r => new { r.CreatedAt.Year, r.CreatedAt.Month, r.Status })
+            .Select(g => new { g.Key.Year, g.Key.Month, g.Key.Status, N = g.Count() })
             .ToListAsync(ct);
+        for (int i = 0; i < TrendMonths; i++)
+        {
+            var m = firstMonth.AddMonths(i);
+            var rows = monthly.Where(x => x.Year == m.Year && x.Month == m.Month).ToList();
+            vm.Trend.Add(new CommonMonthPointVM
+            {
+                Label     = m.ToString("MMM yy"),
+                Primary   = rows.Sum(x => x.N),
+                Secondary = rows.Where(x => x.Status == RequestStatus.Approved).Sum(x => x.N),
+            });
+        }
+
+        // ── By request type: the busiest types, all time ──
+        var byType = await scoped
+            .GroupBy(r => r.RequestType.TypeName)
+            .Select(g => new { Label = g.Key, N = g.Count() })
+            .OrderByDescending(x => x.N).ThenBy(x => x.Label)
+            .Take(TopTypes)
+            .ToListAsync(ct);
+        vm.ByType = byType.Select((x, i) => new CommonSliceVM
+        {
+            Label = x.Label, Count = x.N, Color = Palette[i % Palette.Length],
+        }).ToList();
+
+        // ── By priority: what is still waiting on a decision ──
+        var openStatuses = new[] { RequestStatus.PendingApproval, RequestStatus.Open, RequestStatus.PartialApproved, RequestStatus.ClarificationNeeded };
+        var byPriority = await scoped
+            .Where(r => openStatuses.Contains(r.Status))
+            .GroupBy(r => r.Priority)
+            .Select(g => new { Label = g.Key, N = g.Count() })
+            .ToListAsync(ct);
+        // Same four values RequestFormVM.Priorities offers on the request form.
+        foreach (var (label, color) in new[] { ("Critical", "#7c3aed"), ("High", "#dc2626"), ("Medium", "#d97706"), ("Low", "#16a34a") })
+            vm.ByPriority.Add(new CommonSliceVM
+            {
+                Label = label, Color = color,
+                Count = byPriority.Where(x => string.Equals(x.Label, label, StringComparison.OrdinalIgnoreCase)).Sum(x => x.N),
+            });
 
         return vm;
     }

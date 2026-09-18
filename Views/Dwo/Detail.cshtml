@@ -10,6 +10,10 @@
     var listUrl = ViewBag.ReturnUrl as string;
     var backUrl = string.IsNullOrEmpty(listUrl) ? Url.Action("Register") : listUrl;
     var selfUrl = Url.Action("Detail", new { id = p.PointId, tab, returnUrl = listUrl });
+    // Opened from a Set's Review button (returnUrl reopens that Set): every action form
+    // goes back to the Set instead of staying here, so the reviewer lands on the next point.
+    bool fromSet = listUrl != null && listUrl.Contains("openSet=");
+    var actionReturn = fromSet ? backUrl : selfUrl;
 
     var originalDocs = Model.Attachments.Where(a => a.Kind == DwoAttachmentKind.Point).ToList();
     var followUpDocs = Model.Attachments.Where(a => a.Kind == DwoAttachmentKind.FollowUpCompletion).ToList();
@@ -21,7 +25,8 @@
   <div>
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
       <div class="pg-title">@p.PointNumber</div>
-      <span class="badge @DwoStatus.Badge(p.Status)">@p.Status</span>
+      @{ var shownStatus = DwoStatus.Display(p.Status, Model.Set?.Status == DwoSetStatus.Draft); }
+      <span class="badge @DwoStatus.Badge(shownStatus)">@shownStatus</span>
       <span class="badge @DwoPriority.Badge(p.Priority)">@p.Priority</span>
       @if (Model.IsFollowUpOverdue) { <span class="badge badge-red">Follow-up overdue</span> }
       @if (Model.Set != null) { <span class="badge badge-gray">Set @Model.Set.SetNumber</span> }
@@ -35,13 +40,23 @@
     {
       <a asp-action="Edit" asp-route-id="@p.PointId" asp-route-returnUrl="@selfUrl" class="btn btn-sec btn-sm">Edit</a>
     }
+    @if (Model.CanTakeUp)
+    {
+      <form asp-action="TakeUp" method="post" style="display:inline"
+            data-submit-guard data-guard-idempotent="false" data-guard-title="Taking up discussion">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="id" value="@p.PointId"/>
+        <input type="hidden" name="returnUrl" value="@actionReturn"/>
+        <button type="submit" class="btn btn-acc btn-sm">Take up</button>
+      </form>
+    }
     @if (Model.CanSubmit)
     {
       <form asp-action="Submit" method="post" style="display:inline"
             data-submit-guard data-guard-idempotent="false" data-guard-title="Submitting discussion">
         @Html.AntiForgeryToken()
         <input type="hidden" name="id" value="@p.PointId"/>
-        <input type="hidden" name="returnUrl" value="@selfUrl"/>
+        <input type="hidden" name="returnUrl" value="@actionReturn"/>
         <button type="submit" class="btn btn-acc btn-sm">@(Model.Actor.IsManagement ? "Create Discussion" : "Submit to HOD")</button>
       </form>
     }
@@ -51,7 +66,7 @@
             onsubmit="return confirm('Withdraw this discussion? It goes back to Draft.')">
         @Html.AntiForgeryToken()
         <input type="hidden" name="id" value="@p.PointId"/>
-        <input type="hidden" name="returnUrl" value="@selfUrl"/>
+        <input type="hidden" name="returnUrl" value="@actionReturn"/>
         <button type="submit" class="btn btn-ng btn-sm">Withdraw</button>
       </form>
     }
@@ -78,7 +93,7 @@
       <form asp-action="Resume" method="post" style="display:inline">
         @Html.AntiForgeryToken()
         <input type="hidden" name="id" value="@p.PointId"/>
-        <input type="hidden" name="returnUrl" value="@selfUrl"/>
+        <input type="hidden" name="returnUrl" value="@actionReturn"/>
         <button type="submit" class="btn btn-acc btn-sm">Resume discussion</button>
       </form>
     }
@@ -107,7 +122,19 @@
 {
   <div class="alert alert-err" style="margin-bottom:12px"><strong>Rejected:</strong> @p.ReviewRemarks</div>
 }
-@if (p.Status == DwoStatus.Reassigned)
+@if (p.Status == DwoStatus.Closed && !string.IsNullOrEmpty(p.ReviewRemarks))
+{
+  <div class="alert alert-ok" style="margin-bottom:12px"><strong>Resolution:</strong> @p.ReviewRemarks</div>
+}
+@if (p.Status == DwoStatus.Hold && !string.IsNullOrEmpty(p.ReviewRemarks))
+{
+  <div class="alert alert-wa" style="margin-bottom:12px"><strong>On hold:</strong> @p.ReviewRemarks</div>
+}
+@if (p.Status == DwoStatus.FollowUp && !string.IsNullOrEmpty(p.ReviewRemarks))
+{
+  <div class="alert alert-in" style="margin-bottom:12px"><strong>Management remarks:</strong> @p.ReviewRemarks</div>
+}
+@if (p.Status == DwoStatus.Reassigned && Model.OriginPoint == null)
 {
   <div class="alert alert-in" style="margin-bottom:12px">
     This discussion was reassigned to another department and is now read-only.
@@ -118,6 +145,10 @@
 {
   <div class="alert alert-in" style="margin-bottom:12px">
     Created by reassignment from <span class="mono">@Model.OriginPoint.PointNumber</span>.
+    @if (p.Status == DwoStatus.Reassigned)
+    {
+      <text>Read-only until someone in @p.Department.DeptName takes it up@(Model.CanTakeUp ? " — use Take up above." : ".")</text>
+    }
   </div>
 }
 @if (Model.OpenFollowUp is { } fu)
@@ -193,7 +224,10 @@
           <div class="card-body">
             <div style="font-size:13px;margin-bottom:8px">
               <span class="mono">@Model.Set.SetNumber</span> ·
-              <span class="badge @DwoAppointmentStatus.Badge(Model.Set.AppointmentStatus)">@Model.Set.AppointmentStatus</span>
+              @if (Model.Set.Status == DwoSetStatus.Draft)
+              { <span class="badge badge-gray">Draft</span> }
+              else
+              { <span class="badge @DwoAppointmentStatus.Badge(Model.Set.AppointmentStatus)">@Model.Set.AppointmentStatus</span> }
             </div>
             <button type="button" class="btn btn-sec btn-sm" style="width:100%;justify-content:center"
                     onclick="dwoLoadModal('/Dwo/SetModal/@Model.Set.SetId', true)">
@@ -270,7 +304,7 @@
         @Html.AntiForgeryToken()
         <input type="hidden" name="id" value="@p.PointId"/>
         <input type="hidden" name="action" value="send_back"/>
-        <input type="hidden" name="returnUrl" value="@selfUrl"/>
+        <input type="hidden" name="returnUrl" value="@actionReturn"/>
         <label class="lbl">Note to the raiser <span class="req">*</span></label>
         <textarea name="note" class="inp" rows="3" required placeholder="What needs to change before this can go forward?"></textarea>
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
@@ -288,7 +322,7 @@
         @Html.AntiForgeryToken()
         <input type="hidden" name="id" value="@p.PointId"/>
         <input type="hidden" name="action" value="reject"/>
-        <input type="hidden" name="returnUrl" value="@selfUrl"/>
+        <input type="hidden" name="returnUrl" value="@actionReturn"/>
         <label class="lbl">Rejection reason <span class="req">*</span></label>
         <textarea name="note" class="inp" rows="3" required placeholder="Why is this being rejected?"></textarea>
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
@@ -310,7 +344,7 @@
         @Html.AntiForgeryToken()
         <input type="hidden" name="id" value="@p.PointId"/>
         <input type="hidden" name="action" value="close"/>
-        <input type="hidden" name="returnUrl" value="@selfUrl"/>
+        <input type="hidden" name="returnUrl" value="@actionReturn"/>
         <label class="lbl">Resolution remarks <span class="req">*</span></label>
         <textarea name="remarks" class="inp" rows="3" required placeholder="The decision taken"></textarea>
         <label class="lbl" style="margin-top:10px">Supporting document</label>
@@ -330,7 +364,7 @@
         @Html.AntiForgeryToken()
         <input type="hidden" name="id" value="@p.PointId"/>
         <input type="hidden" name="action" value="followup"/>
-        <input type="hidden" name="returnUrl" value="@selfUrl"/>
+        <input type="hidden" name="returnUrl" value="@actionReturn"/>
         <div class="form-grid fg2">
           <div class="form-group">
             <label class="lbl">Follow-up owner <span class="req">*</span></label>
@@ -370,7 +404,7 @@
         @Html.AntiForgeryToken()
         <input type="hidden" name="id" value="@p.PointId"/>
         <input type="hidden" name="action" value="hold"/>
-        <input type="hidden" name="returnUrl" value="@selfUrl"/>
+        <input type="hidden" name="returnUrl" value="@actionReturn"/>
         <label class="lbl">Hold reason <span class="req">*</span></label>
         <textarea name="remarks" class="inp" rows="3" required placeholder="Why is this being held?"></textarea>
         <label class="lbl" style="margin-top:10px">Supporting document</label>
@@ -391,7 +425,7 @@
         @Html.AntiForgeryToken()
         <input type="hidden" name="id" value="@p.PointId"/>
         <input type="hidden" name="action" value="reassign"/>
-        <input type="hidden" name="returnUrl" value="@selfUrl"/>
+        <input type="hidden" name="returnUrl" value="@actionReturn"/>
         <label class="lbl">Target department <span class="req">*</span></label>
         <select name="targetDepartmentId" class="inp" required>
           <option value="">Select…</option>
@@ -422,7 +456,7 @@
       <form asp-action="CompleteFollowUp" method="post" enctype="multipart/form-data">
         @Html.AntiForgeryToken()
         <input type="hidden" name="id" value="@p.PointId"/>
-        <input type="hidden" name="returnUrl" value="@selfUrl"/>
+        <input type="hidden" name="returnUrl" value="@actionReturn"/>
         <label class="lbl">What was done <span class="req">*</span></label>
         <textarea name="note" class="inp" rows="3" required placeholder="Summarise the follow-up action taken"></textarea>
         <label class="lbl" style="margin-top:10px">Completion document</label>

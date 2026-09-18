@@ -5,6 +5,13 @@
     // A Set is Completed once no discussion on it is still in Management Discussion — the
     // same rule the row's own IsCompleted uses, so the chips and the grid always agree.
 }
+@section Scripts {
+  @if (Model.OpenSetId is int openId)
+  {
+    @* Back from reviewing a point out of this Set: reopen its popup straight away. *@
+    <script>dwoLoadModal('/Dwo/SetModal/@openId', true);</script>
+  }
+}
 
 <div class="pg-hdr">
   <div>
@@ -18,6 +25,13 @@
      class="dwo-chip @(string.IsNullOrEmpty(Model.FilterStatus) ? "active" : "")">
     All <span class="n">@Model.StatusCounts.Values.Sum()</span>
   </a>
+  @if (Model.StatusCounts.GetValueOrDefault("draft", 0) > 0 || Model.FilterStatus == "draft")
+  {
+    <a asp-action="Sets" asp-route-deptId="@Model.FilterDeptId" asp-route-status="draft"
+       class="dwo-chip @(Model.FilterStatus == "draft" ? "active" : "")">
+      Draft <span class="n">@Model.StatusCounts.GetValueOrDefault("draft", 0)</span>
+    </a>
+  }
   <a asp-action="Sets" asp-route-deptId="@Model.FilterDeptId" asp-route-status="awaiting"
      class="dwo-chip @(Model.FilterStatus == "awaiting" ? "active" : "")">
     Awaiting Discussion <span class="n">@Model.StatusCounts.GetValueOrDefault("awaiting", 0)</span>
@@ -73,7 +87,10 @@
         @foreach (var s in Model.Items)
         {
           <tr style="cursor:pointer" onclick="dwoLoadModal('/Dwo/SetModal/@s.SetId', true)">
-            <td><span class="mono" style="font-size:11px">@s.SetNumber</span></td>
+            <td>
+              <span class="mono" style="font-size:11px">@s.SetNumber</span>
+              @if (!string.IsNullOrEmpty(s.Title)) { <div style="font-size:11px;color:var(--txt3)">@s.Title</div> }
+            </td>
             <td style="font-size:12px">@s.DeptName</td>
             <td>
               @s.PointCount
@@ -81,15 +98,29 @@
               { <span class="badge badge-amber" style="margin-left:4px">@s.UndecidedCount pending</span> }
             </td>
             <td>
-              <span class="badge @DwoAppointmentStatus.Badge(s.AppointmentStatus)">@s.AppointmentStatus</span>
+              @if (s.IsDraft)
+              {
+                <span style="font-size:12px;color:var(--txt3)">Not requested yet</span>
+              }
+              else
+              {
+                <span class="badge @DwoAppointmentStatus.Badge(s.AppointmentStatus)">@s.AppointmentStatus</span>
+              }
               <div style="font-size:11px;color:var(--txt3)">@s.AppointmentDate?.ToString("dd MMM yyyy")</div>
             </td>
             <td style="font-size:12px">@s.SubmittedByName</td>
             <td style="font-size:11px;color:var(--txt3);white-space:nowrap">@s.SubmittedAt.ToString("dd MMM yyyy")</td>
             <td>
-              <span class="badge @(s.IsCompleted ? "badge-green" : "badge-sky")">
-                @(s.IsCompleted ? "Completed" : "Awaiting Discussion")
-              </span>
+              @if (s.IsDraft)
+              {
+                <span class="badge badge-gray">Draft</span>
+              }
+              else
+              {
+                <span class="badge @(s.IsCompleted ? "badge-green" : "badge-sky")">
+                  @(s.IsCompleted ? "Completed" : "Awaiting Discussion")
+                </span>
+              }
             </td>
           </tr>
         }

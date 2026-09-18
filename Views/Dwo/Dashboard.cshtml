@@ -70,7 +70,7 @@
         {
           <div class="dwo-mini">
             <a href="@Url.Action("Detail", "Dwo", new { id = r.PointId })">@r.Title</a>
-            <span class="dwo-mini-meta"><span class="badge @DwoStatus.Badge(r.Status)">@r.Status</span></span>
+            <span class="dwo-mini-meta"><span class="badge @DwoStatus.Badge(r.DisplayStatus)">@r.DisplayStatus</span></span>
           </div>
         }
       </div>

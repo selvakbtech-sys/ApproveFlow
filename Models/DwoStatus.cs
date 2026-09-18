@@ -22,10 +22,17 @@ public static class DwoStatus
         ManagementDiscussion, FollowUp, Hold, Reassigned, Closed
     };
 
+    // Display-only label for a Submitted point sitting on a Draft Set. The stored status
+    // stays Submitted (every workflow guard keys off it); only what the user sees changes.
+    public const string SetDraft = "Set Draft";
+    public static string Display(string status, bool onDraftSet) =>
+        status == Submitted && onDraftSet ? SetDraft : status;
+
     // Badge class in site.css for each status (reuses the existing .badge-* palette).
     public static string Badge(string status) => status switch
     {
         Draft                => "badge-gray",
+        SetDraft             => "badge-purple",
         Submitted            => "badge-blue",
         ChangeRequested      => "badge-amber",
         Rejected             => "badge-red",
@@ -36,6 +43,14 @@ public static class DwoStatus
         Closed               => "badge-green",
         _                    => "badge-gray",
     };
+}
+
+// Lifecycle of a Set. A Draft is the HOD's work-in-progress bundle: its points keep their
+// Submitted status and Management never sees it. Submitted is the live Set.
+public static class DwoSetStatus
+{
+    public const string Draft     = "Draft";
+    public const string Submitted = "Submitted";
 }
 
 // Appointment state of a Set once the HOD has submitted it to Management.
@@ -99,6 +114,10 @@ public static class DwoPriority
 public static class DwoScreens
 {
     public const string Register   = "DWO Register";
+    // Requestor-side screens: My Discussions + raise/edit/submit/withdraw a point.
+    public const string Points     = "Discussion Point";
+    // Sets list / Set modal / summary document.
+    public const string Sets       = "Sets";
     public const string Reports    = "DWO Reports";
     public const string Companies  = "Companies";
 }

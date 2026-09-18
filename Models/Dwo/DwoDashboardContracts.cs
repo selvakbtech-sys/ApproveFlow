@@ -41,9 +41,27 @@ public class DwoDashboardVM
     // The DWO KPI cards. Keys come from DwoKpiKeys; a card the module does not return
     // renders with "—" instead of a count.
     public List<DwoKpiCardVM> Kpis { get; set; } = new();
-    // "Recent Discussions" grid — rendered in its own table, never merged with the
-    // ApproveFlow Recent Requests grid.
-    public List<DwoRecentDiscussionVM> RecentDiscussions { get; set; } = new();
+    // Charts — every series is produced by the DWO module from the same scoped query as
+    // the cards, and rendered in the DWO section only.
+    public List<DwoSliceVM> ByStatus { get; set; } = new();          // every status with a count
+    public List<DwoMonthPointVM> Trend { get; set; } = new();        // last 6 months: raised vs closed
+    public List<DwoSliceVM> ByDepartment { get; set; } = new();      // busiest departments
+    public List<DwoSliceVM> ByPriority { get; set; } = new();        // open discussions by priority
+}
+
+public class DwoSliceVM
+{
+    public string Label { get; set; } = "";
+    public int Count { get; set; }
+    public string Color { get; set; } = "#94a3b8";
+    public string? Url { get; set; }
+}
+
+public class DwoMonthPointVM
+{
+    public string Label { get; set; } = "";
+    public int Primary { get; set; }              // raised
+    public int Secondary { get; set; }            // closed
 }
 
 // The DWO module's screen names as the Roles & Permissions matrix stores them.
@@ -100,13 +118,3 @@ public class DwoKpiCardVM
     public string? Url { get; set; }
 }
 
-public class DwoRecentDiscussionVM
-{
-    public string DiscussionNo { get; set; } = "";
-    public string Title { get; set; } = "";
-    public string Department { get; set; } = "";
-    public string Status { get; set; } = "";
-    public DateTimeOffset? DueDate { get; set; }
-    // Link to the discussion detail screen in the DWO module.
-    public string? Url { get; set; }
-}

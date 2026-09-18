@@ -25,13 +25,22 @@ public interface IDwoService
         DwoPointFormVM vm, DwoActor actor, string saveAction, string storagePath, int maxFileMb);
 
     Task<(bool ok, string? err)> SubmitPointAsync(int pointId, DwoActor actor);
+    Task<(bool ok, string? err)> TakeUpAsync(int pointId, DwoActor actor);
     Task<(bool ok, string? err)> WithdrawPointAsync(int pointId, DwoActor actor);
     Task<(bool ok, string? err)> ReviewAsync(int pointId, DwoActor actor, string action, string? note);
 
     Task<DwoSetListVM> GetSetsAsync(DwoActor actor, int? deptId, string? status);
     Task<DwoSetDetailVM?> GetSetAsync(int setId, DwoActor actor);
+    Task<List<DwoSetRowVM>> GetDraftSetsForPointsAsync(List<int> pointIds, DwoActor actor);
+    Task<DwoDraftSetPickerVM> GetDraftSetPickerAsync(DwoDraftSetPickerVM filter, DwoActor actor);
+    // info: a non-fatal note returned alongside success (duplicates skipped).
+    Task<(bool ok, string? err, string? info)> AddPointsToDraftSetAsync(int setId, List<int> pointIds, DwoActor actor);
+    Task<(bool ok, string? err)> RemoveFromDraftSetAsync(int setId, int pointId, DwoActor actor);
+    Task<(bool ok, string? err)> AddDraftSetFilesAsync(int setId, DwoActor actor, List<IFormFile> files, string storagePath, int maxFileMb);
+    Task<(bool ok, string? err)> DiscardDraftSetAsync(int setId, DwoActor actor, string storagePath);
+    // saveAction: "draft" | "submit".
     Task<(bool ok, string? err, string? setNumber)> SubmitSetAsync(
-        DwoSetSubmitVM vm, DwoActor actor, string storagePath, int maxFileMb);
+        DwoSetSubmitVM vm, DwoActor actor, string saveAction, string storagePath, int maxFileMb);
     Task<(bool ok, string? err)> ScheduleAppointmentAsync(int setId, DwoActor actor, DateOnly date, string? note);
     Task<(bool ok, string? err)> PostponeAppointmentAsync(int setId, DwoActor actor, DateOnly date, string? reason);
     Task<(bool ok, string? err)> SaveSummaryFileAsync(int setId, DwoActor actor, IFormFile file, string storagePath, int maxFileMb);
@@ -203,6 +212,24 @@ public class DwoService : IDwoService
         return await ProjectRows(q).OrderByDescending(r => r.CreatedAt).Take(5000).ToListAsync();
     }
 
+    // What an HOD may put on a Set: a Submitted point, or a reassigned copy that landed in
+    // their department (Reassigned, or the Draft it becomes once taken up) — the HOD taking
+    // it onto a Set is that department's acceptance of it. Never a point already on a Set.
+    private static bool EligibleForSet(string status, bool isReassignedCopy, bool onSet) =>
+        !onSet && (status == DwoStatus.Submitted ||
+                   (isReassignedCopy && (status == DwoStatus.Reassigned || status == DwoStatus.Draft)));
+
+    private static bool EligibleForSet(DwoPoint p) => EligibleForSet(p.Status, p.OriginPointId != null, p.SetId != null);
+
+    // Joining a Set counts as the HOD's acceptance of a reassigned copy: it becomes a
+    // Submitted point of the department, raised (if still unclaimed) by the HOD.
+    private static void AcceptIntoSet(DwoPoint p, DwoActor actor)
+    {
+        if (p.Status == DwoStatus.Submitted) return;
+        p.Status = DwoStatus.Submitted;
+        p.RaisedByUserId ??= actor.UserId;
+    }
+
     // One projection for every grid and widget, so a row always carries the same fields.
     private IQueryable<DwoPointRowVM> ProjectRows(IQueryable<DwoPoint> q)
     {
@@ -212,6 +239,8 @@ public class DwoService : IDwoService
             PointId      = p.PointId,
             PointNumber  = p.PointNumber,
             SetNumber    = p.Set != null ? p.Set.SetNumber : null,
+            SetIsDraft   = p.Set != null && p.Set.Status == DwoSetStatus.Draft,
+            IsReassignedCopy = p.OriginPointId != null,
             TaskId       = p.TaskId,
             Title        = p.Title,
             Category     = p.Category,
@@ -236,12 +265,13 @@ public class DwoService : IDwoService
     }
 
     // Submitted rows may be ticked for a Set by an HOD (own department — the grid is already
-    // scoped to it) or by Management (any department), matching SubmitSetAsync.
+    // scoped to it) or by Management (any department), matching SubmitSetAsync. A point
+    // already sitting on a Draft Set is managed from that Set, not ticked again.
     private static void MarkSelectable(List<DwoPointRowVM> rows, DwoActor actor, string mode)
     {
         if ((!actor.IsHod && !actor.IsManagement) || mode == DwoGridMode.Mine) return;
         foreach (var r in rows)
-            r.IsSelectableForSet = r.Status == DwoStatus.Submitted;
+            r.IsSelectableForSet = EligibleForSet(r.Status, r.IsReassignedCopy, r.SetNumber != null);
     }
 
     private async Task FillRegisterLookupsAsync(DwoRegisterVM vm, DwoActor actor)
@@ -312,13 +342,18 @@ public class DwoService : IDwoService
         vm.CanEdit    = actor.CanEditOwn && owns &&
                         p.Status is DwoStatus.Draft or DwoStatus.Submitted or DwoStatus.ChangeRequested;
         vm.CanSubmit  = actor.CanCreate && owns && p.Status == DwoStatus.Draft;
+        // A reassigned copy waits, read-only, until someone in the target department takes
+        // it up (TakeUpAsync); the original — which has no OriginPointId — never can be.
+        vm.CanTakeUp  = actor.CanCreate && p.Status == DwoStatus.Reassigned && p.OriginPointId != null &&
+                        p.RaisedByUserId == null &&
+                        (actor.IsManagement || actor.DepartmentIds.Contains(p.DepartmentId));
         // A Draft is already withdrawn — offering Withdraw on it would be a no-op button.
         vm.CanWithdraw = actor.CanWithdraw && owns &&
                         p.Status is not (DwoStatus.Draft or DwoStatus.Closed or DwoStatus.FollowUp or DwoStatus.Rejected or DwoStatus.Reassigned);
         vm.CanReview  = actor.IsHod && !actor.IsManagement &&
                         p.Status == DwoStatus.Submitted && actor.DepartmentIds.Contains(p.DepartmentId);
         // Same rule as the Register grid's tick column (MarkSelectable / SubmitSetAsync).
-        vm.CanBuildSet = p.Status == DwoStatus.Submitted &&
+        vm.CanBuildSet = EligibleForSet(p) &&
                         (actor.IsManagement || (actor.IsHod && actor.DepartmentIds.Contains(p.DepartmentId)));
         vm.CanDiscuss = actor.IsManagement && p.Status == DwoStatus.ManagementDiscussion;
         vm.CanResume  = actor.IsManagement && p.Status == DwoStatus.Hold;
@@ -371,6 +406,9 @@ public class DwoService : IDwoService
     {
         var set = await _db.DwoSets.FirstOrDefaultAsync(s => s.SetId == setId);
         if (set == null) return null;
+        // A Draft takes points from the Register (they must pass HOD review first), never a
+        // point raised straight into Management Discussion.
+        if (set.Status == DwoSetStatus.Draft) return null;
         bool canManage = actor.IsManagement || (actor.IsHod && actor.DepartmentIds.Contains(set.DepartmentId));
         if (!canManage) return null;
         bool anyPoint  = await _db.DwoPoints.AnyAsync(p => p.SetId == setId);
@@ -566,6 +604,25 @@ public class DwoService : IDwoService
         return (true, null);
     }
 
+    // Someone in the target department claims a reassigned copy: it becomes their Draft and
+    // follows the normal Draft → Submitted → HOD path from there.
+    public async Task<(bool ok, string? err)> TakeUpAsync(int pointId, DwoActor actor)
+    {
+        if (!actor.CanCreate) return (false, "You do not have permission to take up a discussion.");
+        var p = await _db.DwoPoints.FirstOrDefaultAsync(x => x.PointId == pointId);
+        if (p == null) return (false, "Discussion not found.");
+        if (p.Status != DwoStatus.Reassigned || p.OriginPointId == null || p.RaisedByUserId != null)
+            return (false, "Only a reassigned discussion that nobody has taken up yet can be taken up.");
+        if (!actor.IsManagement && !actor.DepartmentIds.Contains(p.DepartmentId))
+            return (false, "That discussion belongs to another department.");
+
+        p.RaisedByUserId = actor.UserId;
+        p.Status = DwoStatus.Draft;
+        AddHistory(p.PointId, null, actor, "Taken up", "Now a Draft — update and submit to HOD");
+        await _db.SaveChangesAsync();
+        return (true, null);
+    }
+
     public async Task<(bool ok, string? err)> WithdrawPointAsync(int pointId, DwoActor actor)
     {
         var p = await _db.DwoPoints.FirstOrDefaultAsync(x => x.PointId == pointId);
@@ -612,6 +669,7 @@ public class DwoService : IDwoService
         p.ReviewedByUserId = actor.UserId;
         p.ReviewedAt = IstClock.Now;
         p.ReviewRemarks = trimmed;
+        p.SetId = null;                     // no longer Submitted, so it leaves any Draft Set
         AddHistory(p.PointId, null, actor, historyAction, trimmed);
         await _db.SaveChangesAsync();
 
@@ -624,10 +682,38 @@ public class DwoService : IDwoService
     // ─────────────────────────────────────────────────────────
     // Sets
     // ─────────────────────────────────────────────────────────
-    private IQueryable<DwoSet> ScopedSets(DwoActor actor) =>
-        actor.IsManagement
+    // Drafts are private to the HOD side: visible to the HODs of the department (and to
+    // whoever created it); Management sees only Sets that were actually submitted.
+    private IQueryable<DwoSet> ScopedSets(DwoActor actor)
+    {
+        var q = actor.IsManagement
             ? _db.DwoSets
             : _db.DwoSets.Where(s => actor.DepartmentIds.Contains(s.DepartmentId));
+        var depts = actor.DepartmentIds;
+        bool hod = actor.IsHod;
+        return q.Where(s => s.Status != DwoSetStatus.Draft ||
+                            s.SubmittedByUserId == actor.UserId ||
+                            (hod && depts.Contains(s.DepartmentId)));
+    }
+
+    private static bool CanEditDraft(DwoSet set, DwoActor actor) =>
+        set.Status == DwoSetStatus.Draft && actor.CanEditSets &&
+        (set.SubmittedByUserId == actor.UserId || (actor.IsHod && actor.DepartmentIds.Contains(set.DepartmentId)));
+
+    // The Drafts this actor may edit, as a query (same rule as CanEditDraft).
+    private IQueryable<DwoSet> EditableDrafts(DwoActor actor)
+    {
+        if (!actor.CanEditSets) return _db.DwoSets.Where(s => false);
+        var depts = actor.DepartmentIds;
+        bool hod = actor.IsHod;
+        return _db.DwoSets.Where(s => s.Status == DwoSetStatus.Draft &&
+                                      (s.SubmittedByUserId == actor.UserId || (hod && depts.Contains(s.DepartmentId))));
+    }
+
+    // Messages fixed by the "Add to Draft Set" spec.
+    private const string MsgLocked    = "This Set is already Submitted and cannot be modified.";
+    private const string MsgNotDraft  = "Only Draft Sets accept additional Discussion Points.";
+    private const string MsgDuplicate = "Selected Discussion Point already exists in this Set.";
 
     public async Task<DwoSetListVM> GetSetsAsync(DwoActor actor, int? deptId, string? status)
     {
@@ -639,6 +725,8 @@ public class DwoService : IDwoService
         {
             SetId = s.SetId,
             SetNumber = s.SetNumber,
+            Title = s.Title,
+            Status = s.Status,
             DeptName = s.Department.DeptName,
             PointCount = s.Points.Count,
             UndecidedCount = s.Points.Count(p => p.Status == DwoStatus.ManagementDiscussion),
@@ -650,10 +738,12 @@ public class DwoService : IDwoService
 
         vm.StatusCounts = new Dictionary<string, int>
         {
-            ["awaiting"]  = rows.Count(r => !r.IsCompleted),
+            ["draft"]     = rows.Count(r => r.IsDraft),
+            ["awaiting"]  = rows.Count(r => !r.IsDraft && !r.IsCompleted),
             ["completed"] = rows.Count(r => r.IsCompleted),
         };
-        if (status == "awaiting")  rows = rows.Where(r => !r.IsCompleted).ToList();
+        if (status == "draft")     rows = rows.Where(r => r.IsDraft).ToList();
+        if (status == "awaiting")  rows = rows.Where(r => !r.IsDraft && !r.IsCompleted).ToList();
         if (status == "completed") rows = rows.Where(r => r.IsCompleted).ToList();
 
         vm.Items = rows;
@@ -668,6 +758,7 @@ public class DwoService : IDwoService
             .FirstOrDefaultAsync(s => s.SetId == setId);
         if (set == null) return null;
         if (!actor.IsManagement && !actor.DepartmentIds.Contains(set.DepartmentId)) return null;
+        if (!await ScopedSets(actor).AnyAsync(s => s.SetId == setId)) return null;   // hides others' Drafts
 
         var points = await ProjectRows(_db.DwoPoints.Where(p => p.SetId == setId))
             .OrderBy(p => p.PointId).ToListAsync();
@@ -683,76 +774,326 @@ public class DwoService : IDwoService
             History = await _db.DwoHistories.Include(h => h.ActorUser)
                 .Where(h => h.SetId == setId).OrderBy(h => h.HistoryId).ToListAsync(),
             Actor = actor,
-            IsCompleted = points.Count > 0 && points.All(p => p.Status != DwoStatus.ManagementDiscussion),
-            CanManage = actor.IsManagement || (actor.IsHod && actor.DepartmentIds.Contains(set.DepartmentId)),
+            IsDraft = set.Status == DwoSetStatus.Draft,
+            IsCompleted = set.Status != DwoSetStatus.Draft &&
+                          points.Count > 0 && points.All(p => p.Status != DwoStatus.ManagementDiscussion),
+            CanManage = set.Status != DwoSetStatus.Draft &&
+                        (actor.IsManagement || (actor.IsHod && actor.DepartmentIds.Contains(set.DepartmentId))),
+            CanEditDraft = CanEditDraft(set, actor),
         };
+    }
+
+    // The Draft Sets the ticked points could join: same department as the points, and
+    // editable by the caller. Offered on the Build Set modal.
+    public async Task<List<DwoSetRowVM>> GetDraftSetsForPointsAsync(List<int> pointIds, DwoActor actor)
+    {
+        var deptIds = await _db.DwoPoints.Where(p => pointIds.Contains(p.PointId))
+            .Select(p => p.DepartmentId).Distinct().ToListAsync();
+        if (deptIds.Count != 1) return new();
+        var deptId = deptIds[0];
+        return await EditableDrafts(actor)
+            .Where(s => s.DepartmentId == deptId)
+            .Select(s => new DwoSetRowVM
+            {
+                SetId = s.SetId, SetNumber = s.SetNumber, Title = s.Title, Status = s.Status,
+                DeptName = s.Department.DeptName, PointCount = s.Points.Count,
+                SubmittedByName = s.SubmittedByUser.FullName, SubmittedAt = s.SubmittedAt,
+            })
+            .OrderByDescending(s => s.SetId).ToListAsync();
+    }
+
+    // "Add to Draft Set" picker: Draft Sets only, of the ticked points' department, that the
+    // caller may edit. Company / Site are those of the Set's points (a Set has no company of
+    // its own), so the filters match a Set that has at least one point there.
+    public async Task<DwoDraftSetPickerVM> GetDraftSetPickerAsync(DwoDraftSetPickerVM vm, DwoActor actor)
+    {
+        vm.Actor = actor;
+        vm.Companies = await _db.Companies.Where(c => c.IsActive).OrderBy(c => c.CompanyName).ToListAsync();
+        vm.Locations = await _db.Locations.Where(l => l.IsActive).OrderBy(l => l.LocationName).ToListAsync();
+
+        var picked = await _db.DwoPoints
+            .Where(p => vm.PointIds.Contains(p.PointId))
+            .Select(p => new { p.PointId, p.DepartmentId, p.Status, p.SetId, p.OriginPointId, DeptName = p.Department.DeptName })
+            .ToListAsync();
+        var eligible = picked.Where(p => EligibleForSet(p.Status, p.OriginPointId != null, p.SetId != null)).ToList();
+        if (eligible.Count == 0) { vm.Problem = "None of the selected discussions are free to join a Set."; return vm; }
+        var deptIds = eligible.Select(p => p.DepartmentId).Distinct().ToList();
+        if (deptIds.Count > 1) { vm.Problem = "A Set must contain discussions from a single department — tick rows from one department."; return vm; }
+        var deptId = deptIds[0];
+        if (!actor.IsManagement && !actor.DepartmentIds.Contains(deptId)) { vm.Problem = "Those discussions are outside your department."; return vm; }
+        vm.DeptName = eligible[0].DeptName;
+        vm.PointIds = eligible.Select(p => p.PointId).ToList();
+
+        var q = EditableDrafts(actor).Where(s => s.DepartmentId == deptId);
+        if (!string.IsNullOrWhiteSpace(vm.Search))
+        {
+            var term = vm.Search.Trim();
+            q = q.Where(s => s.SetNumber.Contains(term) || (s.Title != null && s.Title.Contains(term)) ||
+                             s.SubmittedByUser.FullName.Contains(term));
+        }
+        if (vm.FilterCompanyId is int c && c > 0)  q = q.Where(s => s.Points.Any(p => p.CompanyId == c));
+        if (vm.FilterLocationId is int l && l > 0) q = q.Where(s => s.Points.Any(p => p.LocationId == l));
+
+        vm.TotalCount = await q.CountAsync();
+        if (vm.Page < 1) vm.Page = 1;
+        if (vm.Page > vm.TotalPages) vm.Page = vm.TotalPages;
+
+        var rows = await q.OrderByDescending(s => s.UpdatedAt)
+            .Skip((vm.Page - 1) * vm.PageSize).Take(vm.PageSize)
+            .Select(s => new
+            {
+                s.SetId, s.SetNumber, s.Title, s.UpdatedAt,
+                CreatedByName = s.SubmittedByUser.FullName,
+                PointCount = s.Points.Count,
+                Companies = s.Points.Select(p => p.Company.CompanyName).ToList(),
+                Sites = s.Points.Select(p => p.Location.LocationName).ToList(),
+            })
+            .ToListAsync();
+        vm.Items = rows.Select(r => new DwoDraftSetPickRowVM
+        {
+            SetId = r.SetId, SetNumber = r.SetNumber, Title = r.Title, UpdatedAt = r.UpdatedAt,
+            CreatedByName = r.CreatedByName, PointCount = r.PointCount,
+            Companies = string.Join(", ", r.Companies.Distinct().OrderBy(x => x)),
+            Sites = string.Join(", ", r.Sites.Distinct().OrderBy(x => x)),
+        }).ToList();
+        return vm;
+    }
+
+    // Appends Submitted points to a Draft Set. One SaveChanges, so either every point joins
+    // or none does. A point already on this Set is skipped and reported, never duplicated.
+    public async Task<(bool ok, string? err, string? info)> AddPointsToDraftSetAsync(int setId, List<int> pointIds, DwoActor actor)
+    {
+        var set = await _db.DwoSets.FirstOrDefaultAsync(s => s.SetId == setId);
+        if (set == null) return (false, "Set not found.", null);
+        if (set.Status != DwoSetStatus.Draft)
+            return (false, set.Status == DwoSetStatus.Submitted ? MsgLocked : MsgNotDraft, null);
+        if (!CanEditDraft(set, actor))
+            return (false, "That Draft Set is not yours to edit.", null);
+        if (pointIds == null || pointIds.Count == 0)
+            return (false, "Select at least one Submitted discussion first.", null);
+
+        var points = await _db.DwoPoints.Where(p => pointIds.Contains(p.PointId)).ToListAsync();
+        if (points.Count == 0) return (false, "Discussion not found.", null);
+
+        var duplicates = points.Where(p => p.SetId == set.SetId).ToList();
+        var candidates = points.Where(p => p.SetId != set.SetId).ToList();
+        if (candidates.Any(p => !EligibleForSet(p)))
+            return (false, "Only Submitted (or reassigned) discussions that are not already on a Set can be added.", null);
+        if (candidates.Any(p => p.DepartmentId != set.DepartmentId))
+            return (false, "A Set must contain discussions from a single department.", null);
+        if (!actor.IsManagement && !actor.DepartmentIds.Contains(set.DepartmentId))
+            return (false, "Those discussions are outside your department.", null);
+        if (candidates.Count == 0) return (false, MsgDuplicate, null);
+
+        foreach (var p in candidates)
+        {
+            AcceptIntoSet(p, actor);
+            p.SetId = set.SetId;
+            AddHistory(p.PointId, null, actor, "Added to Set", $"{p.PointNumber} added to {set.SetNumber}");
+            AddHistory(null, set.SetId, actor, "Added to Set", $"{p.PointNumber} added to {set.SetNumber}");
+        }
+        set.UpdatedAt = IstClock.Now;
+        await _db.SaveChangesAsync();
+
+        string? info = duplicates.Count == 0 ? null
+            : $"{MsgDuplicate} Skipped: {string.Join(", ", duplicates.Select(d => d.PointNumber))}.";
+        return (true, null, info);
     }
 
     // The HOD's one route to Management: bundle Submitted points from their own department
     // with a supporting pack and a requested appointment date. Every point on the Set moves
     // to Management Discussion together.
+    //
+    // saveAction "draft" keeps the bundle as a Draft Set: the points are linked to it (and
+    // drop out of the Register's tick column) but stay Submitted, the pack and the date are
+    // optional, and Management is not told. "submit" — from the Build Set modal, or later
+    // from the Draft's own Set screen (DraftSetId with no PointIds) — applies the full rules.
     public async Task<(bool ok, string? err, string? setNumber)> SubmitSetAsync(
-        DwoSetSubmitVM vm, DwoActor actor, string storagePath, int maxFileMb)
+        DwoSetSubmitVM vm, DwoActor actor, string saveAction, string storagePath, int maxFileMb)
     {
+        bool submit = saveAction != "draft";
         if (!actor.IsHod && !actor.IsManagement)
-            return (false, "You do not have permission to submit a Set.", null);
-        if (vm.PointIds == null || vm.PointIds.Count == 0)
-            return (false, "Select at least one Submitted discussion first.", null);
-        if (vm.RequestedAppointmentDate is not DateOnly requested)
-            return (false, "A requested appointment date is required.", null);
-        if (requested < Today)
-            return (false, "The appointment date cannot be in the past.", null);
-        var supporting = (vm.SupportingFiles ?? new()).Where(f => f != null && f.Length > 0).ToList();
-        if (supporting.Count == 0)
-            return (false, "At least one supporting document is required.", null);
+            return (false, "You do not have permission to build a Set.", null);
+        if (!submit && !actor.CanEditSets)
+            return (false, "Saving a Draft Set needs the Sets edit permission.", null);
 
-        var points = await _db.DwoPoints
-            .Where(p => vm.PointIds.Contains(p.PointId) && p.Status == DwoStatus.Submitted)
+        // The Draft being extended or submitted, if any.
+        DwoSet? set = null;
+        if (vm.DraftSetId > 0)
+        {
+            set = await _db.DwoSets.FirstOrDefaultAsync(s => s.SetId == vm.DraftSetId);
+            if (set == null) return (false, "Set not found.", null);
+            if (set.Status != DwoSetStatus.Draft) return (false, MsgLocked, null);
+            if (!CanEditDraft(set, actor)) return (false, "That Draft Set is not yours to edit.", null);
+        }
+
+        var pointIds = vm.PointIds ?? new();
+        if (pointIds.Count == 0 && set == null)
+            return (false, "Select at least one Submitted discussion first.", null);
+
+        // New points must be eligible (see EligibleForSet) and not on a Set other than this Draft.
+        List<DwoPoint> loaded = pointIds.Count == 0 ? new() : await _db.DwoPoints
+            .Where(p => pointIds.Contains(p.PointId) && (p.SetId == null || (set != null && p.SetId == set.SetId)))
             .ToListAsync();
-        if (points.Count == 0)
-            return (false, "None of the selected discussions are still Submitted.", null);
+        List<DwoPoint> points = loaded.Where(p => p.SetId != null || EligibleForSet(p)).ToList();
+        if (pointIds.Count > 0 && points.Count == 0)
+            return (false, "None of the selected discussions are free to join a Set.", null);
 
         var deptIds = points.Select(p => p.DepartmentId).Distinct().ToList();
+        if (set != null) deptIds.Add(set.DepartmentId);
+        deptIds = deptIds.Distinct().ToList();
         if (deptIds.Count > 1)
             return (false, "A Set must contain discussions from a single department.", null);
         var deptId = deptIds[0];
         if (!actor.IsManagement && !actor.DepartmentIds.Contains(deptId))
             return (false, "Those discussions are outside your department.", null);
 
-        var set = new DwoSet
+        var supporting = (vm.SupportingFiles ?? new()).Where(f => f != null && f.Length > 0).ToList();
+        var requested = vm.RequestedAppointmentDate ?? set?.RequestedAppointmentDate;
+        if (submit)
         {
-            DepartmentId = deptId,
-            RequestedAppointmentDate = requested,
-            AppointmentNotes = string.IsNullOrWhiteSpace(vm.AppointmentNotes) ? null : vm.AppointmentNotes!.Trim(),
-            AppointmentStatus = DwoAppointmentStatus.Requested,
-            SubmittedByUserId = actor.UserId,
-            SubmittedAt = IstClock.Now,
-        };
-        _db.DwoSets.Add(set);
-        await _db.SaveChangesAsync();
-        set.SetNumber = $"DWO{100 + set.SetId}";
-
-        foreach (var p in points)
-        {
-            p.SetId = set.SetId;
-            p.Status = DwoStatus.ManagementDiscussion;
-            p.ReviewedByUserId = actor.UserId;
-            p.ReviewedAt = IstClock.Now;
-            AddHistory(p.PointId, null, actor, "Moved to management discussion",
-                $"Set {set.SetNumber} — appointment requested for {requested:dd MMM yyyy}");
+            if (requested is not DateOnly r)
+                return (false, "A requested appointment date is required.", null);
+            if (r < Today)
+                return (false, "The appointment date cannot be in the past.", null);
+            bool hasPack = supporting.Count > 0 || (set != null &&
+                await _db.DwoAttachments.AnyAsync(a => a.SetId == set.SetId && a.Kind == DwoAttachmentKind.SetSupporting));
+            if (!hasPack)
+                return (false, "At least one supporting document is required.", null);
         }
-        AddHistory(null, set.SetId, actor, "Set submitted",
-            $"{points.Count} discussion(s); appointment requested for {requested:dd MMM yyyy}");
+        else if (requested is DateOnly d && d < Today)
+            return (false, "The appointment date cannot be in the past.", null);
+
+        bool isNew = set == null;
+        if (isNew)
+        {
+            set = new DwoSet
+            {
+                DepartmentId = deptId,
+                Status = DwoSetStatus.Draft,
+                AppointmentStatus = DwoAppointmentStatus.Requested,
+                SubmittedByUserId = actor.UserId,
+                SubmittedAt = IstClock.Now,
+            };
+            _db.DwoSets.Add(set);
+            await _db.SaveChangesAsync();
+            set.SetNumber = $"DWO{100 + set.SetId}";
+        }
+        set!.RequestedAppointmentDate = requested;
+        if (vm.Title != null)
+            set.Title = string.IsNullOrWhiteSpace(vm.Title) ? null : vm.Title.Trim();
+        if (vm.AppointmentNotes != null)
+            set.AppointmentNotes = string.IsNullOrWhiteSpace(vm.AppointmentNotes) ? null : vm.AppointmentNotes.Trim();
+        set.UpdatedAt = IstClock.Now;
+
+        var added = points.Where(p => p.SetId != set.SetId).ToList();
+        foreach (var p in added)
+        {
+            AcceptIntoSet(p, actor);
+            p.SetId = set.SetId;
+            AddHistory(p.PointId, null, actor, "Added to Set", $"{p.PointNumber} added to {set.SetNumber}");
+            if (!isNew) AddHistory(null, set.SetId, actor, "Added to Set", $"{p.PointNumber} added to {set.SetNumber}");
+        }
 
         await SaveFilesAsync(supporting, storagePath, maxFileMb, actor, DwoAttachmentKind.SetSupporting, setId: set.SetId);
         if (vm.SummaryFile is { Length: > 0 })
             await SaveFilesAsync(new List<IFormFile> { vm.SummaryFile }, storagePath, maxFileMb, actor,
                 DwoAttachmentKind.SetSummary, setId: set.SetId);
 
+        if (!submit)
+        {
+            AddHistory(null, set.SetId, actor, isNew ? "Draft Set created" : "Draft Set updated",
+                added.Count > 0 ? $"{added.Count} discussion(s) added" : null);
+            await _db.SaveChangesAsync();
+            return (true, null, set.SetNumber);
+        }
+
+        // Submission: every point on the Set (those just added plus any already on the
+        // Draft) moves to Management Discussion together.
+        var onSet = await _db.DwoPoints.Where(p => p.SetId == set.SetId && p.Status == DwoStatus.Submitted).ToListAsync();
+        if (onSet.Count == 0)
+            return (false, "The Set has no Submitted discussions to send to Management.", null);
+
+        var reqDate = requested!.Value;
+        set.Status = DwoSetStatus.Submitted;
+        set.SubmittedByUserId = actor.UserId;
+        set.SubmittedAt = IstClock.Now;
+        foreach (var p in onSet)
+        {
+            p.Status = DwoStatus.ManagementDiscussion;
+            p.ReviewedByUserId = actor.UserId;
+            p.ReviewedAt = IstClock.Now;
+            AddHistory(p.PointId, null, actor, "Moved to management discussion",
+                $"Set {set.SetNumber} — appointment requested for {reqDate:dd MMM yyyy}");
+        }
+        AddHistory(null, set.SetId, actor, "Set submitted",
+            $"{onSet.Count} discussion(s); appointment requested for {reqDate:dd MMM yyyy}");
+
         await _db.SaveChangesAsync();
         await NotifyManagementAsync(
-            $"Set {set.SetNumber} ({points.Count} discussion(s)) was submitted for management discussion.");
+            $"Set {set.SetNumber} ({onSet.Count} discussion(s)) was submitted for management discussion.");
         return (true, null, set.SetNumber);
+    }
+
+    // ── Draft Set upkeep (HOD side only) ──
+    public async Task<(bool ok, string? err)> RemoveFromDraftSetAsync(int setId, int pointId, DwoActor actor)
+    {
+        var set = await _db.DwoSets.FirstOrDefaultAsync(s => s.SetId == setId);
+        if (set == null) return (false, "Set not found.");
+        if (set.Status != DwoSetStatus.Draft) return (false, MsgLocked);
+        if (!CanEditDraft(set, actor)) return (false, "That Draft Set is not yours to edit.");
+        var p = await _db.DwoPoints.FirstOrDefaultAsync(x => x.PointId == pointId && x.SetId == setId);
+        if (p == null) return (false, "That discussion is not on this Draft.");
+
+        p.SetId = null;                     // back to the Register's tick column, still Submitted
+        AddHistory(p.PointId, null, actor, "Removed from Set", $"Set {set.SetNumber}");
+        AddHistory(null, set.SetId, actor, "Discussion removed", $"{p.PointNumber} — {p.Title}");
+        set.UpdatedAt = IstClock.Now;
+        await _db.SaveChangesAsync();
+        return (true, null);
+    }
+
+    public async Task<(bool ok, string? err)> AddDraftSetFilesAsync(
+        int setId, DwoActor actor, List<IFormFile> files, string storagePath, int maxFileMb)
+    {
+        var set = await _db.DwoSets.FirstOrDefaultAsync(s => s.SetId == setId);
+        if (set == null) return (false, "Set not found.");
+        if (set.Status != DwoSetStatus.Draft) return (false, MsgLocked);
+        if (!CanEditDraft(set, actor)) return (false, "That Draft Set is not yours to edit.");
+        var list = (files ?? new()).Where(f => f != null && f.Length > 0).ToList();
+        if (list.Count == 0) return (false, "Choose at least one file to upload.");
+
+        var (saved, err) = await SaveFilesAsync(list, storagePath, maxFileMb, actor, DwoAttachmentKind.SetSupporting, setId: setId);
+        if (saved.Count == 0) return (false, err ?? "Nothing was uploaded.");
+        AddHistory(null, setId, actor, "Supporting documents added", string.Join(", ", saved.Select(a => a.FileName)));
+        set.UpdatedAt = IstClock.Now;
+        await _db.SaveChangesAsync();
+        return (true, err);
+    }
+
+    // Discarding a Draft removes it entirely — it never reached Management, so there is
+    // nothing to keep. The points return to the Register untouched. (This is the one place
+    // the module deletes Set attachment and history rows; a submitted Set is never deleted.)
+    public async Task<(bool ok, string? err)> DiscardDraftSetAsync(int setId, DwoActor actor, string storagePath)
+    {
+        var set = await _db.DwoSets.FirstOrDefaultAsync(s => s.SetId == setId);
+        if (set == null) return (false, "Set not found.");
+        if (set.Status != DwoSetStatus.Draft) return (false, MsgLocked);
+        if (!CanEditDraft(set, actor)) return (false, "That Draft Set is not yours to edit.");
+
+        var points = await _db.DwoPoints.Where(p => p.SetId == setId).ToListAsync();
+        foreach (var p in points)
+        {
+            p.SetId = null;
+            AddHistory(p.PointId, null, actor, "Removed from Set", $"Draft Set {set.SetNumber} discarded");
+        }
+        var attachments = await _db.DwoAttachments.Where(a => a.SetId == setId).ToListAsync();
+        RemoveFiles(attachments, storagePath);
+        _db.DwoAttachments.RemoveRange(attachments);
+        _db.DwoHistories.RemoveRange(await _db.DwoHistories.Where(h => h.SetId == setId).ToListAsync());
+        _db.DwoSets.Remove(set);
+        await _db.SaveChangesAsync();
+        return (true, null);
     }
 
     public async Task<(bool ok, string? err)> ScheduleAppointmentAsync(int setId, DwoActor actor, DateOnly date, string? note)
@@ -760,6 +1101,7 @@ public class DwoService : IDwoService
         if (!actor.IsManagement) return (false, "Only Management can schedule an appointment.");
         var set = await _db.DwoSets.FirstOrDefaultAsync(s => s.SetId == setId);
         if (set == null) return (false, "Set not found.");
+        if (set.Status == DwoSetStatus.Draft) return (false, "A Draft Set has not been submitted yet.");
         if (date < Today) return (false, "The appointment date cannot be in the past.");
 
         set.AppointmentStatus = DwoAppointmentStatus.Scheduled;
@@ -777,6 +1119,7 @@ public class DwoService : IDwoService
         if (!actor.IsManagement) return (false, "Only Management can postpone an appointment.");
         var set = await _db.DwoSets.FirstOrDefaultAsync(s => s.SetId == setId);
         if (set == null) return (false, "Set not found.");
+        if (set.Status == DwoSetStatus.Draft) return (false, "A Draft Set has not been submitted yet.");
         if (date < Today) return (false, "The new appointment date cannot be in the past.");
 
         set.AppointmentStatus = DwoAppointmentStatus.Postponed;
@@ -870,9 +1213,10 @@ public class DwoService : IDwoService
                     ?? await _db.Users.Where(u => u.UserId == p.RaisedByUserId)
                         .Select(u => u.FullName).FirstOrDefaultAsync() ?? "the original raiser";
 
-                // The original becomes Reassigned and read-only; a fresh Draft lands in the
-                // target department carrying the references, the attachment list and a link
-                // back to its origin.
+                // The original becomes Reassigned and read-only. A copy lands in the target
+                // department carrying the references, the attachment list and a link back to
+                // its origin — also Reassigned and read-only until someone there takes it up
+                // (TakeUpAsync), which makes it their Draft.
                 var clone = new DwoPoint
                 {
                     TaskId = p.TaskId,
@@ -880,8 +1224,8 @@ public class DwoService : IDwoService
                     Description = $"{p.Description}\n\n(Originally raised by {originName}, {p.Department.DeptName}.)",
                     Category = p.Category, Priority = p.Priority,
                     CompanyId = p.CompanyId, LocationId = p.LocationId, DepartmentId = target,
-                    RaisedByUserId = null,                 // unclaimed until someone there picks it up
-                    Status = DwoStatus.Draft,
+                    RaisedByUserId = null,                 // unclaimed until someone there takes it up
+                    Status = DwoStatus.Reassigned,
                     OriginPointId = p.PointId,
                 };
                 _db.DwoPoints.Add(clone);
@@ -909,7 +1253,7 @@ public class DwoService : IDwoService
                     });
 
                 AddHistory(clone.PointId, null, actor,
-                    $"Created via reassignment — awaiting {targetDept.DeptName} to update and submit",
+                    $"Created via reassignment — awaiting {targetDept.DeptName} to take it up",
                     $"Origin: {p.PointNumber}");
                 await NotifyDepartmentHodAsync(target,
                     $"DWO {clone.PointNumber} was reassigned to {targetDept.DeptName} from {p.Department.DeptName}.");
@@ -1096,22 +1440,66 @@ public class DwoService : IDwoService
         // discussions, so it has no honest count. The label override makes that explicit.
         vm.Kpis.Add(new() { Key = Models.Dwo.DwoKpiKeys.Reports, Label = "Follow-up", Count = S(DwoStatus.FollowUp), Url = RegisterUrl(DwoStatus.FollowUp) });
 
-        // Same projection and ordering as the Register grid's first page.
-        var recent = await ProjectRows(scoped)
-            .OrderByDescending(r => r.CreatedAt)
-            .Take(8)
-            .ToListAsync();
-        vm.RecentDiscussions = recent.Select(r => new Models.Dwo.DwoRecentDiscussionVM
+        // ── Charts. All from `scoped`, so they agree with the cards above. ──
+        static string StatusColor(string st) => st switch
         {
-            DiscussionNo = r.PointNumber,
-            Title        = r.Title,
-            Department   = r.DeptName,
-            Status       = r.Status,
-            DueDate      = r.FollowUpDueDate is DateOnly due
-                ? new DateTimeOffset(due.ToDateTime(TimeOnly.MinValue), IstClock.Now.Offset)
-                : null,
-            Url          = "/DWO/Detail/" + r.PointId,
+            DwoStatus.Draft                => "#64748b",
+            DwoStatus.Submitted            => "#2563eb",
+            DwoStatus.ChangeRequested      => "#d97706",
+            DwoStatus.Rejected             => "#dc2626",
+            DwoStatus.ManagementDiscussion => "#0891b2",
+            DwoStatus.FollowUp             => "#f59e0b",
+            DwoStatus.Hold                 => "#94a3b8",
+            DwoStatus.Reassigned           => "#7c3aed",
+            DwoStatus.Closed               => "#16a34a",
+            _                              => "#94a3b8",
+        };
+        vm.ByStatus = DwoStatus.All
+            .Where(st => S(st) > 0)
+            .Select(st => new Models.Dwo.DwoSliceVM { Label = st, Count = S(st), Color = StatusColor(st), Url = RegisterUrl(st) })
+            .ToList();
+
+        // Raised vs closed per month, last six months. A point's Closed month is taken from
+        // its last review stamp — the moment Management closed it.
+        const int months = 6;
+        var now = IstClock.Now;
+        var firstMonth = new DateTimeOffset(now.Year, now.Month, 1, 0, 0, 0, now.Offset).AddMonths(-(months - 1));
+        var raised = await scoped.Where(p => p.CreatedAt >= firstMonth)
+            .GroupBy(p => new { p.CreatedAt.Year, p.CreatedAt.Month })
+            .Select(g => new { g.Key.Year, g.Key.Month, N = g.Count() }).ToListAsync();
+        var closed = await scoped.Where(p => p.Status == DwoStatus.Closed && p.ReviewedAt != null && p.ReviewedAt >= firstMonth)
+            .GroupBy(p => new { p.ReviewedAt!.Value.Year, p.ReviewedAt.Value.Month })
+            .Select(g => new { g.Key.Year, g.Key.Month, N = g.Count() }).ToListAsync();
+        for (int i = 0; i < months; i++)
+        {
+            var m = firstMonth.AddMonths(i);
+            vm.Trend.Add(new Models.Dwo.DwoMonthPointVM
+            {
+                Label     = m.ToString("MMM yy"),
+                Primary   = raised.Where(x => x.Year == m.Year && x.Month == m.Month).Sum(x => x.N),
+                Secondary = closed.Where(x => x.Year == m.Year && x.Month == m.Month).Sum(x => x.N),
+            });
+        }
+
+        var palette = new[] { "#0891b2", "#2563eb", "#16a34a", "#d97706", "#7c3aed", "#dc2626", "#64748b" };
+        var byDept = await scoped.GroupBy(p => p.Department.DeptName)
+            .Select(g => new { Label = g.Key, N = g.Count() })
+            .OrderByDescending(x => x.N).ThenBy(x => x.Label).Take(6).ToListAsync();
+        vm.ByDepartment = byDept.Select((x, i) => new Models.Dwo.DwoSliceVM
+        {
+            Label = x.Label, Count = x.N, Color = palette[i % palette.Length],
         }).ToList();
+
+        var openStatuses = new[] { DwoStatus.Submitted, DwoStatus.ChangeRequested, DwoStatus.ManagementDiscussion, DwoStatus.FollowUp, DwoStatus.Hold };
+        var byPriority = await scoped.Where(p => openStatuses.Contains(p.Status))
+            .GroupBy(p => p.Priority)
+            .Select(g => new { Label = g.Key, N = g.Count() }).ToListAsync();
+        foreach (var (label, color) in new[] { (DwoPriority.High, "#dc2626"), (DwoPriority.Medium, "#d97706"), (DwoPriority.Low, "#16a34a") })
+            vm.ByPriority.Add(new Models.Dwo.DwoSliceVM
+            {
+                Label = label, Color = color,
+                Count = byPriority.Where(x => x.Label == label).Sum(x => x.N),
+            });
 
         return vm;
     }
@@ -1321,7 +1709,8 @@ public class DwoService : IDwoService
     // ─────────────────────────────────────────────────────────
     // History + notifications
     // ─────────────────────────────────────────────────────────
-    // Append-only. Nothing in this service ever updates or removes a DwoHistory row.
+    // Append-only. Nothing in this service ever updates a DwoHistory row; the only removal
+    // is DiscardDraftSetAsync taking a never-submitted Draft Set with it.
     private void AddHistory(int? pointId, int? setId, DwoActor actor, string action, string? note)
     {
         _db.DwoHistories.Add(new DwoHistory

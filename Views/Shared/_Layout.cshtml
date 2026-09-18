@@ -86,7 +86,7 @@
        New module. Rendered as its own section using the same .sb-sec / .nav-link
        components as every other group, so the existing navigation is untouched. Each
        link is gated by the DWO permission screens (see DwoScreens). *@
-    @if (CanView(DwoScreens.Register) || CanView(DwoScreens.Reports))
+    @if (CanView(DwoScreens.Points) || CanView(DwoScreens.Sets) || CanView(DwoScreens.Register) || CanView(DwoScreens.Reports))
     {
     <details class="sb-group" data-sb-group="dwo" open>
       <summary class="sb-sec">DWO <svg class="sb-chev" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6,9 12,15 18,9" stroke-width="2.5"/></svg></summary>
@@ -96,14 +96,20 @@
       <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" stroke-width="1.8" rx="1"/><rect x="14" y="3" width="7" height="7" stroke-width="1.8" rx="1"/><rect x="14" y="14" width="7" height="7" stroke-width="1.8" rx="1"/><rect x="3" y="14" width="7" height="7" stroke-width="1.8" rx="1"/></svg>
       DWO Dashboard
     </a>
+    }
+    @if (CanView(DwoScreens.Points)) {
     <a asp-controller="Dwo" asp-action="MyDiscussions" class="nav-link @(IsActive("dwomine")?"active":"")">
       <svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
       Discussion Point
     </a>
+    }
+    @if (CanView(DwoScreens.Register)) {
     <a asp-controller="Dwo" asp-action="Register" class="nav-link @(IsActive("dworegister")?"active":"")">
       <svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
       Discussion Register
     </a>
+    }
+    @if (CanView(DwoScreens.Sets)) {
     <a asp-controller="Dwo" asp-action="Sets" class="nav-link @(IsActive("dwosets")?"active":"")">
       <svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 2l9 5-9 5-9-5 9-5z"/><polyline points="3,12 12,17 21,12" stroke-width="1.8"/><polyline points="3,17 12,22 21,17" stroke-width="1.8"/></svg>
       Sets
@@ -240,13 +246,9 @@
 </div>
 
 <script src="~/js/site.js" asp-append-version="true"></script>
-<<<<<<< Updated upstream
-=======
 @* Remembers which sidebar groups are collapsed. The groups themselves are native
    <details>, so they still open and close without this. *@
 <script src="~/js/sidebar.js" asp-append-version="true"></script>
-<script src="~/js/submit-guard.js" asp-append-version="true"></script>
->>>>>>> Stashed changes
 <script src="~/js/idle-timeout.js" asp-append-version="true"></script>
 <script src="~/js/data-grid.js" asp-append-version="true"></script>
 @* DWO popup shell. Loaded globally so any page can open a DWO modal; it renders nothing

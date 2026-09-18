@@ -28,9 +28,30 @@ public class CommonDashboardVM
 public class ApproveFlowSectionVM
 {
     public List<CommonKpiCardVM> Kpis { get; set; } = new();
-    public List<CommonRecentRequestVM> RecentRequests { get; set; } = new();
+    // Charts. Every series is built from the SAME scoped query as the KPI cards, so the
+    // donut totals equal the cards and the trend never counts a request the grid hides.
+    public List<CommonMonthPointVM> Trend { get; set; } = new();      // last 6 months: raised vs approved
+    public List<CommonSliceVM> ByType { get; set; } = new();          // top request types, all time
+    public List<CommonSliceVM> ByPriority { get; set; } = new();      // open (not yet decided) requests
     // True when the counts span every requestor (Admin); false when scoped to one user.
     public bool IsGlobalScope { get; set; }
+}
+
+// One slice of a distribution chart (donut / horizontal bars).
+public class CommonSliceVM
+{
+    public string Label { get; set; } = "";
+    public int Count { get; set; }
+    public string Color { get; set; } = "#94a3b8";
+    public string? Url { get; set; }
+}
+
+// One month of a two-series trend chart.
+public class CommonMonthPointVM
+{
+    public string Label { get; set; } = "";       // "Apr 26"
+    public int Primary { get; set; }              // raised
+    public int Secondary { get; set; }            // approved / closed
 }
 
 public class CommonKpiCardVM
@@ -41,17 +62,6 @@ public class CommonKpiCardVM
     public string FilterStatus { get; set; } = "";
     public int Count { get; set; }
     public string Accent { get; set; } = "#0f172a";
-}
-
-public class CommonRecentRequestVM
-{
-    public int RequestId { get; set; }
-    public string RequestNumber { get; set; } = "";
-    public string DisplayRequestNumber => Helpers.RequestNumberHelper.Format(RequestNumber);
-    public string Category { get; set; } = "";
-    public string RequestedBy { get; set; } = "";
-    public string Status { get; set; } = "";
-    public DateTimeOffset Date { get; set; }
 }
 
 // The six ApproveFlow KPI cards, in display order.

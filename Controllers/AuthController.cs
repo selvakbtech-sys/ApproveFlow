@@ -65,9 +65,9 @@ public class AuthController : Controller
             new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme));
         var authProps = new AuthenticationProperties { IsPersistent = vm.RememberMe };
         // "Remember me" grants a 14-day persistent session that survives browser restarts.
-        // Without it, ExpiresUtc is left unset so the cookie follows the global 5-minute
+        // Without it, ExpiresUtc is left unset so the cookie follows the global 15-minute
         // ExpireTimeSpan (sliding) and expires on browser close. In both cases the
-        // client-side idle timeout still signs the user out after 5 minutes of inactivity
+        // client-side idle timeout still signs the user out after 15 minutes of inactivity
         // while a tab is open.
         if (vm.RememberMe)
             authProps.ExpiresUtc = DateTimeOffset.UtcNow.AddDays(14);

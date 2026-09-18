@@ -3,26 +3,45 @@
     var s = Model.Set;
     var apptDate = s.ScheduledDate ?? s.RequestedAppointmentDate;
     var todayStr = DateOnly.FromDateTime(IstClock.Now.DateTime).ToString("yyyy-MM-dd");
-    bool canAppoint = Model.Actor.IsManagement && !Model.IsCompleted;
+    // Appointments exist only once a Set is submitted — never on a Draft.
+    bool canAppoint = Model.Actor.IsManagement && !Model.IsCompleted && !Model.IsDraft;
     // Management or the owning HOD may add a point straight into a Set that is still open.
     bool canAddPoint = Model.CanManage && !Model.IsCompleted;
     var addUrl = Url.Action("AddToSet", new { setId = s.SetId, returnUrl = Url.Action("Sets") });
+    // A Draft is the HOD's work-in-progress: points can still be removed, the pack grown,
+    // and the whole thing submitted or discarded from here. Nothing on it reaches Management.
+    bool draft = Model.IsDraft;
+    bool canEditDraft = draft && Model.CanEditDraft;
+    // Review takes Management to the point's Detail page (Discuss & Close / follow-up /
+    // hold / reassign live there); every action form on that page then comes back to this
+    // Set — the returnUrl reopens the popup via Sets?openSet=.
+    bool canReview = Model.Actor.IsManagement && !draft;
+    var backToSet = Url.Action("Sets", new { openSet = s.SetId });
 }
 
 <div class="modal-hdr">
   <div>
-    <div class="modal-title"><span class="mono">@s.SetNumber</span> · @s.Department.DeptName</div>
+    <div class="modal-title"><span class="mono">@s.SetNumber</span> · @s.Department.DeptName@if (!string.IsNullOrEmpty(s.Title)) { <text> · @s.Title</text> }</div>
     <div class="modal-sub">
-      Submitted by @s.SubmittedByUser.FullName on @s.SubmittedAt.ToString("dd MMM yyyy")
+      @(draft ? "Draft saved" : "Submitted") by @s.SubmittedByUser.FullName on @s.SubmittedAt.ToString("dd MMM yyyy")
       · @Model.Points.Count discussion(s)
     </div>
     <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
-      <span class="badge @(Model.IsCompleted ? "badge-green" : "badge-sky")">
-        @(Model.IsCompleted ? "Completed" : "Awaiting Discussion")
-      </span>
-      <span class="badge @DwoAppointmentStatus.Badge(s.AppointmentStatus)">
-        @s.AppointmentStatus · @apptDate.ToString("dd MMM yyyy")
-      </span>
+      @if (draft)
+      {
+        <span class="badge badge-gray">Draft</span>
+        @if (apptDate is DateOnly reqDate)
+        { <span class="badge badge-gray">Requested · @reqDate.ToString("dd MMM yyyy")</span> }
+      }
+      else
+      {
+        <span class="badge @(Model.IsCompleted ? "badge-green" : "badge-sky")">
+          @(Model.IsCompleted ? "Completed" : "Awaiting Discussion")
+        </span>
+        <span class="badge @DwoAppointmentStatus.Badge(s.AppointmentStatus)">
+          @s.AppointmentStatus · @apptDate?.ToString("dd MMM yyyy")
+        </span>
+      }
     </div>
   </div>
   <button type="button" class="modal-x" onclick="dwoCloseModal()">&times;</button>
@@ -40,10 +59,14 @@
     {
       <a href="@addUrl" class="btn btn-acc btn-sm">+ Add point for discussion</a>
     }
+    @if (canEditDraft)
+    {
+      <span class="hint" style="margin:0">Add more from the Discussion Register (tick Submitted rows → Build Set → this Draft).</span>
+    }
   </div>
   <div class="tbl-wrap" style="margin-bottom:14px">
     <table class="tbl">
-      <thead><tr><th>DWO No</th><th>Title</th><th>Priority</th><th>Status</th></tr></thead>
+      <thead><tr><th>DWO No</th><th>Title</th><th>Priority</th><th>Status</th>@if (canEditDraft || canReview) { <th></th> }</tr></thead>
       <tbody>
         @foreach (var p in Model.Points)
         {
@@ -51,12 +74,33 @@
             <td><span class="mono" style="font-size:11px">@p.PointNumber</span></td>
             <td style="font-weight:600">@p.Title</td>
             <td><span class="badge @DwoPriority.Badge(p.Priority)">@p.Priority</span></td>
-            <td><span class="badge @DwoStatus.Badge(p.Status)">@p.Status</span></td>
+            <td><span class="badge @DwoStatus.Badge(p.DisplayStatus)">@p.DisplayStatus</span></td>
+            @if (canReview)
+            {
+              <td onclick="event.stopPropagation()" style="text-align:right;white-space:nowrap">
+                @if (p.Status is DwoStatus.ManagementDiscussion or DwoStatus.Hold)
+                {
+                  <a href="@Url.Action("Detail", new { id = p.PointId, returnUrl = backToSet })" class="btn btn-acc btn-sm">Review</a>
+                }
+              </td>
+            }
+            @if (canEditDraft)
+            {
+              <td onclick="event.stopPropagation()" style="text-align:right">
+                <form asp-action="RemoveFromSet" method="post" style="display:inline">
+                  @Html.AntiForgeryToken()
+                  <input type="hidden" name="setId" value="@s.SetId"/>
+                  <input type="hidden" name="pointId" value="@p.PointId"/>
+                  <input type="hidden" name="returnUrl" value=""/>
+                  <button type="submit" class="btn btn-sec btn-sm" title="Remove from this Draft">Remove</button>
+                </form>
+              </td>
+            }
           </tr>
         }
         @if (!Model.Points.Any())
         {
-          <tr><td colspan="4" class="tbl-empty">This Set has no discussions left on it.</td></tr>
+          <tr><td colspan="@(canEditDraft || canReview ? 5 : 4)" class="tbl-empty">This Set has no discussions left on it.</td></tr>
         }
       </tbody>
     </table>
@@ -96,6 +140,90 @@
   </div>
 
   @* ── Action panes ── *@
+  @if (canEditDraft)
+  {
+    <div data-dwo-pane id="paneSubmitDraft" hidden style="margin-top:16px;border-top:1px solid var(--bdr);padding-top:14px">
+      <form asp-action="SubmitSet" method="post" enctype="multipart/form-data">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="DraftSetId" value="@s.SetId"/>
+        <input type="hidden" name="saveAction" value="submit"/>
+        <input type="hidden" name="returnUrl" value=""/>
+        <div class="form-grid fg2">
+          <div class="form-group full">
+            <label class="lbl">Set title</label>
+            <input type="text" name="Title" class="inp" maxlength="200" value="@s.Title"/>
+          </div>
+          <div class="form-group">
+            <label class="lbl">Requested appointment date <span class="req">*</span></label>
+            <input type="date" name="RequestedAppointmentDate" class="inp" required min="@todayStr"
+                   value="@s.RequestedAppointmentDate?.ToString("yyyy-MM-dd")"/>
+          </div>
+          <div class="form-group full">
+            <label class="lbl">Supporting documents @if (!Model.SupportingDocuments.Any()) { <span class="req">*</span> }</label>
+            <input type="file" name="SupportingFiles" class="inp" multiple/>
+            <div class="hint">@(Model.SupportingDocuments.Any() ? "Optional — the pack already has files." : "At least one file is required — the pack management reads before the appointment.")</div>
+          </div>
+          <div class="form-group full">
+            <label class="lbl">Summary document</label>
+            <input type="file" name="SummaryFile" class="inp"/>
+          </div>
+          <div class="form-group full">
+            <label class="lbl">Notes for management</label>
+            <textarea name="AppointmentNotes" class="inp" rows="2">@s.AppointmentNotes</textarea>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+          <button type="button" class="btn btn-sec" onclick="dwoHidePanes()">Cancel</button>
+          <button type="submit" class="btn btn-acc">Submit Set to Management</button>
+        </div>
+      </form>
+    </div>
+
+    <div data-dwo-pane id="paneAddFiles" hidden style="margin-top:16px;border-top:1px solid var(--bdr);padding-top:14px">
+      <form asp-action="AddSetFiles" method="post" enctype="multipart/form-data">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="setId" value="@s.SetId"/>
+        <input type="hidden" name="returnUrl" value=""/>
+        <label class="lbl">Add supporting documents <span class="req">*</span></label>
+        <input type="file" name="files" class="inp" multiple required/>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+          <button type="button" class="btn btn-sec" onclick="dwoHidePanes()">Cancel</button>
+          <button type="submit" class="btn btn-acc">Upload</button>
+        </div>
+      </form>
+    </div>
+
+    <div data-dwo-pane id="paneSummary" hidden style="margin-top:16px;border-top:1px solid var(--bdr);padding-top:14px">
+      <form asp-action="SaveSummaryFile" method="post" enctype="multipart/form-data">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="setId" value="@s.SetId"/>
+        <input type="hidden" name="returnUrl" value=""/>
+        <label class="lbl">@(Model.SummaryFile == null ? "Add" : "Replace") summary document <span class="req">*</span></label>
+        <input type="file" name="file" class="inp" required/>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+          <button type="button" class="btn btn-sec" onclick="dwoHidePanes()">Cancel</button>
+          <button type="submit" class="btn btn-acc">Save</button>
+        </div>
+      </form>
+    </div>
+
+    <div data-dwo-pane id="paneDiscard" hidden style="margin-top:16px;border-top:1px solid var(--bdr);padding-top:14px">
+      <form asp-action="DiscardDraft" method="post">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="setId" value="@s.SetId"/>
+        <input type="hidden" name="returnUrl" value=""/>
+        <div class="alert alert-wa" style="margin-bottom:10px">
+          Discard Draft <strong>@s.SetNumber</strong>? Its discussions go back to the Register (still Submitted)
+          and the uploaded pack is removed. This cannot be undone.
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button type="button" class="btn btn-sec" onclick="dwoHidePanes()">Keep Draft</button>
+          <button type="submit" class="btn btn-ng">Discard Draft</button>
+        </div>
+      </form>
+    </div>
+  }
+
   @if (Model.CanManage)
   {
     <div data-dwo-pane id="paneSummary" hidden style="margin-top:16px;border-top:1px solid var(--bdr);padding-top:14px">
@@ -121,7 +249,7 @@
         <input type="hidden" name="setId" value="@s.SetId"/>
         <input type="hidden" name="returnUrl" value=""/>
         <label class="lbl">Appointment date <span class="req">*</span></label>
-        <input type="date" name="date" class="inp" required min="@todayStr" value="@s.RequestedAppointmentDate.ToString("yyyy-MM-dd")"/>
+        <input type="date" name="date" class="inp" required min="@todayStr" value="@s.RequestedAppointmentDate?.ToString("yyyy-MM-dd")"/>
         <label class="lbl" style="margin-top:10px">Note</label>
         <textarea name="note" class="inp" rows="2" placeholder="Time, venue, anything the HOD should know"></textarea>
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
@@ -151,6 +279,16 @@
 
 <div class="modal-actions">
   <button type="button" class="btn btn-sec" onclick="dwoCloseModal()">Close</button>
+  @if (canEditDraft)
+  {
+    @* Destructive action sits apart on the left; the rest keep to the right. *@
+    <button type="button" class="btn btn-sec" style="margin-right:auto" onclick="dwoShowPane('paneDiscard')">Discard Draft</button>
+    <button type="button" class="btn btn-sec" onclick="dwoShowPane('paneAddFiles')">Add supporting files</button>
+    <button type="button" class="btn btn-sec" onclick="dwoShowPane('paneSummary')">
+      @(Model.SummaryFile == null ? "Add" : "Update") summary file
+    </button>
+    <button type="button" class="btn btn-acc" onclick="dwoShowPane('paneSubmitDraft')" disabled="@(!Model.Points.Any())">Submit to Management</button>
+  }
   @if (Model.CanManage)
   {
     <button type="button" class="btn btn-sec" onclick="dwoShowPane('paneSummary')">

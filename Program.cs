@@ -18,10 +18,11 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         o.LoginPath = "/login";
         o.LogoutPath = "/logout";
         o.AccessDeniedPath = "/login";
-        // Idle-session timeout: the cookie is only valid for 5 minutes since the
+        // Idle-session timeout: the cookie is only valid for 15 minutes since the
         // last request. SlidingExpiration renews it on activity, so an expired
         // (idle) session can no longer reach secured pages and is bounced to Login.
-        o.ExpireTimeSpan = TimeSpan.FromMinutes(5);
+        // Keep in step with IDLE_LIMIT in wwwroot/js/idle-timeout.js.
+        o.ExpireTimeSpan = TimeSpan.FromMinutes(15);
         o.SlidingExpiration = true;
         o.Cookie.HttpOnly = true;
         o.Cookie.SameSite = SameSiteMode.Lax;

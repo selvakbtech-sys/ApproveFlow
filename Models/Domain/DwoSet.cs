@@ -11,8 +11,18 @@ public class DwoSet
     public string SetNumber { get; set; } = "";          // DWO101, DWO102, …
     public int DepartmentId { get; set; }
 
+    // Draft while the HOD is still assembling it (points stay Submitted, nothing reaches
+    // Management); Submitted once sent. See DwoSetStatus.
+    [MaxLength(20)]
+    public string Status { get; set; } = DwoSetStatus.Submitted;
+
+    // Optional working title the HOD gives the bundle (shown beside the DWO number).
+    [MaxLength(200)]
+    public string? Title { get; set; }
+
     // ── Appointment with Management ──
-    public DateOnly RequestedAppointmentDate { get; set; }
+    // Null only while the Set is a Draft — required at submission.
+    public DateOnly? RequestedAppointmentDate { get; set; }
     [MaxLength(1000)]
     public string? AppointmentNotes { get; set; }
     [MaxLength(30)]

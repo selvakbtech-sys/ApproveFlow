@@ -469,7 +469,7 @@ namespace ApproveFlow.MVC.Migrations
                     b.Property<int>("DepartmentId")
                         .HasColumnType("int");
 
-                    b.Property<DateOnly>("RequestedAppointmentDate")
+                    b.Property<DateOnly?>("RequestedAppointmentDate")
                         .HasColumnType("date");
 
                     b.Property<DateOnly?>("ScheduledDate")
@@ -480,11 +480,20 @@ namespace ApproveFlow.MVC.Migrations
                         .HasMaxLength(30)
                         .HasColumnType("nvarchar(30)");
 
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
                     b.Property<DateTimeOffset>("SubmittedAt")
                         .HasColumnType("datetimeoffset");
 
                     b.Property<int>("SubmittedByUserId")
                         .HasColumnType("int");
+
+                    b.Property<string>("Title")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("datetimeoffset");

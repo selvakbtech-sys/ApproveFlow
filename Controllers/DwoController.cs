@@ -26,17 +26,28 @@ public class DwoController : BaseCtrl
         UserName       = User.FindFirstValue(ClaimTypes.Name) ?? "",
         IsManagement   = UserRole == "Admin",
         IsHod          = HasPerm(DwoScreens.Register, Perm.Approve),
-        CanCreate      = HasPerm(DwoScreens.Register, Perm.Create),
-        CanEditOwn     = HasPerm(DwoScreens.Register, Perm.Edit),
-        CanWithdraw    = HasPerm(DwoScreens.Register, Perm.Delete),
+        CanCreate      = HasPerm(DwoScreens.Points, Perm.Create),
+        CanEditOwn     = HasPerm(DwoScreens.Points, Perm.Edit),
+        CanWithdraw    = HasPerm(DwoScreens.Points, Perm.Delete),
         CanViewReports = HasPerm(DwoScreens.Reports),
+        CanEditSets    = HasPerm(DwoScreens.Sets, Perm.Edit),
     });
+
+    // Draft Set editing = HOD (or Management) holding the Set Edit permission.
+    private IActionResult? DenyIfCannotEditSets() =>
+        HasPerm(DwoScreens.Register, Perm.Approve) && HasPerm(DwoScreens.Sets, Perm.Edit) ? null : Deny();
 
     private string StoragePath()
     {
         var configured = _cfg["AppSettings:FileStoragePath"] ?? "uploads";
         return Path.IsPathRooted(configured) ? configured : Path.Combine(_env.ContentRootPath, configured);
     }
+
+    // Shared read actions (Detail, Download, Export, Complete Follow-up) are reached from
+    // every DWO grid, so any DWO screen's View right opens them; the service still scopes
+    // what the actor may see.
+    private IActionResult? DenyIfNoDwoView() =>
+        HasPerm(DwoScreens.Points) || HasPerm(DwoScreens.Sets) || HasPerm(DwoScreens.Register) ? null : Deny();
 
     private int MaxFileMb() => int.TryParse(_cfg["AppSettings:MaxFileUploadMB"], out var mb) ? mb : 20;
 
@@ -59,7 +70,7 @@ public class DwoController : BaseCtrl
 
     public async Task<IActionResult> MyDiscussions(DwoRegisterVM filter, int page = 1, int pageSize = DefaultPageSize)
     {
-        if (DenyIfNoPerm(DwoScreens.Register) is { } d) return d;
+        if (DenyIfNoPerm(DwoScreens.Points) is { } d) return d;
         var vm = await _svc.GetRegisterAsync(filter, await ActorAsync(), DwoGridMode.Mine, page, NormalizePageSize(pageSize));
         return View("Register", vm);
     }
@@ -71,10 +82,14 @@ public class DwoController : BaseCtrl
         return View(vm);
     }
 
-    public async Task<IActionResult> Sets(int? deptId, string? status)
+    // `openSet` reopens that Set's popup on load — the way back from a point reviewed out
+    // of a Set (see the Review button in _SetModal and the action forms on Detail).
+    public async Task<IActionResult> Sets(int? deptId, string? status, int? openSet = null)
     {
-        if (DenyIfNoPerm(DwoScreens.Register) is { } d) return d;
-        return View(await _svc.GetSetsAsync(await ActorAsync(), deptId, status));
+        if (DenyIfNoPerm(DwoScreens.Sets) is { } d) return d;
+        var vm = await _svc.GetSetsAsync(await ActorAsync(), deptId, status);
+        vm.OpenSetId = openSet;
+        return View(vm);
     }
 
     public async Task<IActionResult> Reports(DwoReportVM filter)
@@ -91,7 +106,7 @@ public class DwoController : BaseCtrl
     // forms post back to this page so the user sees the result of what they just did.
     public async Task<IActionResult> Detail(int id, string? tab = null, string? returnUrl = null)
     {
-        if (DenyIfNoPerm(DwoScreens.Register) is { } d) return d;
+        if (DenyIfNoDwoView() is { } d) return d;
         var vm = await _svc.GetPointAsync(id, await ActorAsync());
         if (vm == null)
         {
@@ -110,7 +125,7 @@ public class DwoController : BaseCtrl
     [HttpGet]
     public async Task<IActionResult> Create(string? returnUrl = null)
     {
-        if (DenyIfNoPerm(DwoScreens.Register, Perm.Create) is { } d) return d;
+        if (DenyIfNoPerm(DwoScreens.Points, Perm.Create) is { } d) return d;
         ViewBag.ReturnUrl = Url.IsLocalUrl(returnUrl) ? returnUrl : null;
         return View("Form", await _svc.NewFormAsync(await ActorAsync()));
     }
@@ -136,7 +151,7 @@ public class DwoController : BaseCtrl
     [HttpGet]
     public async Task<IActionResult> Edit(int id, string? returnUrl = null)
     {
-        if (DenyIfNoPerm(DwoScreens.Register, Perm.Edit) is { } d) return d;
+        if (DenyIfNoPerm(DwoScreens.Points, Perm.Edit) is { } d) return d;
         var vm = await _svc.EditFormAsync(id, await ActorAsync());
         if (vm == null)
         {
@@ -149,22 +164,25 @@ public class DwoController : BaseCtrl
 
     public async Task<IActionResult> SetModal(int id)
     {
-        if (DenyIfNoPerm(DwoScreens.Register) is { } d) return d;
+        if (DenyIfNoPerm(DwoScreens.Sets) is { } d) return d;
         var vm = await _svc.GetSetAsync(id, await ActorAsync());
         if (vm == null) return NotFound();
         return PartialView("_SetModal", vm);
     }
 
-    // The HOD's "Build Set" modal — lists the ticked points before submission.
+    // The HOD's "Build Set" modal — lists the ticked points before submission, and offers
+    // any Draft Set of the same department they could join instead.
     public async Task<IActionResult> BuildSetModal(string ids)
     {
         if (DenyIfNoPerm(DwoScreens.Register, Perm.Approve) is { } d) return d;
         var actor = await ActorAsync();
         var pointIds = ParseIds(ids);
         if (pointIds.Count == 0) return BadRequest("Select at least one Submitted discussion first.");
-        var filter = new DwoRegisterVM { FilterStatus = { DwoStatus.Submitted } };
+        // Submitted points plus reassigned copies (Reassigned / Draft) — see DwoService.EligibleForSet.
+        var filter = new DwoRegisterVM { FilterStatus = { DwoStatus.Submitted, DwoStatus.Reassigned, DwoStatus.Draft } };
         var all = await _svc.GetRegisterForExportAsync(filter, actor, DwoGridMode.Register);
         ViewBag.Points = all.Where(p => pointIds.Contains(p.PointId)).ToList();
+        ViewBag.DraftSets = await _svc.GetDraftSetsForPointsAsync(pointIds, actor);
         return PartialView("_BuildSetModal", actor);
     }
 
@@ -184,7 +202,7 @@ public class DwoController : BaseCtrl
         {
             if (!actor.IsManagement && !actor.IsHod) return Deny();
         }
-        else if (DenyIfNoPerm(DwoScreens.Register, vm.PointId == 0 ? Perm.Create : Perm.Edit) is { } d) return d;
+        else if (DenyIfNoPerm(DwoScreens.Points, vm.PointId == 0 ? Perm.Create : Perm.Edit) is { } d) return d;
         var (ok, err, _) = await _svc.SavePointAsync(vm, actor, saveAction, StoragePath(), MaxFileMb());
         if (!ok)
         {
@@ -202,17 +220,26 @@ public class DwoController : BaseCtrl
     [HttpPost, ValidateAntiForgeryToken]
     public async Task<IActionResult> Submit(int id, string? returnUrl = null)
     {
-        if (DenyIfNoPerm(DwoScreens.Register, Perm.Create) is { } d) return d;
+        if (DenyIfNoPerm(DwoScreens.Points, Perm.Create) is { } d) return d;
         var actor = await ActorAsync();
         var (ok, err) = await _svc.SubmitPointAsync(id, actor);
         // Management has no HOD above it — its draft goes straight to Management Discussion.
         return Back(ok, err, actor.IsManagement ? "Discussion created." : "Submitted to HOD.", returnUrl);
     }
 
+    // Target department claims a reassigned copy — it becomes their Draft.
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> TakeUp(int id, string? returnUrl = null)
+    {
+        if (DenyIfNoPerm(DwoScreens.Points, Perm.Create) is { } d) return d;
+        var (ok, err) = await _svc.TakeUpAsync(id, await ActorAsync());
+        return Back(ok, err, "Taken up — the discussion is now your Draft.", returnUrl);
+    }
+
     [HttpPost, ValidateAntiForgeryToken]
     public async Task<IActionResult> Withdraw(int id, string? returnUrl = null)
     {
-        if (DenyIfNoPerm(DwoScreens.Register, Perm.Delete) is { } d) return d;
+        if (DenyIfNoPerm(DwoScreens.Points, Perm.Delete) is { } d) return d;
         var (ok, err) = await _svc.WithdrawPointAsync(id, await ActorAsync());
         return Back(ok, err, "Withdrawn — the discussion is back in Draft.", returnUrl);
     }
@@ -230,12 +257,60 @@ public class DwoController : BaseCtrl
     // ─────────────────────────────────────────────────────────
     // Set actions
     // ─────────────────────────────────────────────────────────
+    // saveAction "draft" keeps the Set as a Draft; "submit" sends it to Management.
     [HttpPost, ValidateAntiForgeryToken]
-    public async Task<IActionResult> SubmitSet(DwoSetSubmitVM vm, string? returnUrl = null)
+    public async Task<IActionResult> SubmitSet(DwoSetSubmitVM vm, string saveAction = "submit", string? returnUrl = null)
     {
         if (DenyIfNoPerm(DwoScreens.Register, Perm.Approve) is { } d) return d;
-        var (ok, err, number) = await _svc.SubmitSetAsync(vm, await ActorAsync(), StoragePath(), MaxFileMb());
-        return Back(ok, err, $"Set {number} submitted to management.", returnUrl);
+        var (ok, err, number) = await _svc.SubmitSetAsync(vm, await ActorAsync(), saveAction, StoragePath(), MaxFileMb());
+        var msg = saveAction == "draft" ? $"Draft Set {number} saved." : $"Set {number} submitted to management.";
+        return Back(ok, err, msg, returnUrl);
+    }
+
+    // ── "Add to Draft Set" — the HOD's ticked Submitted points join an existing Draft ──
+    // Full-screen picker of the Draft Sets those points may join; its filters and pager
+    // reload the same partial.
+    public async Task<IActionResult> DraftSetPicker(DwoDraftSetPickerVM filter, string? ids = null)
+    {
+        if (DenyIfCannotEditSets() is { } d) return d;
+        if (!string.IsNullOrEmpty(ids)) filter.PointIds = ParseIds(ids);
+        if (filter.PointIds.Count == 0) return BadRequest("Select at least one Submitted discussion first.");
+        return PartialView("_DraftSetPicker", await _svc.GetDraftSetPickerAsync(filter, await ActorAsync()));
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> AddToDraftSet(int setId, List<int> pointIds, string? returnUrl = null)
+    {
+        if (DenyIfCannotEditSets() is { } d) return d;
+        var (ok, err, info) = await _svc.AddPointsToDraftSetAsync(setId, pointIds, await ActorAsync());
+        if (ok && info != null) Err(info);          // e.g. duplicates skipped, alongside the success
+        return Back(ok, err, "Discussion Point(s) added to Draft Set successfully.", returnUrl);
+    }
+
+    // ── Draft Set upkeep — HOD with Set Edit; the service checks the Draft is theirs ──
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> RemoveFromSet(int setId, int pointId, string? returnUrl = null)
+    {
+        if (DenyIfCannotEditSets() is { } d) return d;
+        var (ok, err) = await _svc.RemoveFromDraftSetAsync(setId, pointId, await ActorAsync());
+        return Back(ok, err, "Removed from the Draft Set.", returnUrl);
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> AddSetFiles(int setId, List<IFormFile> files, string? returnUrl = null)
+    {
+        if (DenyIfCannotEditSets() is { } d) return d;
+        var (ok, err) = await _svc.AddDraftSetFilesAsync(setId, await ActorAsync(), files, StoragePath(), MaxFileMb());
+        if (ok && err != null) Err(err);           // partial upload: some files skipped
+        return Back(ok, err, "Supporting documents added.", returnUrl);
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> DiscardDraft(int setId, string? returnUrl = null)
+    {
+        if (DenyIfCannotEditSets() is { } d) return d;
+        var (ok, err) = await _svc.DiscardDraftSetAsync(setId, await ActorAsync(), StoragePath());
+        return Back(ok, err, "Draft Set discarded — its discussions are back on the Register.", returnUrl ?? Url.Action(nameof(Sets)));
     }
 
     [HttpPost, ValidateAntiForgeryToken]
@@ -259,7 +334,7 @@ public class DwoController : BaseCtrl
     [HttpPost, ValidateAntiForgeryToken]
     public async Task<IActionResult> SaveSummaryFile(int setId, IFormFile file, string? returnUrl = null)
     {
-        if (DenyIfNoPerm(DwoScreens.Register) is { } d) return d;
+        if (DenyIfNoPerm(DwoScreens.Sets) is { } d) return d;
         var (ok, err) = await _svc.SaveSummaryFileAsync(setId, await ActorAsync(), file, StoragePath(), MaxFileMb());
         return Back(ok, err, "Summary document saved.", returnUrl);
     }
@@ -303,7 +378,7 @@ public class DwoController : BaseCtrl
     [HttpPost, ValidateAntiForgeryToken]
     public async Task<IActionResult> CompleteFollowUp(int id, string note, IFormFile? file, string? returnUrl = null)
     {
-        if (DenyIfNoPerm(DwoScreens.Register) is { } d) return d;
+        if (DenyIfNoDwoView() is { } d) return d;
         var (ok, err) = await _svc.CompleteFollowUpAsync(id, await ActorAsync(), note, file, StoragePath(), MaxFileMb());
         return Back(ok, err, "Follow-up completed — sent back to management.", returnUrl);
     }
@@ -313,7 +388,7 @@ public class DwoController : BaseCtrl
     // ─────────────────────────────────────────────────────────
     public async Task<IActionResult> Download(int id)
     {
-        if (DenyIfNoPerm(DwoScreens.Register) is { } d) return d;
+        if (DenyIfNoDwoView() is { } d) return d;
         var att = await _svc.GetAttachmentAsync(id, await ActorAsync());
         if (att == null) return NotFound();
         var full = Path.Combine(StoragePath(), att.StoredFileName);
@@ -326,7 +401,7 @@ public class DwoController : BaseCtrl
     // ─────────────────────────────────────────────────────────
     public async Task<IActionResult> Export(DwoRegisterVM filter, string mode = DwoGridMode.Register)
     {
-        if (DenyIfNoPerm(DwoScreens.Register) is { } d) return d;
+        if (DenyIfNoDwoView() is { } d) return d;
         var rows = await _svc.GetRegisterForExportAsync(filter, await ActorAsync(), mode);
 
         var sb = new System.Text.StringBuilder();
