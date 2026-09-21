@@ -32,12 +32,12 @@ public class RoleFormVM
         "Roles & Permissions", "Workflow Definition",
         "Locations", "Departments", "Request Types",
         // ── DWO module ──
-        // Approve carries the module's role meaning: Approve on "DWO Register" makes a
-        // user an HOD for their mapped departments. Management is not a matrix row — it is
-        // the top approval level of the Workflow Definitions. "Discussion Point" gates the
-        // requestor screens (My Discussions, raise/edit/submit/withdraw); "Sets" gates the
-        // Sets screens. See DwoScreens.
-        DwoScreens.Points, DwoScreens.Sets, DwoScreens.Register, DwoScreens.Reports, DwoScreens.Companies
+        // Approve carries the module's role meaning: Approve on "Discussion Points" makes a
+        // user an HOD for their mapped departments; Create/Edit/Delete on the same row gate
+        // raising/editing/withdrawing a point. Management is not a matrix row — it is the
+        // top approval level of the Workflow Definitions. "DWO Sets" gates the Sets screens.
+        // See DwoScreens.
+        DwoScreens.Register, DwoScreens.Sets, DwoScreens.Companies
     };
     public static readonly string[] ReportScreens = { "Dashboard" };
 }

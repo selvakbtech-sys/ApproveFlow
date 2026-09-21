@@ -104,7 +104,7 @@ public class DwoController : BaseCtrl
     // Discussion details is a full page with server-side tabs, matching Request Details.
     // `returnUrl` carries the list it was opened from so Back goes there, while the action
     // forms post back to this page so the user sees the result of what they just did.
-    public async Task<IActionResult> Detail(int id, string? tab = null, string? returnUrl = null)
+    public async Task<IActionResult> Detail(int id, string? tab = null, string? returnUrl = null, bool buildSet = false)
     {
         if (DenyIfNoDwoView() is { } d) return d;
         var vm = await _svc.GetPointAsync(id, await ActorAsync());
@@ -115,6 +115,7 @@ public class DwoController : BaseCtrl
         }
         ViewBag.Tab = tab is "timeline" or "documents" ? tab : "details";
         ViewBag.ReturnUrl = Url.IsLocalUrl(returnUrl) ? returnUrl : null;
+        ViewBag.OpenBuildSet = buildSet && vm.CanBuildSet;   // after an HOD Approve
         return View(vm);
     }
 
@@ -148,15 +149,20 @@ public class DwoController : BaseCtrl
         return View("Form", vm);
     }
 
+    // Edit right on Discussion Points (own points), or Approve (HOD correcting a point
+    // pending with them) — the service decides which path applies.
+    private IActionResult? DenyIfCannotEditPoint() =>
+        HasPerm(DwoScreens.Points, Perm.Edit) || HasPerm(DwoScreens.Register, Perm.Approve) ? null : Deny();
+
     [HttpGet]
     public async Task<IActionResult> Edit(int id, string? returnUrl = null)
     {
-        if (DenyIfNoPerm(DwoScreens.Points, Perm.Edit) is { } d) return d;
+        if (DenyIfCannotEditPoint() is { } d) return d;
         var vm = await _svc.EditFormAsync(id, await ActorAsync());
         if (vm == null)
         {
-            Err("That discussion is not yours to edit, or it has moved past Draft.");
-            return RedirectToAction(nameof(MyDiscussions));
+            Err("That discussion is not yours to edit, or it can no longer be edited.");
+            return RedirectToAction(nameof(Register));
         }
         ViewBag.ReturnUrl = Url.IsLocalUrl(returnUrl) ? returnUrl : null;
         return View("Form", vm);
@@ -202,7 +208,11 @@ public class DwoController : BaseCtrl
         {
             if (!actor.IsManagement && !actor.IsHod) return Deny();
         }
-        else if (DenyIfNoPerm(DwoScreens.Points, vm.PointId == 0 ? Perm.Create : Perm.Edit) is { } d) return d;
+        else if (vm.PointId == 0)
+        {
+            if (DenyIfNoPerm(DwoScreens.Points, Perm.Create) is { } d) return d;
+        }
+        else if (DenyIfCannotEditPoint() is { } d) return d;
         var (ok, err, _) = await _svc.SavePointAsync(vm, actor, saveAction, StoragePath(), MaxFileMb());
         if (!ok)
         {
@@ -213,6 +223,20 @@ public class DwoController : BaseCtrl
         }
         if (intoSet)
             return Back(true, null, "Added to the Set.", returnUrl ?? Url.Action(nameof(Sets)));
+        // HOD decision taken from the edit screen: show the outcome on Discussion Details
+        // (Approve continues into Build Set there).
+        if (vm.HodEdit && (saveAction is "approve" or "send_back" or "hold" or "reject"))
+        {
+            Ok(saveAction switch
+            {
+                "approve"   => "Saved and approved — now add it to a Set and request the appointment.",
+                "reject"    => "Saved and rejected.",
+                "hold"      => "Saved and put on hold.",
+                _           => "Saved and sent back for clarification.",
+            });
+            var listUrl = Url.IsLocalUrl(returnUrl) && !returnUrl!.Contains("/Detail/") ? returnUrl : null;
+            return RedirectToAction(nameof(Detail), new { id = vm.PointId, returnUrl = listUrl, buildSet = saveAction == "approve" });
+        }
         var msg = saveAction == "submit" ? "Discussion submitted." : "Discussion saved.";
         return Back(true, null, msg, returnUrl ?? Url.Action(nameof(MyDiscussions)));
     }
@@ -244,13 +268,25 @@ public class DwoController : BaseCtrl
         return Back(ok, err, "Withdrawn — the discussion is back in Draft.", returnUrl);
     }
 
-    // HOD: send back for clarification, or reject.
+    // HOD decision panel: approve, send back for clarification, put on hold, or reject.
+    // Approve keeps the point Submitted and lands on Discussion Details with the Build Set
+    // modal open, since a point reaches Management only through a Set.
     [HttpPost, ValidateAntiForgeryToken]
-    public async Task<IActionResult> Review(int id, string action, string? note, string? returnUrl = null)
+    public async Task<IActionResult> Review(int id, string action, string? note, IFormFile? file = null, string? returnUrl = null)
     {
         if (DenyIfNoPerm(DwoScreens.Register, Perm.Approve) is { } d) return d;
-        var (ok, err) = await _svc.ReviewAsync(id, await ActorAsync(), action, note);
-        var msg = action == "reject" ? "Discussion rejected." : "Sent back for clarification.";
+        var (ok, err) = await _svc.ReviewAsync(id, await ActorAsync(), action, note, file, StoragePath(), MaxFileMb());
+        if (ok && action == "approve")
+        {
+            Ok("Approved — now add it to a Set and request the appointment.");
+            return RedirectToAction(nameof(Detail), new { id, returnUrl, buildSet = true });
+        }
+        var msg = action switch
+        {
+            "reject" => "Discussion rejected.",
+            "hold"   => "Discussion put on hold.",
+            _        => "Sent back for clarification.",
+        };
         return Back(ok, err, msg, returnUrl);
     }
 
@@ -367,12 +403,12 @@ public class DwoController : BaseCtrl
     }
 
     [HttpPost, ValidateAntiForgeryToken]
-    public async Task<IActionResult> Resume(int id, string? returnUrl = null)
+    public async Task<IActionResult> Resume(int id, string? note = null, string? returnUrl = null)
     {
         var actor = await ActorAsync();
-        if (!actor.IsManagement) return Deny();
-        var (ok, err) = await _svc.ResumeAsync(id, actor);
-        return Back(ok, err, "Moved back to management discussion.", returnUrl);
+        if (!actor.IsManagement && !actor.IsHod) return Deny();
+        var (ok, err) = await _svc.ResumeAsync(id, actor, note);
+        return Back(ok, err, "Hold lifted — the discussion is back in its queue.", returnUrl);
     }
 
     [HttpPost, ValidateAntiForgeryToken]

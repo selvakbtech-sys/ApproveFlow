@@ -1,4 +1,4 @@
-namespace ApproveFlow.MVC.Models.Dwo;
+﻿namespace ApproveFlow.MVC.Models.Dwo;
 
 // ── DWO ⇄ Common Dashboard contract ────────────────────────────────────────────
 // DWO is an INDEPENDENT module with its own data. The Common Dashboard never queries DWO
@@ -30,7 +30,7 @@ public class DwoUserContext
 
     // The DWO permission flags, read from the caller's claims exactly as DwoController does
     // for its own pages, so the dashboard scopes identically to the grids its cards open.
-    public bool CanViewRegister { get; set; }   // "DWO Register" (view)
+    public bool CanViewRegister { get; set; }   // "Discussion Points" (view)
     public bool IsManagement    { get; set; }   // Admin or top Workflow Definition approver — global scope
     public bool IsHod           { get; set; }   // "DWO Register|Approve"
 }
@@ -72,13 +72,15 @@ public class DwoMonthPointVM
 // dashboard, the sidebar and the matrix still gate on identical values.
 public static class DwoDashboardScreens
 {
-    public const string Register             = "DWO Register";
+    // "Discussion Points" (renamed from "DWO Register" on 2026-09-19) is now the one DWO
+    // matrix row for points; the separate "DWO Reports" row was retired the same day.
+    public const string Register             = "Discussion Points";
     public const string ManagementDiscussion = "Management Discussion";
-    public const string Reports              = "DWO Reports";
+    public const string Sets                 = "DWO Sets";
 
     // Holding ANY of these means the user has some DWO access — what the dashboard's DWO
     // section keys off, the same rule the sidebar's DWO group uses.
-    public static readonly string[] All = { Register, ManagementDiscussion, Reports };
+    public static readonly string[] All = { Register, ManagementDiscussion, Sets };
 }
 
 // Canonical keys, display order, default labels and the DWO screen each card opens.
@@ -97,8 +99,8 @@ public static class DwoKpiKeys
 
     public static readonly (string Key, string Label, string Accent, string Url)[] Ordered =
     {
-        (DiscussionRegister,   "Discussion Register",   "#0f172a", "/DWO/Register"),
-        (MyDiscussions,        "Discussion Point",      "#2563eb", "/DWO/MyDiscussions"),
+        (DiscussionRegister,   "Discussion Points",     "#0f172a", "/DWO/Register"),
+        (MyDiscussions,        "My Discussions",        "#2563eb", "/DWO/MyDiscussions"),
         (ManagementDiscussion, "Management Discussion", "#0891b2", "/DWO/Register?FilterStatus=Management%20Discussion"),
         (PendingAction,        "Pending Action",        "#d97706", "/DWO/Register?FilterStatus=Submitted"),
         (Closed,               "Closed",                "#16a34a", "/DWO/Register?FilterStatus=Closed"),

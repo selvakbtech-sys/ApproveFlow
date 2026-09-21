@@ -1,0 +1,61 @@
+@model DwoHodActionPanelVM
+@* HOD decision panel — same look and behaviour as the approval panel on Request Details:
+   one comment box, an optional attachment, and stacked Approve / Request Clarification /
+   Hold / Reject buttons. Comment is mandatory for everything except Approve.
+   Approve records the HOD's approval and then opens "Add to Set & Request Appointment",
+   because a point only reaches Management through a Set.
+
+   The fields bind to the form element rendered by _HodActionForm (via the HTML form=
+   attribute) rather than wrapping one here, so the panel can sit inside another form's
+   layout — the HOD edit screen — without nesting forms. Render _HodActionForm once on the
+   page, outside any other form. *@
+<div class="card" style="border:2px solid var(--wa);margin-bottom:14px">
+  <div class="card-hdr" style="background:var(--wa-bg);border-bottom-color:var(--wa-bdr)">
+    <svg viewBox="0 0 24 24" style="stroke:var(--wa)"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" stroke-width="2"/><line x1="12" y1="9" x2="12" y2="13" stroke-width="2"/><line x1="12" y1="17" x2="12.01" y2="17" stroke-width="2"/></svg>
+    <span style="color:var(--wa)">
+      Your Action Required — HOD
+      <span style="font-weight:400;font-size:12px"> · @Model.PointNumber</span>
+    </span>
+  </div>
+  <div class="card-body">
+    <div class="form-group" style="margin-bottom:12px">
+      <label class="lbl">Comment</label>
+      <textarea name="note" form="dwoHodActionForm" id="dwoHodNote" class="inp" rows="3" placeholder="Required for clarification / hold / rejection…"></textarea>
+    </div>
+    <div class="form-group" style="margin-bottom:12px">
+      <label class="lbl">Attachment <span style="font-weight:400;color:var(--txt3)">(Optional)</span></label>
+      <input type="file" name="file" form="dwoHodActionForm" class="inp" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png" />
+      <div class="hint">PDF, Word, Excel, JPG/PNG — max 20 MB</div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <button type="submit" form="dwoHodActionForm" name="action" value="approve" class="btn btn-ok" style="justify-content:center">
+        <svg viewBox="0 0 24 24"><polyline points="20,6 9,17 4,12" stroke-width="2.5"/></svg>Approve
+      </button>
+      <button type="submit" form="dwoHodActionForm" name="action" value="send_back" class="btn btn-wa" style="justify-content:center"
+        onclick="return dwoRequireNote('Clarification remarks are required.')">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>Request Clarification
+      </button>
+      <button type="submit" form="dwoHodActionForm" name="action" value="hold" class="btn btn-sec" style="justify-content:center"
+        onclick="return dwoRequireNote('A hold reason is required.')">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="10" y1="15" x2="10" y2="9"/><line x1="14" y1="15" x2="14" y2="9"/></svg>Hold
+      </button>
+      <button type="submit" form="dwoHodActionForm" name="action" value="reject" class="btn btn-ng" style="justify-content:center"
+        onclick="return dwoRequireNote('Rejection remarks are required.') &amp;&amp; confirm('Reject this discussion? The raiser will be notified.')">
+        <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" stroke-width="2.5"/><line x1="6" y1="6" x2="18" y2="18" stroke-width="2.5"/></svg>Reject
+      </button>
+    </div>
+    <div class="hint" style="margin-top:8px">Approve records your remark and opens <em>Add to Set &amp; Request Appointment</em>.</div>
+    <script>
+      // Approve = comment optional; Clarification, Hold and Reject = comment mandatory.
+      function dwoRequireNote(msg) {
+        var ta = document.getElementById('dwoHodNote');
+        if (!ta || ta.value.trim() === '') {
+          alert(msg);
+          if (ta) ta.focus();
+          return false;
+        }
+        return true;
+      }
+    </script>
+  </div>
+</div>

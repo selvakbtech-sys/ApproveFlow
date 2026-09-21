@@ -1,4 +1,4 @@
-namespace ApproveFlow.MVC.Models.Domain;
+﻿namespace ApproveFlow.MVC.Models.Domain;
 
 // Immutable audit trail. One row per action on a point or a Set; nothing in the module
 // ever updates or deletes a row here. ActorName is denormalised so entries written on
@@ -16,6 +16,11 @@ public class DwoHistory
     public string Action { get; set; } = "";
     [MaxLength(2000)]
     public string? Note { get; set; }
+    // Which hat the actor wore (DwoRoleKind) — null on rows written before it was recorded.
+    [MaxLength(20)]
+    public string? RoleKind { get; set; }
+    // Field-level audit for an Edit: one "Field: old → new" per line.
+    public string? Changes { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
 
     public virtual DwoPoint? Point { get; set; }

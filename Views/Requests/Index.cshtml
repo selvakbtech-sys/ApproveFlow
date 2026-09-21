@@ -1,4 +1,4 @@
-@model RequestListVM
+﻿@model RequestListVM
 @{
     ViewData["Title"] = "Requests";
     ViewData["NavPage"] = "requests";
@@ -375,10 +375,10 @@
   // the grid's From/To filters currently hold (may be empty = no date filter).
   function exportFileName() {
     var f = '@Model.FilterDateFrom', t = '@Model.FilterDateTo';
-    if (f && t) return 'Requests_' + f + '_to_' + t + '.csv';
+    if (f && t) return 'Requests_' + f + '_to_' + t + '.xlsx';
     var d = new Date();
     var s = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-    return 'Requests_' + s + '.csv';
+    return 'Requests_' + s + '.xlsx';
   }
   async function exportExcel(btn) {
     var original = btn.innerHTML;

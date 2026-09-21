@@ -1,4 +1,4 @@
-@model DwoSetDetailVM
+﻿@model DwoSetDetailVM
 @{
     var s = Model.Set;
     var apptDate = s.ScheduledDate ?? s.RequestedAppointmentDate;
@@ -61,7 +61,7 @@
     }
     @if (canEditDraft)
     {
-      <span class="hint" style="margin:0">Add more from the Discussion Register (tick Submitted rows → Build Set → this Draft).</span>
+      <span class="hint" style="margin:0">Add more from Discussion Points (tick Submitted rows → Build Set → this Draft).</span>
     }
   </div>
   <div class="tbl-wrap" style="margin-bottom:14px">

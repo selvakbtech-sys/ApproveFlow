@@ -1,4 +1,4 @@
-namespace ApproveFlow.MVC.Services;
+﻿namespace ApproveFlow.MVC.Services;
 
 public interface IRequestService
 {
@@ -20,6 +20,9 @@ public interface IRequestService
     Task<AgingReportVM> GetAgingAsync(AgingReportVM filter, int? scopeUserId = null);
     Task<WorkflowDefinition?> MatchWorkflowAsync(int locId, int typeId, string priority, int deptId, int userId = 0, decimal? amount = null);
     Task<List<ReqListItemVM>> GetAllForExportAsync(RequestListVM filter, int? scopeUserId = null);
+    // Approver remarks per request for the Excel export: every approver row that carries a
+    // comment, in step order, flattened to one text per RequestId.
+    Task<Dictionary<int, string>> GetApproverRemarksAsync(IEnumerable<int> requestIds);
     // Authorization: can this user open/download this specific request? Admin = any;
     // otherwise only the requestor (creator) or an assigned approver.
     Task<bool> CanAccessRequestAsync(int requestId, int userId, string userRole);
@@ -36,6 +39,30 @@ public class RequestService : IRequestService
     private readonly IApplicationUrlService _urlSvc;
     public RequestService(AppDbContext db, IWhatsAppService wa, ILogger<RequestService> log, IUserMappingService mapping, IConfiguration cfg, IApplicationUrlService urlSvc)
     { _db = db; _wa = wa; _log = log; _mapping = mapping; _cfg = cfg; _urlSvc = urlSvc; }
+
+    public async Task<Dictionary<int, string>> GetApproverRemarksAsync(IEnumerable<int> requestIds)
+    {
+        var ids = requestIds.Distinct().ToList();
+        if (ids.Count == 0) return new();
+        var rows = await _db.RequestApprovers
+            .AsNoTracking()
+            .Where(a => ids.Contains(a.RequestId) && a.Comment != null && a.Comment != "")
+            .OrderBy(a => a.RequestId).ThenBy(a => a.StepLevel).ThenBy(a => a.ActionAt)
+            .Select(a => new
+            {
+                a.RequestId, a.StepLevel, a.Status, a.ActionAt, a.Comment,
+                Approver = a.ApproverUser.FullName,
+            })
+            .ToListAsync();
+        // "L1 Name (Approved, 12-Sep-2026): text | L2 …" — one line per request.
+        return rows
+            .GroupBy(r => r.RequestId)
+            .ToDictionary(g => g.Key, g => string.Join(" | ", g.Select(r =>
+                $"L{r.StepLevel} {r.Approver} ({Cap(r.Status)}" +
+                $"{(r.ActionAt.HasValue ? ", " + r.ActionAt.Value.ToString("dd-MMM-yyyy") : "")}): {r.Comment!.Trim()}")));
+
+        static string Cap(string s) => string.IsNullOrEmpty(s) ? s : char.ToUpperInvariant(s[0]) + s[1..];
+    }
 
     public async Task<List<ReqListItemVM>> GetAllForExportAsync(RequestListVM filter, int? scopeUserId = null)
     {

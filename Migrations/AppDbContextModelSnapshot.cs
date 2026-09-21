@@ -298,6 +298,9 @@ namespace ApproveFlow.MVC.Migrations
                     b.Property<int?>("ActorUserId")
                         .HasColumnType("int");
 
+                    b.Property<string>("Changes")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset");
 
@@ -307,6 +310,10 @@ namespace ApproveFlow.MVC.Migrations
 
                     b.Property<int?>("PointId")
                         .HasColumnType("int");
+
+                    b.Property<string>("RoleKind")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
 
                     b.Property<int?>("SetId")
                         .HasColumnType("int");
@@ -347,6 +354,10 @@ namespace ApproveFlow.MVC.Migrations
                     b.Property<string>("Description")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("HeldFromStatus")
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
 
                     b.Property<int>("LocationId")
                         .HasColumnType("int");
@@ -444,6 +455,52 @@ namespace ApproveFlow.MVC.Migrations
                     b.HasIndex("PointId");
 
                     b.ToTable("DwoReferenceLinks", (string)null);
+                });
+
+            modelBuilder.Entity("ApproveFlow.MVC.Models.Domain.DwoRemark", b =>
+                {
+                    b.Property<int>("RemarkId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("RemarkId"));
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("PointId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Remark")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<string>("RoleKind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<int?>("UserId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("UserName")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.HasKey("RemarkId");
+
+                    b.HasIndex("PointId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("DwoRemarks", (string)null);
                 });
 
             modelBuilder.Entity("ApproveFlow.MVC.Models.Domain.DwoSet", b =>
@@ -1582,6 +1639,24 @@ namespace ApproveFlow.MVC.Migrations
                     b.Navigation("Point");
                 });
 
+            modelBuilder.Entity("ApproveFlow.MVC.Models.Domain.DwoRemark", b =>
+                {
+                    b.HasOne("ApproveFlow.MVC.Models.Domain.DwoPoint", "Point")
+                        .WithMany("Remarks")
+                        .HasForeignKey("PointId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("ApproveFlow.MVC.Models.Domain.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Point");
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("ApproveFlow.MVC.Models.Domain.DwoSet", b =>
                 {
                     b.HasOne("ApproveFlow.MVC.Models.Domain.Department", "Department")
@@ -1890,6 +1965,8 @@ namespace ApproveFlow.MVC.Migrations
                     b.Navigation("History");
 
                     b.Navigation("ReferenceLinks");
+
+                    b.Navigation("Remarks");
                 });
 
             modelBuilder.Entity("ApproveFlow.MVC.Models.Domain.DwoSet", b =>

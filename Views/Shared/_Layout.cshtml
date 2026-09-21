@@ -51,7 +51,7 @@
     </a>
     }
     @* Requests is a parent menu now. It is a heading, not a link — its three children are
-       the destinations, and "Request Register" is the list that "Requests" used to open. *@
+       the destinations, and the "Requests" item is the list the old top-level "Requests" opened. *@
     @if (CanView("Requests") || CanView("New Request")) {
     <details class="sb-sub" data-sb-group="approveflow-requests" open>
       <summary class="nav-link">
@@ -69,7 +69,7 @@
         @if (CanView("Requests")) {
         <a asp-controller="Requests" asp-action="Index" class="nav-link nav-child @(IsActive("requests")?"active":"")">
           <svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
-          Request Register
+          Requests
         </a>
         <a asp-controller="Requests" asp-action="Aging" class="nav-link nav-child @(IsActive("aging")?"active":"")">
           <svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10" stroke-width="2"/><line x1="12" y1="20" x2="12" y2="4" stroke-width="2"/><line x1="6" y1="20" x2="6" y2="14" stroke-width="2"/></svg>
@@ -86,7 +86,7 @@
        New module. Rendered as its own section using the same .sb-sec / .nav-link
        components as every other group, so the existing navigation is untouched. Each
        link is gated by the DWO permission screens (see DwoScreens). *@
-    @if (CanView(DwoScreens.Points) || CanView(DwoScreens.Sets) || CanView(DwoScreens.Register) || CanView(DwoScreens.Reports))
+    @if (CanView(DwoScreens.Sets) || CanView(DwoScreens.Register))
     {
     <details class="sb-group" data-sb-group="dwo" open>
       <summary class="sb-sec">DWO <svg class="sb-chev" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6,9 12,15 18,9" stroke-width="2.5"/></svg></summary>
@@ -97,28 +97,16 @@
       DWO Dashboard
     </a>
     }
-    @if (CanView(DwoScreens.Points)) {
-    <a asp-controller="Dwo" asp-action="MyDiscussions" class="nav-link @(IsActive("dwomine")?"active":"")">
-      <svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
-      Discussion Point
-    </a>
-    }
     @if (CanView(DwoScreens.Register)) {
     <a asp-controller="Dwo" asp-action="Register" class="nav-link @(IsActive("dworegister")?"active":"")">
       <svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
-      Discussion Register
+      Discussion Points
     </a>
     }
     @if (CanView(DwoScreens.Sets)) {
     <a asp-controller="Dwo" asp-action="Sets" class="nav-link @(IsActive("dwosets")?"active":"")">
       <svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 2l9 5-9 5-9-5 9-5z"/><polyline points="3,12 12,17 21,12" stroke-width="1.8"/><polyline points="3,17 12,22 21,17" stroke-width="1.8"/></svg>
-      Sets
-    </a>
-    }
-    @if (CanView(DwoScreens.Reports)) {
-    <a asp-controller="Dwo" asp-action="Reports" class="nav-link @(IsActive("dworeports")?"active":"")">
-      <svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8" stroke-width="1.8"/><line x1="9" y1="17" x2="9" y2="13" stroke-width="1.8"/><line x1="12" y1="17" x2="12" y2="11" stroke-width="1.8"/><line x1="15" y1="17" x2="15" y2="14" stroke-width="1.8"/></svg>
-      Reports
+      DWO Sets
     </a>
     }
       </div>

@@ -187,9 +187,10 @@ GO
 -- ── Permission rows ─────────────────────────────────────────────────────────
 -- Adds the three DWO screens to every existing role with all rights OFF, so no role
 -- silently gains access. Grant them from Roles & Permissions:
---   "DWO Register"          View → the DWO dashboard, My Discussions and the register
+--   "Discussion Points"     View → the DWO dashboard, the points register and Reports
+--                           Create/Edit/Delete → raise / edit / withdraw own points
 --                           Approve → HOD powers (review, send back, reject, build a Set)
---   "DWO Reports"           View → the Reports page
+--   "DWO Sets"              View/Edit → the Sets screens
 --   "Companies"             the Company master
 -- Management is not a matrix row: Admin, or the approver at the highest step level of an
 -- active Workflow Definition, is Management. Admin bypasses the matrix entirely.
@@ -197,15 +198,16 @@ INSERT INTO dbo.RolePermissions (RoleId, ScreenName, CanView, CanCreate, CanEdit
 SELECT r.RoleId, s.ScreenName, 0, 0, 0, 0, 0, SYSDATETIMEOFFSET()
 FROM   dbo.Roles r
 CROSS JOIN (VALUES
-    ('DWO Register'), ('DWO Reports'), ('Companies')
+    ('Discussion Points'), ('DWO Sets'), ('Companies')
 ) AS s(ScreenName)
 WHERE NOT EXISTS (
     SELECT 1 FROM dbo.RolePermissions rp
     WHERE rp.RoleId = r.RoleId AND rp.ScreenName = s.ScreenName);
 GO
 
--- The retired "Management Discussion" row (earlier builds seeded it). Safe to re-run.
-DELETE FROM dbo.RolePermissions WHERE ScreenName = 'Management Discussion';
+-- Retired rows (earlier builds seeded them). Safe to re-run. Existing databases should run
+-- Migrations/20260919100000_MergeDwoScreenPermissions.sql first so no rights are lost.
+DELETE FROM dbo.RolePermissions WHERE ScreenName IN ('Management Discussion', 'Discussion Point', 'DWO Reports');
 GO
 
 -- ── Starter companies ───────────────────────────────────────────────────────

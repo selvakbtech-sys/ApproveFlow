@@ -1,4 +1,4 @@
-namespace ApproveFlow.MVC.Controllers;
+﻿namespace ApproveFlow.MVC.Controllers;
 
 using ApproveFlow.MVC.Models.Dwo;
 
@@ -18,13 +18,15 @@ public class CommonDashboardController : BaseCtrl
     private const string RequestsScreen = "Requests";
 
     private readonly ICommonDashboardService _svc;
+    private readonly IDashboardService _dash;
     private readonly IDwoDashboardService? _dwo;
 
     // The DWO provider is looked up rather than required, so the application still starts —
     // and the ApproveFlow section still works — where the DWO module registers none.
-    public CommonDashboardController(ICommonDashboardService svc, IServiceProvider sp)
+    public CommonDashboardController(ICommonDashboardService svc, IDashboardService dash, IServiceProvider sp)
     {
         _svc = svc;
+        _dash = dash;
         _dwo = sp.GetService<IDwoDashboardService>();
     }
 
@@ -48,6 +50,15 @@ public class CommonDashboardController : BaseCtrl
             // dashboard may show global data.
             int? scopeUserId = isAdmin ? null : UserId;
             vm.ApproveFlow = await _svc.GetApproveFlowAsync(scopeUserId, ct);
+            // Requests waiting on THIS user as approver — the same figures as the Dashboard's
+            // My Approvals tab, so an approver who raises no requests still sees their queue.
+            vm.ApproveFlow.MyApprovals = await _dash.GetMyApprovalSummaryAsync(UserId);
+            // My Requests / My Territory — the same service calls that feed the Dashboard's
+            // tabs, so the three KPI tab rows here are identical to the Dashboard's.
+            // My Territory is hidden for View Only, exactly as on the Dashboard.
+            vm.ApproveFlow.MyRequests = await _dash.GetMyRequestsTabAsync(UserId);
+            if (UserRole != "View Only")
+                vm.ApproveFlow.MyTerritory = await _dash.GetMyTerritoryTabAsync(UserId);
         }
 
         // DWO access = any of the DWO module's screens — the same names the Roles &

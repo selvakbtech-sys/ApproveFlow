@@ -27,7 +27,8 @@ public interface IDwoService
     Task<(bool ok, string? err)> SubmitPointAsync(int pointId, DwoActor actor);
     Task<(bool ok, string? err)> TakeUpAsync(int pointId, DwoActor actor);
     Task<(bool ok, string? err)> WithdrawPointAsync(int pointId, DwoActor actor);
-    Task<(bool ok, string? err)> ReviewAsync(int pointId, DwoActor actor, string action, string? note);
+    Task<(bool ok, string? err)> ReviewAsync(int pointId, DwoActor actor, string action, string? note,
+        IFormFile? file = null, string? storagePath = null, int maxFileMb = 20);
 
     Task<DwoSetListVM> GetSetsAsync(DwoActor actor, int? deptId, string? status);
     Task<DwoSetDetailVM?> GetSetAsync(int setId, DwoActor actor);
@@ -47,7 +48,7 @@ public interface IDwoService
 
     Task<(bool ok, string? err)> DiscussAsync(
         int pointId, DwoActor actor, string action, DwoDiscussInput input, string storagePath, int maxFileMb);
-    Task<(bool ok, string? err)> ResumeAsync(int pointId, DwoActor actor);
+    Task<(bool ok, string? err)> ResumeAsync(int pointId, DwoActor actor, string? note = null);
     Task<(bool ok, string? err)> CompleteFollowUpAsync(
         int pointId, DwoActor actor, string note, IFormFile? file, string storagePath, int maxFileMb);
 
@@ -200,6 +201,7 @@ public class DwoService : IDwoService
             .Take(pageSize)
             .ToListAsync();
         MarkSelectable(filter.Items, actor, mode);
+        MarkRowActions(filter.Items, actor);
 
         await FillRegisterLookupsAsync(filter, actor);
         return filter;
@@ -250,6 +252,9 @@ public class DwoService : IDwoService
             LocationName = p.Location.LocationName,
             DeptName     = p.Department.DeptName,
             RaisedByName = p.RaisedByUser != null ? p.RaisedByUser.FullName : "Unassigned (reassigned)",
+            RaisedByUserId = p.RaisedByUserId,
+            DepartmentId = p.DepartmentId,
+            HeldFromStatus = p.HeldFromStatus,
             CreatedAt    = p.CreatedAt,
             FollowUpOwnerName = p.FollowUps
                 .Where(f => f.CompletedAt == null)
@@ -272,6 +277,26 @@ public class DwoService : IDwoService
         if ((!actor.IsHod && !actor.IsManagement) || mode == DwoGridMode.Mine) return;
         foreach (var r in rows)
             r.IsSelectableForSet = EligibleForSet(r.Status, r.IsReassignedCopy, r.SetNumber != null);
+    }
+
+    // Edit / Withdraw icons on the grid. Mirrors GetPointAsync (CanEdit, CanHodEdit,
+    // CanWithdraw) so a row never offers what its Detail page would refuse.
+    private static void MarkRowActions(List<DwoPointRowVM> rows, DwoActor actor)
+    {
+        foreach (var r in rows)
+        {
+            bool owns = r.RaisedByUserId == actor.UserId ||
+                        (r.RaisedByUserId == null && actor.DepartmentIds.Contains(r.DepartmentId));
+            bool ownerEdit = actor.CanEditOwn && owns &&
+                             r.Status is DwoStatus.Draft or DwoStatus.Submitted or DwoStatus.ChangeRequested;
+            bool hodEdit = actor.IsHod && !actor.IsManagement && actor.DepartmentIds.Contains(r.DepartmentId) &&
+                           (r.Status == DwoStatus.Submitted ||
+                            (r.Status == DwoStatus.Hold && r.HeldFromStatus == DwoStatus.Submitted));
+            r.CanEdit = ownerEdit || hodEdit;
+            r.CanWithdraw = actor.CanWithdraw && owns &&
+                            r.Status is not (DwoStatus.Draft or DwoStatus.Closed or DwoStatus.FollowUp
+                                             or DwoStatus.Rejected or DwoStatus.Reassigned);
+        }
     }
 
     private async Task FillRegisterLookupsAsync(DwoRegisterVM vm, DwoActor actor)
@@ -323,6 +348,8 @@ public class DwoService : IDwoService
             OpenFollowUp = followUps.FirstOrDefault(f => f.CompletedAt == null),
             History = await _db.DwoHistories.Include(h => h.ActorUser)
                 .Where(h => h.PointId == pointId).OrderBy(h => h.HistoryId).ToListAsync(),
+            Remarks = await _db.DwoRemarks
+                .Where(r => r.PointId == pointId).OrderBy(r => r.RemarkId).ToListAsync(),
             Attachments = await _db.DwoAttachments.Include(a => a.UploadedByUser)
                 .Where(a => a.PointId == pointId).OrderBy(a => a.AttachmentId).ToListAsync(),
             ReferenceLinks = await _db.DwoReferenceLinks
@@ -341,6 +368,8 @@ public class DwoService : IDwoService
         var owns = Owns(p, actor);
         vm.CanEdit    = actor.CanEditOwn && owns &&
                         p.Status is DwoStatus.Draft or DwoStatus.Submitted or DwoStatus.ChangeRequested;
+        // HOD may correct a point while it is pending with them (see HodMayEdit).
+        vm.CanHodEdit = !vm.CanEdit && HodMayEdit(p, actor);
         vm.CanSubmit  = actor.CanCreate && owns && p.Status == DwoStatus.Draft;
         // A reassigned copy waits, read-only, until someone in the target department takes
         // it up (TakeUpAsync); the original — which has no OriginPointId — never can be.
@@ -356,7 +385,10 @@ public class DwoService : IDwoService
         vm.CanBuildSet = EligibleForSet(p) &&
                         (actor.IsManagement || (actor.IsHod && actor.DepartmentIds.Contains(p.DepartmentId)));
         vm.CanDiscuss = actor.IsManagement && p.Status == DwoStatus.ManagementDiscussion;
-        vm.CanResume  = actor.IsManagement && p.Status == DwoStatus.Hold;
+        // An HOD hold (HeldFromStatus = Submitted) stays in the HOD queue: the HOD or
+        // Management may resume it. A Management hold is Management's alone.
+        vm.CanResume  = p.Status == DwoStatus.Hold &&
+                        (actor.IsManagement || (IsHodHold(p) && actor.IsHod && actor.DepartmentIds.Contains(p.DepartmentId)));
         vm.CanCompleteFollowUp = !actor.IsManagement && p.Status == DwoStatus.FollowUp &&
                         vm.OpenFollowUp != null &&
                         (vm.OpenFollowUp.OwnerUserId == actor.UserId ||
@@ -372,6 +404,24 @@ public class DwoService : IDwoService
     private static bool Owns(DwoPoint p, DwoActor actor) =>
         p.RaisedByUserId == actor.UserId ||
         (p.RaisedByUserId == null && actor.DepartmentIds.Contains(p.DepartmentId));
+
+    // A hold placed by the HOD (as opposed to Management): the point resumes to Submitted.
+    private static bool IsHodHold(DwoPoint p) =>
+        p.Status == DwoStatus.Hold && p.HeldFromStatus == DwoStatus.Submitted;
+
+    // HOD-level editing: only while the point is pending with the HOD (Submitted, or an
+    // HOD hold) and in one of their departments. Never once it has moved to Management,
+    // been rejected, or gone back to the requester. Management does not edit points.
+    private static bool HodMayEdit(DwoPoint p, DwoActor actor) =>
+        actor.IsHod && !actor.IsManagement && actor.DepartmentIds.Contains(p.DepartmentId) &&
+        (p.Status == DwoStatus.Submitted || IsHodHold(p));
+
+    // The hat the actor wears for a point: Management outranks HOD; an HOD acting on a point
+    // they raised themselves is its Requester.
+    private static string RoleKindOf(DwoPoint p, DwoActor actor) =>
+        actor.IsManagement ? DwoRoleKind.Management
+        : actor.IsHod && actor.DepartmentIds.Contains(p.DepartmentId) && p.RaisedByUserId != actor.UserId ? DwoRoleKind.Hod
+        : DwoRoleKind.Requester;
 
     // ─────────────────────────────────────────────────────────
     // Create / edit
@@ -421,11 +471,14 @@ public class DwoService : IDwoService
         var p = await _db.DwoPoints
             .Include(x => x.ReferenceLinks)
             .FirstOrDefaultAsync(x => x.PointId == pointId);
-        if (p == null || !Owns(p, actor)) return null;
-        if (p.Status is not (DwoStatus.Draft or DwoStatus.Submitted or DwoStatus.ChangeRequested)) return null;
+        if (p == null) return null;
+        bool ownerEdit = actor.CanEditOwn && Owns(p, actor) &&
+                         p.Status is DwoStatus.Draft or DwoStatus.Submitted or DwoStatus.ChangeRequested;
+        if (!ownerEdit && !HodMayEdit(p, actor)) return null;
 
         var vm = new DwoPointFormVM
         {
+            HodEdit = !ownerEdit,
             PointId = p.PointId, PointNumber = p.PointNumber, TaskId = p.TaskId,
             Title = p.Title, Description = p.Description, Category = p.Category, Priority = p.Priority,
             CompanyId = p.CompanyId, LocationId = p.LocationId, DepartmentId = p.DepartmentId,
@@ -491,7 +544,11 @@ public class DwoService : IDwoService
 
         DwoPoint p;
         bool isNew = vm.PointId == 0;
+        bool hodEdit = false;
         string historyAction;
+        // Old values, captured before the fields are overwritten, for the field-level audit.
+        DwoPoint? before = null;
+        List<string> oldLinks = new();
 
         if (targetSet != null)
         {
@@ -511,15 +568,39 @@ public class DwoService : IDwoService
             var existing = await _db.DwoPoints.Include(x => x.ReferenceLinks)
                 .FirstOrDefaultAsync(x => x.PointId == vm.PointId);
             if (existing == null) return (false, "Discussion not found.", 0);
-            if (!Owns(existing, actor)) return (false, "You can only edit your own discussions.", 0);
-            if (existing.Status is not (DwoStatus.Draft or DwoStatus.Submitted or DwoStatus.ChangeRequested))
-                return (false, $"A discussion in {existing.Status} can no longer be edited.", 0);
+            bool ownerEdit = actor.CanEditOwn && Owns(existing, actor) &&
+                             existing.Status is DwoStatus.Draft or DwoStatus.Submitted or DwoStatus.ChangeRequested;
+            if (!ownerEdit)
+            {
+                // HOD correction while the point is pending with them; otherwise the usual denials.
+                if (!HodMayEdit(existing, actor))
+                    return Owns(existing, actor)
+                        ? (false, $"A discussion in {existing.Status} can no longer be edited.", 0)
+                        : (false, "You can only edit your own discussions.", 0);
+                hodEdit = true;
+                // The edit itself never changes the status; a decision from the HOD panel
+                // (approve / send_back / hold / reject) is applied by ReviewAsync after the
+                // save. Anything else is a plain save.
+                if (saveAction is not ("approve" or "send_back" or "hold" or "reject")) saveAction = "save";
+                if ((saveAction is "send_back" or "hold" or "reject") && string.IsNullOrWhiteSpace(vm.Remark))
+                    return (false, "Remarks are required for clarification, hold and rejection.", 0);
+            }
             p = existing;
+            before = new DwoPoint
+            {
+                TaskId = p.TaskId, Title = p.Title, Description = p.Description,
+                Category = p.Category, Priority = p.Priority,
+                CompanyId = p.CompanyId, LocationId = p.LocationId, DepartmentId = p.DepartmentId,
+            };
+            oldLinks = p.ReferenceLinks.OrderBy(r => r.LinkId).Select(r => r.Url).ToList();
             // Whoever updates an unclaimed reassigned point becomes its raiser.
-            p.RaisedByUserId ??= actor.UserId;
+            if (!hodEdit) p.RaisedByUserId ??= actor.UserId;
             _db.DwoReferenceLinks.RemoveRange(p.ReferenceLinks);
-            historyAction = "Edited";
+            historyAction = hodEdit ? "Edited by HOD" : "Edited";
         }
+        // A requester answering a clarification must say what changed.
+        if (!isNew && !hodEdit && p.Status == DwoStatus.ChangeRequested && string.IsNullOrWhiteSpace(vm.Remark))
+            return (false, "A response to the HOD's clarification is required.", 0);
 
         p.TaskId = string.IsNullOrWhiteSpace(vm.TaskId) ? null : vm.TaskId!.Trim();
         p.Title = vm.Title.Trim();
@@ -544,10 +625,13 @@ public class DwoService : IDwoService
             p.PointNumber = $"{deptCode.ToUpperInvariant()}-{1000 + p.PointId}";
         }
 
+        var addedFiles = new List<string>();
+        var removedFiles = new List<string>();
         if (!string.IsNullOrWhiteSpace(storagePath))
         {
-            var (_, uploadErr) = await SaveFilesAsync(
+            var (savedFiles, uploadErr) = await SaveFilesAsync(
                 vm.NewFiles, storagePath, maxFileMb, actor, DwoAttachmentKind.Point, pointId: p.PointId);
+            addedFiles = savedFiles.Select(a => a.FileName).ToList();
             if (uploadErr != null) _log.LogWarning("DWO point {Id}: {Err}", p.PointId, uploadErr);
         }
         if (vm.RemoveAttachmentIds?.Count > 0)
@@ -555,6 +639,7 @@ public class DwoService : IDwoService
             var kill = await _db.DwoAttachments
                 .Where(a => a.PointId == p.PointId && vm.RemoveAttachmentIds.Contains(a.AttachmentId))
                 .ToListAsync();
+            removedFiles = kill.Select(a => a.FileName).ToList();
             RemoveFiles(kill, storagePath);
             _db.DwoAttachments.RemoveRange(kill);
         }
@@ -575,15 +660,84 @@ public class DwoService : IDwoService
                 : (resubmitted ? "Edited & resubmitted" : "Submitted to HOD");
         }
 
-        AddHistory(p.PointId, null, actor, historyAction, null);
+        var role = hodEdit ? DwoRoleKind.Hod : RoleKindOf(p, actor);
+        var changes = before == null ? null
+            : await BuildChangesAsync(before, p, oldLinks, vm.ReferenceLinks, addedFiles, removedFiles);
+        AddHistory(p.PointId, null, actor, historyAction, null, role, changes);
+
+        // Record-wise remark thread. The requester's response to a clarification is
+        // mandatory (checked above); every other remark is optional.
+        bool hodDecision = hodEdit && saveAction != "save";
+        var remarkAction = hodEdit ? DwoRemarkAction.Edit
+            : resubmitted ? DwoRemarkAction.Response
+            : p.Status == DwoStatus.Draft ? DwoRemarkAction.Draft
+            : isNew || saveAction == "submit" ? DwoRemarkAction.Submitted
+            : DwoRemarkAction.Edit;
+        // With a decision, the comment is that decision's remark (ReviewAsync records it).
+        if (!hodDecision) AddRemark(p, actor, role, remarkAction, vm.Remark);
         await _db.SaveChangesAsync();
 
-        if (p.Status == DwoStatus.Submitted)
+        if (hodDecision)
+        {
+            var (ok, err) = await ReviewAsync(p.PointId, actor, saveAction, vm.Remark);
+            if (!ok) return (false, err, p.PointId);
+        }
+        else if (hodEdit)
+        {
+            if (p.RaisedByUserId is int raiser && raiser != actor.UserId)
+                await NotifyAsync(raiser, "dwo_edited", $"DWO {p.PointNumber} \"{p.Title}\" was updated by your HOD.");
+        }
+        else if (p.Status == DwoStatus.Submitted)
             await NotifyHodAsync(p, $"DWO {p.PointNumber} \"{p.Title}\" is awaiting your review.");
         else if (p.Status == DwoStatus.ManagementDiscussion)
             await NotifyManagementAsync($"DWO {p.PointNumber} \"{p.Title}\" was raised for management discussion.");
 
         return (true, null, p.PointId);
+    }
+
+    // "Field: old → new" lines for the audit trail; null when nothing actually changed.
+    private async Task<string?> BuildChangesAsync(
+        DwoPoint before, DwoPoint after, List<string> oldLinks, List<string>? newLinksRaw,
+        List<string> addedFiles, List<string> removedFiles)
+    {
+        var lines = new List<string>();
+        void Diff(string field, string? o, string? n)
+        {
+            o ??= ""; n ??= "";
+            if (o.Trim() == n.Trim()) return;
+            lines.Add($"{field}: {Clip(o)} → {Clip(n)}");
+        }
+        static string Clip(string v) => string.IsNullOrEmpty(v) ? "—" : v.Length <= 200 ? v : v[..200] + "…";
+
+        Diff("Title", before.Title, after.Title);
+        Diff("Description", before.Description, after.Description);
+        Diff("Category", before.Category, after.Category);
+        Diff("Priority", before.Priority, after.Priority);
+        Diff("Task ID", before.TaskId, after.TaskId);
+        if (before.CompanyId != after.CompanyId)
+        {
+            var names = await _db.Companies.Where(c => c.CompanyId == before.CompanyId || c.CompanyId == after.CompanyId)
+                .ToDictionaryAsync(c => c.CompanyId, c => c.CompanyName);
+            Diff("Company", names.GetValueOrDefault(before.CompanyId), names.GetValueOrDefault(after.CompanyId));
+        }
+        if (before.LocationId != after.LocationId)
+        {
+            var names = await _db.Locations.Where(l => l.LocationId == before.LocationId || l.LocationId == after.LocationId)
+                .ToDictionaryAsync(l => l.LocationId, l => l.LocationName);
+            Diff("Site", names.GetValueOrDefault(before.LocationId), names.GetValueOrDefault(after.LocationId));
+        }
+        if (before.DepartmentId != after.DepartmentId)
+        {
+            var names = await _db.Departments.Where(d => d.DepartmentId == before.DepartmentId || d.DepartmentId == after.DepartmentId)
+                .ToDictionaryAsync(d => d.DepartmentId, d => d.DeptName);
+            Diff("Department", names.GetValueOrDefault(before.DepartmentId), names.GetValueOrDefault(after.DepartmentId));
+        }
+        var newLinks = (newLinksRaw ?? new()).Select(u => u?.Trim() ?? "").Where(u => u.Length > 0).ToList();
+        if (!oldLinks.SequenceEqual(newLinks))
+            Diff("Reference links", string.Join(", ", oldLinks), string.Join(", ", newLinks));
+        if (addedFiles.Count > 0)   lines.Add("Attachments added: " + string.Join(", ", addedFiles));
+        if (removedFiles.Count > 0) lines.Add("Attachments removed: " + string.Join(", ", removedFiles));
+        return lines.Count == 0 ? null : string.Join("\n", lines);
     }
 
     public async Task<(bool ok, string? err)> SubmitPointAsync(int pointId, DwoActor actor)
@@ -596,7 +750,7 @@ public class DwoService : IDwoService
         p.RaisedByUserId ??= actor.UserId;
         p.Status = actor.IsManagement ? DwoStatus.ManagementDiscussion : DwoStatus.Submitted;
         AddHistory(p.PointId, null, actor,
-            actor.IsManagement ? "Moved to management discussion" : "Submitted to HOD", null);
+            actor.IsManagement ? "Moved to management discussion" : "Submitted to HOD", null, RoleKindOf(p, actor));
         await _db.SaveChangesAsync();
 
         if (p.Status == DwoStatus.Submitted)
@@ -632,16 +786,19 @@ public class DwoService : IDwoService
             return (false, $"A discussion in {p.Status} cannot be withdrawn.");
 
         p.Status = DwoStatus.Draft;
+        p.HeldFromStatus = null;
         p.SetId = null;                     // withdrawing pulls it out of any Set it had joined
-        AddHistory(p.PointId, null, actor, "Withdrawn", null);
+        AddHistory(p.PointId, null, actor, "Withdrawn", null, DwoRoleKind.Requester);
         await _db.SaveChangesAsync();
         return (true, null);
     }
 
     // ─────────────────────────────────────────────────────────
-    // HOD review — send back / reject. (Moving to Management goes through a Set.)
+    // HOD review — send back / hold / reject. (Approval = moving to Management, which goes
+    // through a Set; see SubmitSetAsync.)
     // ─────────────────────────────────────────────────────────
-    public async Task<(bool ok, string? err)> ReviewAsync(int pointId, DwoActor actor, string action, string? note)
+    public async Task<(bool ok, string? err)> ReviewAsync(int pointId, DwoActor actor, string action, string? note,
+        IFormFile? file = null, string? storagePath = null, int maxFileMb = 20)
     {
         if (!actor.IsHod && !actor.IsManagement) return (false, "You do not have review rights.");
         var p = await _db.DwoPoints.FirstOrDefaultAsync(x => x.PointId == pointId);
@@ -649,19 +806,41 @@ public class DwoService : IDwoService
         if (!actor.IsManagement && !actor.DepartmentIds.Contains(p.DepartmentId))
             return (false, "That discussion is outside your department.");
         if (p.Status != DwoStatus.Submitted) return (false, "Only a Submitted discussion can be reviewed.");
-        if (string.IsNullOrWhiteSpace(note)) return (false, "Remarks are required.");
+        if (action != "approve" && string.IsNullOrWhiteSpace(note)) return (false, "Remarks are required.");
 
-        var trimmed = note!.Trim();
-        string historyAction;
+        var trimmed = note?.Trim() ?? "";
+        var role = actor.IsManagement ? DwoRoleKind.Management : DwoRoleKind.Hod;
+
+        // Approve: the HOD's sign-off, recorded on the point; the status stays Submitted so
+        // the point can go straight into a Set (the only route to Management).
+        if (action == "approve")
+        {
+            p.ReviewedByUserId = actor.UserId;
+            p.ReviewedAt = IstClock.Now;
+            AddHistory(p.PointId, null, actor, "Approved by HOD", trimmed, role);
+            AddRemark(p, actor, role, DwoRemarkAction.Approve,
+                string.IsNullOrEmpty(trimmed) ? "Approved" : trimmed);
+            await SaveReviewFileAsync(p, actor, file, storagePath, maxFileMb);
+            await _db.SaveChangesAsync();
+            return (true, null);
+        }
+
+        string historyAction, remarkAction;
         switch (action)
         {
             case "send_back":
                 p.Status = DwoStatus.ChangeRequested;
-                historyAction = "Sent back for clarification";
+                historyAction = "Sent back for clarification"; remarkAction = DwoRemarkAction.Clarification;
+                break;
+            case "hold":
+                // Stays in the HOD queue: Resume brings it back to Submitted.
+                p.Status = DwoStatus.Hold;
+                p.HeldFromStatus = DwoStatus.Submitted;
+                historyAction = "On hold"; remarkAction = DwoRemarkAction.Hold;
                 break;
             case "reject":
                 p.Status = DwoStatus.Rejected;
-                historyAction = "Rejected";
+                historyAction = "Rejected"; remarkAction = DwoRemarkAction.Reject;
                 break;
             default:
                 return (false, "Unknown review action.");
@@ -670,13 +849,23 @@ public class DwoService : IDwoService
         p.ReviewedAt = IstClock.Now;
         p.ReviewRemarks = trimmed;
         p.SetId = null;                     // no longer Submitted, so it leaves any Draft Set
-        AddHistory(p.PointId, null, actor, historyAction, trimmed);
+        AddHistory(p.PointId, null, actor, historyAction, trimmed, role);
+        AddRemark(p, actor, role, remarkAction, trimmed);
+        await SaveReviewFileAsync(p, actor, file, storagePath, maxFileMb);
         await _db.SaveChangesAsync();
 
         if (p.RaisedByUserId is int raiser)
             await NotifyAsync(raiser, "dwo_" + action,
                 $"DWO {p.PointNumber} \"{p.Title}\" — {historyAction.ToLowerInvariant()}: {trimmed}");
         return (true, null);
+    }
+
+    // Optional attachment on an HOD decision, stored like Management's action files.
+    private async Task SaveReviewFileAsync(DwoPoint p, DwoActor actor, IFormFile? file, string? storagePath, int maxFileMb)
+    {
+        if (file is not { Length: > 0 } || string.IsNullOrWhiteSpace(storagePath)) return;
+        await SaveFilesAsync(new List<IFormFile> { file }, storagePath, maxFileMb, actor,
+            DwoAttachmentKind.Action, pointId: p.PointId);
     }
 
     // ─────────────────────────────────────────────────────────
@@ -1018,13 +1207,22 @@ public class DwoService : IDwoService
         set.Status = DwoSetStatus.Submitted;
         set.SubmittedByUserId = actor.UserId;
         set.SubmittedAt = IstClock.Now;
+        var approveRole = actor.IsManagement ? DwoRoleKind.Management : DwoRoleKind.Hod;
         foreach (var p in onSet)
         {
             p.Status = DwoStatus.ManagementDiscussion;
+            p.HeldFromStatus = null;
             p.ReviewedByUserId = actor.UserId;
             p.ReviewedAt = IstClock.Now;
             AddHistory(p.PointId, null, actor, "Moved to management discussion",
-                $"Set {set.SetNumber} — appointment requested for {reqDate:dd MMM yyyy}");
+                $"Set {set.SetNumber} — appointment requested for {reqDate:dd MMM yyyy}", approveRole);
+            // Joining a submitted Set is the HOD's approval of the point — unless the HOD
+            // already approved it from the decision panel (ReviewAsync "approve").
+            bool alreadyApproved = await _db.DwoRemarks.AnyAsync(r => r.PointId == p.PointId && r.Action == DwoRemarkAction.Approve);
+            if (!alreadyApproved)
+                AddRemark(p, actor, approveRole, DwoRemarkAction.Approve,
+                    $"Approved — added to Set {set.SetNumber} for management discussion" +
+                    (string.IsNullOrWhiteSpace(set.AppointmentNotes) ? "" : $". {set.AppointmentNotes}"));
         }
         AddHistory(null, set.SetId, actor, "Set submitted",
             $"{onSet.Count} discussion(s); appointment requested for {reqDate:dd MMM yyyy}");
@@ -1197,6 +1395,7 @@ public class DwoService : IDwoService
             case "hold":
                 if (string.IsNullOrWhiteSpace(remarks)) return (false, "A hold reason is required.");
                 p.Status = DwoStatus.Hold;
+                p.HeldFromStatus = DwoStatus.ManagementDiscussion;
                 historyAction = "On hold"; note = remarks;
                 break;
 
@@ -1275,7 +1474,14 @@ public class DwoService : IDwoService
             if (saved.Count > 0) note = $"{note} (+{saved.Count} attachment)";
         }
 
-        AddHistory(p.PointId, null, actor, historyAction, note);
+        AddHistory(p.PointId, null, actor, historyAction, note, DwoRoleKind.Management);
+        AddRemark(p, actor, DwoRoleKind.Management, action switch
+        {
+            "close"    => DwoRemarkAction.Close,
+            "hold"     => DwoRemarkAction.Hold,
+            "followup" => DwoRemarkAction.FollowUp,
+            _          => DwoRemarkAction.Reassign,
+        }, remarks);
         await _db.SaveChangesAsync();
 
         // Phase 17 notifications.
@@ -1288,15 +1494,24 @@ public class DwoService : IDwoService
         return (true, null);
     }
 
-    public async Task<(bool ok, string? err)> ResumeAsync(int pointId, DwoActor actor)
+    public async Task<(bool ok, string? err)> ResumeAsync(int pointId, DwoActor actor, string? note = null)
     {
-        if (!actor.IsManagement) return (false, "Only Management can resume a discussion.");
         var p = await _db.DwoPoints.FirstOrDefaultAsync(x => x.PointId == pointId);
         if (p == null) return (false, "Discussion not found.");
         if (p.Status != DwoStatus.Hold) return (false, "Only a discussion on Hold can be resumed.");
+        // An HOD hold resumes to Submitted (still in the HOD queue) and the HOD may lift it;
+        // a Management hold resumes to Management Discussion and is Management's alone.
+        bool hodHold = IsHodHold(p);
+        bool allowed = actor.IsManagement ||
+                       (hodHold && actor.IsHod && actor.DepartmentIds.Contains(p.DepartmentId));
+        if (!allowed) return (false, hodHold ? "Only the HOD or Management can resume this discussion."
+                                             : "Only Management can resume a discussion.");
 
-        p.Status = DwoStatus.ManagementDiscussion;
-        AddHistory(p.PointId, null, actor, "Resumed discussion", null);
+        p.Status = p.HeldFromStatus ?? DwoStatus.ManagementDiscussion;
+        p.HeldFromStatus = null;
+        var role = actor.IsManagement ? DwoRoleKind.Management : DwoRoleKind.Hod;
+        AddHistory(p.PointId, null, actor, "Resumed discussion", note, role);
+        AddRemark(p, actor, role, DwoRemarkAction.Resume, note);
         await _db.SaveChangesAsync();
         return (true, null);
     }
@@ -1711,7 +1926,8 @@ public class DwoService : IDwoService
     // ─────────────────────────────────────────────────────────
     // Append-only. Nothing in this service ever updates a DwoHistory row; the only removal
     // is DiscardDraftSetAsync taking a never-submitted Draft Set with it.
-    private void AddHistory(int? pointId, int? setId, DwoActor actor, string action, string? note)
+    private void AddHistory(int? pointId, int? setId, DwoActor actor, string action, string? note,
+                            string? roleKind = null, string? changes = null)
     {
         _db.DwoHistories.Add(new DwoHistory
         {
@@ -1719,6 +1935,23 @@ public class DwoService : IDwoService
             ActorUserId = actor.UserId, ActorName = actor.UserName,
             Action = action,
             Note = string.IsNullOrWhiteSpace(note) ? null : note!.Trim(),
+            RoleKind = roleKind,
+            Changes = string.IsNullOrWhiteSpace(changes) ? null : changes,
+        });
+    }
+
+    // Record-wise remark thread (DwoRemark): append-only, one row per remark, tagged with
+    // the role that wrote it. A blank remark writes nothing.
+    private void AddRemark(DwoPoint p, DwoActor actor, string roleKind, string action, string? remark)
+    {
+        if (string.IsNullOrWhiteSpace(remark)) return;
+        var text = remark.Trim();
+        _db.DwoRemarks.Add(new DwoRemark
+        {
+            Point = p, RoleKind = roleKind,
+            UserId = actor.UserId, UserName = actor.UserName,
+            Action = action,
+            Remark = text.Length <= 2000 ? text : text[..2000],
         });
     }
 

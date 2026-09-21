@@ -5,7 +5,7 @@
     // HOD Set-builder column appears, so the three can never drift apart.
     bool isMine = Model.Mode == DwoGridMode.Mine;
     string action = isMine ? "MyDiscussions" : "Register";
-    ViewData["Title"] = isMine ? "Discussion Point" : "Discussion Register";
+    ViewData["Title"] = isMine ? "My Discussions" : "Discussion Points";
     ViewData["NavPage"] = isMine ? "dwomine" : "dworegister";
 
     var chipStatuses = DwoStatus.All;
@@ -71,7 +71,7 @@
     {
       <a asp-action="Create" asp-route-returnUrl="@retUrl" class="btn btn-acc">
         <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        New Discussion
+        New Discussion Point
       </a>
     }
   </div>
@@ -206,13 +206,14 @@
           <th>Priority</th>
           <th>Status</th>
           <th>Raised On</th>
+          <th>Actions</th>
         </tr>
       </thead>
       <tbody>
         @if (!Model.Items.Any())
         {
           <tr>
-            <td colspan="@(showPick ? 10 : isMine ? 8 : 9)" class="tbl-empty">
+            <td colspan="@(showPick ? 11 : isMine ? 9 : 10)" class="tbl-empty">
               No discussions match these filters.
               @if (Model.Actor.CanCreate)
               {
@@ -250,6 +251,39 @@
               { <span class="badge badge-red" style="margin-left:4px">Overdue</span> }
             </td>
             <td style="font-size:11px;color:var(--txt3);white-space:nowrap">@r.CreatedAt.ToString("dd MMM yyyy")</td>
+            @* Row actions — same 30px icon buttons as the Requests grid. Shown only when the
+               viewer holds the right AND the point is in a state that allows it (see
+               DwoService.MarkRowActions); the server re-checks on every action. *@
+            <td onclick="event.stopPropagation()" style="white-space:nowrap">
+              <div style="display:inline-flex;gap:4px;align-items:center">
+                <a asp-action="Detail" asp-route-id="@r.PointId" asp-route-returnUrl="@retUrl"
+                   class="btn btn-sec btn-sm" title="View"
+                   style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:0">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                </a>
+                @if (r.CanEdit)
+                {
+                  <a asp-action="Edit" asp-route-id="@r.PointId" asp-route-returnUrl="@retUrl"
+                     class="btn btn-sec btn-sm" title="Edit"
+                     style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:0">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                  </a>
+                }
+                @if (r.CanWithdraw)
+                {
+                  <form asp-action="Withdraw" method="post" style="display:inline"
+                        onsubmit="return confirm('Withdraw @r.PointNumber? It goes back to Draft.')">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="id" value="@r.PointId"/>
+                    <input type="hidden" name="returnUrl" value="@retUrl"/>
+                    <button type="submit" title="Withdraw"
+                      style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:0;border:1px solid var(--danger,#ef4444);background:transparent;border-radius:6px;cursor:pointer;color:var(--danger,#ef4444)">
+                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+                    </button>
+                  </form>
+                }
+              </div>
+            </td>
           </tr>
         }
       </tbody>

@@ -1,4 +1,4 @@
-@model DwoPointDetailVM
+﻿@model DwoPointDetailVM
 @{
     var p = Model.Point;
     ViewData["Title"] = "Discussion Details";
@@ -36,7 +36,7 @@
   <div class="pg-actions">
     <a href="@backUrl" class="btn btn-sec btn-sm">← Back</a>
     <button type="button" class="btn btn-sec btn-sm" onclick="window.print()">Print</button>
-    @if (Model.CanEdit)
+    @if (Model.CanEdit || Model.CanHodEdit)
     {
       <a asp-action="Edit" asp-route-id="@p.PointId" asp-route-returnUrl="@selfUrl" class="btn btn-sec btn-sm">Edit</a>
     }
@@ -83,19 +83,9 @@
         Add to Set &amp; Request Appointment
       </button>
     }
-    @if (Model.CanReview)
-    {
-      <button type="button" class="btn btn-sec btn-sm" onclick="dwoShowPane('paneSendBack')">Send back</button>
-      <button type="button" class="btn btn-ng btn-sm"  onclick="dwoShowPane('paneReject')">Reject</button>
-    }
     @if (Model.CanResume)
     {
-      <form asp-action="Resume" method="post" style="display:inline">
-        @Html.AntiForgeryToken()
-        <input type="hidden" name="id" value="@p.PointId"/>
-        <input type="hidden" name="returnUrl" value="@actionReturn"/>
-        <button type="submit" class="btn btn-acc btn-sm">Resume discussion</button>
-      </form>
+      <button type="button" class="btn btn-acc btn-sm" onclick="dwoShowPane('paneResume')">Resume discussion</button>
     }
     @if (Model.CanDiscuss)
     {
@@ -109,7 +99,7 @@
 
 <div class="tabs">
   <a asp-action="Detail" asp-route-id="@p.PointId" asp-route-tab="details"   asp-route-returnUrl="@listUrl" class="tab @(tab=="details"?"active":"")">Details</a>
-  <a asp-action="Detail" asp-route-id="@p.PointId" asp-route-tab="timeline"  asp-route-returnUrl="@listUrl" class="tab @(tab=="timeline"?"active":"")">Timeline <span class="tab-cnt">@Model.History.Count</span></a>
+  <a asp-action="Detail" asp-route-id="@p.PointId" asp-route-tab="timeline"  asp-route-returnUrl="@listUrl" class="tab @(tab=="timeline"?"active":"")">History <span class="tab-cnt">@Model.History.Count</span></a>
   <a asp-action="Detail" asp-route-id="@p.PointId" asp-route-tab="documents" asp-route-returnUrl="@listUrl" class="tab @(tab=="documents"?"active":"")">Documents <span class="tab-cnt">@Model.Attachments.Count</span></a>
 </div>
 
@@ -128,7 +118,7 @@
 }
 @if (p.Status == DwoStatus.Hold && !string.IsNullOrEmpty(p.ReviewRemarks))
 {
-  <div class="alert alert-wa" style="margin-bottom:12px"><strong>On hold:</strong> @p.ReviewRemarks</div>
+  <div class="alert alert-wa" style="margin-bottom:12px"><strong>On hold@(p.HeldFromStatus == DwoStatus.Submitted ? " by HOD" : ""):</strong> @p.ReviewRemarks</div>
 }
 @if (p.Status == DwoStatus.FollowUp && !string.IsNullOrEmpty(p.ReviewRemarks))
 {
@@ -201,6 +191,13 @@
     </div>
 
     <div style="display:flex;flex-direction:column;gap:14px">
+      @if (Model.CanReview)
+      {
+        @* HOD decision panel — the same design as the approval panel on Request Details. *@
+        var hodPanel = new DwoHodActionPanelVM { PointId = p.PointId, PointNumber = p.PointNumber, ReturnUrl = actionReturn };
+        @await Html.PartialAsync("_HodActionPanel", hodPanel)
+        @await Html.PartialAsync("_HodActionForm", hodPanel)
+      }
       <div class="card">
         <div class="card-hdr">Attachments</div>
         <div class="card-body">
@@ -238,6 +235,40 @@
       }
     </div>
   </div>
+
+  @* ── Record-wise remarks: one append-only thread per role, oldest first, so the
+       Requester ↔ HOD ↔ Management conversation on this point reads in order. ── *@
+  <div class="card" style="margin-top:16px">
+    <div class="card-hdr">Remarks <span class="tab-cnt" style="margin-left:6px">@Model.Remarks.Count</span></div>
+    <div class="card-body">
+      <div class="m-collapse" style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;align-items:start">
+        @foreach (var role in DwoRoleKind.All)
+        {
+          var thread = Model.Remarks.Where(r => r.RoleKind == role).ToList();
+          <div style="background:var(--bg);border:1px solid var(--bdr);border-radius:var(--r);padding:10px 12px;min-height:80px">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--txt3);margin-bottom:8px">
+              @role Remarks <span style="font-weight:500">(@thread.Count)</span>
+            </div>
+            @if (!thread.Any()) { <div style="font-size:12px;color:var(--txt3)">None yet.</div> }
+            @foreach (var r in thread)
+            {
+              var cls = r.Action == DwoRemarkAction.Reject ? "badge-red"
+                      : r.Action is DwoRemarkAction.Approve or DwoRemarkAction.Close ? "badge-green"
+                      : r.Action is DwoRemarkAction.Clarification or DwoRemarkAction.Hold ? "badge-amber"
+                      : "badge-gray";
+              <div style="padding:8px 0;border-top:1px solid var(--bdr)">
+                <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+                  <span class="badge @cls">@r.Action</span>
+                  <span style="font-size:11px;color:var(--txt3)">@r.UserName · @r.CreatedAt.ToString("dd MMM yyyy, hh:mm tt")</span>
+                </div>
+                <div style="font-size:12.5px;color:var(--txt2);margin-top:4px;white-space:pre-wrap">@r.Remark</div>
+              </div>
+            }
+          </div>
+        }
+      </div>
+    </div>
+  </div>
 }
 
 @if (tab == "timeline")
@@ -251,9 +282,17 @@
           <div class="tl-item">
             <div class="tl-icon">•</div>
             <div class="tl-content">
-              <div class="tl-actor">@h.Action</div>
+              <div class="tl-actor">
+                @h.Action
+                @if (!string.IsNullOrEmpty(h.RoleKind)) { <span class="badge badge-gray" style="margin-left:6px">@h.RoleKind</span> }
+              </div>
               <div class="tl-meta">@h.ActorName · @h.CreatedAt.ToString("dd MMM yyyy, hh:mm tt") IST</div>
               @if (!string.IsNullOrEmpty(h.Note)) { <div class="tl-comment">@h.Note</div> }
+              @if (!string.IsNullOrEmpty(h.Changes))
+              {
+                @* Field-level audit of an edit: one "Field: old → new" per line. *@
+                <div class="tl-comment" style="font-style:normal;white-space:pre-wrap">@h.Changes</div>
+              }
             </div>
           </div>
         }
@@ -295,39 +334,20 @@
 
 @* ── Action panes. Rendered up front and revealed by the header buttons, so acting on a
      discussion never costs another page load. ── *@
-@if (Model.CanReview)
+@if (Model.CanResume)
 {
-  <div data-dwo-pane id="paneSendBack" hidden class="card" style="margin-top:14px">
-    <div class="card-hdr">Send back for clarification</div>
+  <div data-dwo-pane id="paneResume" hidden class="card" style="margin-top:14px">
+    <div class="card-hdr">Resume discussion</div>
     <div class="card-body">
-      <form asp-action="Review" method="post">
+      <form asp-action="Resume" method="post">
         @Html.AntiForgeryToken()
         <input type="hidden" name="id" value="@p.PointId"/>
-        <input type="hidden" name="action" value="send_back"/>
         <input type="hidden" name="returnUrl" value="@actionReturn"/>
-        <label class="lbl">Note to the raiser <span class="req">*</span></label>
-        <textarea name="note" class="inp" rows="3" required placeholder="What needs to change before this can go forward?"></textarea>
+        <label class="lbl">Note</label>
+        <textarea name="note" class="inp" rows="2" placeholder="Optional — why the hold is being lifted"></textarea>
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
           <button type="button" class="btn btn-sec" onclick="dwoHidePanes()">Cancel</button>
-          <button type="submit" class="btn btn-pri">Send back for clarification</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <div data-dwo-pane id="paneReject" hidden class="card" style="margin-top:14px">
-    <div class="card-hdr">Reject discussion</div>
-    <div class="card-body">
-      <form asp-action="Review" method="post" onsubmit="return confirm('Reject this discussion? The raiser will be notified.')">
-        @Html.AntiForgeryToken()
-        <input type="hidden" name="id" value="@p.PointId"/>
-        <input type="hidden" name="action" value="reject"/>
-        <input type="hidden" name="returnUrl" value="@actionReturn"/>
-        <label class="lbl">Rejection reason <span class="req">*</span></label>
-        <textarea name="note" class="inp" rows="3" required placeholder="Why is this being rejected?"></textarea>
-        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
-          <button type="button" class="btn btn-sec" onclick="dwoHidePanes()">Cancel</button>
-          <button type="submit" class="btn btn-ng">Reject</button>
+          <button type="submit" class="btn btn-acc">Resume — back to @(p.HeldFromStatus ?? DwoStatus.ManagementDiscussion)</button>
         </div>
       </form>
     </div>
@@ -469,4 +489,14 @@
       </form>
     </div>
   </div>
+}
+
+@if (ViewBag.OpenBuildSet == true)
+{
+  @* Landed here from the HOD decision panel's Approve: open Build Set straight away. *@
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      dwoLoadModal('@Url.Action("BuildSetModal", new { ids = p.PointId })', true);
+    });
+  </script>
 }

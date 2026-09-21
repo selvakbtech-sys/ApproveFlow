@@ -1,4 +1,4 @@
-namespace ApproveFlow.MVC.Models.ViewModels;
+﻿namespace ApproveFlow.MVC.Models.ViewModels;
 
 // ── Common Dashboard ───────────────────────────────────────────────────────────
 // The landing page after login. It carries one section per module. Nothing is added,
@@ -35,6 +35,18 @@ public class ApproveFlowSectionVM
     public List<CommonSliceVM> ByPriority { get; set; } = new();      // open (not yet decided) requests
     // True when the counts span every requestor (Admin); false when scoped to one user.
     public bool IsGlobalScope { get; set; }
+
+    // "My Approvals" — requests assigned to the logged-in approver. Same datasource as the
+    // Dashboard's My Approvals tab and the /Requests/Approval grid
+    // (DashboardService.MyApprovalScope), so the cards and the grid always agree.
+    public MyApprovalSummaryVM? MyApprovals { get; set; }
+
+    // "My Requests" / "My Territory" — the SAME figures the Dashboard's tabs of those names
+    // show (DashboardService.GetMyRequestsTabAsync / GetMyTerritoryTabAsync), so the Common
+    // Dashboard KPI cards always equal the Dashboard cards and the grids they open.
+    // MyTerritory is null for the View Only role, which has no territory tab.
+    public MyRequestsTabVM? MyRequests { get; set; }
+    public MyTerritoryTabVM? MyTerritory { get; set; }
 }
 
 // One slice of a distribution chart (donut / horizontal bars).

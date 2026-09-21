@@ -1,4 +1,4 @@
-@model DashboardVM
+﻿@model DashboardVM
 @{
     ViewData["Title"] = "Dashboard";
     ViewData["NavPage"] = "dashboard";
@@ -21,7 +21,8 @@
     if (isAdmin) allowedTabs.Add("admin");
     var tabParam = Context.Request.Query["tab"].ToString();
     bool tabFromUrl = allowedTabs.Contains(tabParam);
-    string defaultTab = tabFromUrl ? tabParam : "requests";
+    // My Approvals is the first tab and the landing tab (2026-09-19).
+    string defaultTab = tabFromUrl ? tabParam : "approvals";
 }
 
 <style>
@@ -91,19 +92,19 @@
 
 @* ── Tab Bar ── *@
 <div class="dash-tab-bar">
-  <button class="dash-tab" id="tab-btn-requests" onclick="switchTab('requests')">
-    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="#071B46" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/>
-      <line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10,9 9,9 8,9"/>
-    </svg>
-    My Requests
-  </button>
   <button class="dash-tab" id="tab-btn-approvals" onclick="switchTab('approvals')">
     <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="#d97706" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22,4 12,14.01 9,11.01"/>
     </svg>
     My Approvals
     @if (Model.MyPendingApprovals > 0) { <span class="dash-tab-badge">@Model.MyPendingApprovals</span> }
+  </button>
+  <button class="dash-tab" id="tab-btn-requests" onclick="switchTab('requests')">
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="#071B46" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/>
+      <line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10,9 9,9 8,9"/>
+    </svg>
+    My Requests
   </button>
   @if (!isViewOnly)
   {
@@ -851,7 +852,7 @@
   var startTab = defaultTab;
 
   // Fallback for the BROWSER back button only: a /Dashboard history entry created before
-  // the tab was recorded carries no ?tab=, so going back to it would drop to My Requests.
+  // the tab was recorded carries no ?tab=, so going back to it would drop to the default tab.
   // When the navigation type is back/forward AND the URL named no tab, restore the tab last
   // opened in this session. Direct URL access and the nav menu keep the default behaviour.
   var tabCameFromUrl = @(tabFromUrl ? "true" : "false");

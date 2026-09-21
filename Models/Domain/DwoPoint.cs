@@ -1,4 +1,4 @@
-namespace ApproveFlow.MVC.Models.Domain;
+﻿namespace ApproveFlow.MVC.Models.Domain;
 
 // A DWO discussion point — the record a Team Member raises, an HOD reviews and bundles
 // into a Set, and Management closes, holds, follows up or reassigns.
@@ -35,6 +35,10 @@ public class DwoPoint
     public DateTimeOffset? ReviewedAt { get; set; }
     [MaxLength(2000)]
     public string? ReviewRemarks { get; set; }
+    // While on Hold: the status to return to on Resume (Submitted for an HOD hold, which
+    // keeps the point in the HOD queue; Management Discussion for a Management hold).
+    [MaxLength(30)]
+    public string? HeldFromStatus { get; set; }
 
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
@@ -50,4 +54,5 @@ public class DwoPoint
     public virtual ICollection<DwoReferenceLink> ReferenceLinks { get; set; } = new List<DwoReferenceLink>();
     public virtual ICollection<DwoFollowUp> FollowUps { get; set; } = new List<DwoFollowUp>();
     public virtual ICollection<DwoHistory> History { get; set; } = new List<DwoHistory>();
+    public virtual ICollection<DwoRemark> Remarks { get; set; } = new List<DwoRemark>();
 }

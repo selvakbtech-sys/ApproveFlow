@@ -14,15 +14,15 @@ public class DwoActor
     // Management: sees every department and performs the close/hold/follow-up/reassign
     // actions. Admin, or the top approval level of the Workflow Definitions.
     public bool IsManagement { get; set; }
-    // HOD: reviews Submitted points in their own department and bundles them into Sets.
-    // Backed by "DWO Register|Approve".
+    // HOD: reviews (clarification / hold / reject), corrects and bundles Submitted points in
+    // their own department into Sets. Backed by "Discussion Points|Approve".
     public bool IsHod { get; set; }
 
     public bool CanCreate { get; set; }
     public bool CanEditOwn { get; set; }
     public bool CanWithdraw { get; set; }
     public bool CanViewReports { get; set; }
-    // Set Edit permission ("Sets|Edit"): unlocks Draft Sets — save a bundle as a Draft, add
+    // Set Edit permission ("DWO Sets|Edit"): unlocks Draft Sets — save a bundle as a Draft, add
     // points to it, remove them, grow the pack, submit or discard. Without it an HOD still
     // has the original Build Set & Submit path, and sees Drafts read-only.
     public bool CanEditSets { get; set; }
@@ -137,6 +137,23 @@ public class DwoPointRowVM
     public bool IsFollowUpOverdue { get; set; }
     // Only Submitted points in the HOD's own department can join a Set.
     public bool IsSelectableForSet { get; set; }
+
+    // Row-level action icons, resolved per viewer by DwoService.MarkRowActions with the same
+    // rules as the Detail page (the controller/service re-check on every action).
+    public int? RaisedByUserId { get; set; }
+    public int DepartmentId { get; set; }
+    public string? HeldFromStatus { get; set; }
+    public bool CanEdit { get; set; }                // owner (Draft/Submitted/Change Requested) or HOD (pending with them)
+    public bool CanWithdraw { get; set; }            // owner: pull it back to Draft
+}
+
+// The HOD decision panel (_HodActionPanel): rendered on Discussion Details and on the HOD
+// edit screen for a point pending with the HOD.
+public class DwoHodActionPanelVM
+{
+    public int PointId { get; set; }
+    public string PointNumber { get; set; } = "";
+    public string? ReturnUrl { get; set; }
 }
 
 public class UserOptionVM
@@ -182,6 +199,14 @@ public class DwoPointFormVM
 
     public string Status { get; set; } = DwoStatus.Draft;
 
+    // True when the HOD is correcting a point pending with them (see DwoService.HodMayEdit):
+    // the status never changes and the save is logged as an HOD edit.
+    public bool HodEdit { get; set; }
+    // Appended to the point's remark thread on save. Required when a requester resubmits a
+    // Change Requested point (their response to the HOD); optional otherwise.
+    [MaxLength(2000)]
+    public string? Remark { get; set; }
+
     // Set when the form is "Add a point for discussion" on an open Set: the point is created
     // straight into Management Discussion, in the Set's department, and joined to the Set.
     public int SetId { get; set; }
@@ -206,6 +231,7 @@ public class DwoPointDetailVM
     public DwoFollowUp? OpenFollowUp { get; set; }
     public List<DwoFollowUp> FollowUps { get; set; } = new();
     public List<DwoHistory> History { get; set; } = new();
+    public List<DwoRemark> Remarks { get; set; } = new();        // record-wise remark threads
     public List<DwoAttachment> Attachments { get; set; } = new();
     public List<DwoReferenceLink> ReferenceLinks { get; set; } = new();
     public List<Department> Departments { get; set; } = new();   // reassignment targets
@@ -214,14 +240,15 @@ public class DwoPointDetailVM
 
     // ── What the current user may do with this point right now ──
     public bool CanEdit { get; set; }
+    public bool CanHodEdit { get; set; }             // HOD: correct a point pending with them
     public bool CanSubmit { get; set; }
     public bool CanTakeUp { get; set; }              // target department: claim a reassigned copy
     // HOD (own department) or Management may bundle this Submitted point into a Set from here.
     public bool CanBuildSet { get; set; }
     public bool CanWithdraw { get; set; }
-    public bool CanReview { get; set; }              // HOD: send back / reject / add to Set
+    public bool CanReview { get; set; }              // HOD: send back / hold / reject / add to Set
     public bool CanDiscuss { get; set; }             // Management: close / follow-up / hold / reassign
-    public bool CanResume { get; set; }              // Management: bring a held point back
+    public bool CanResume { get; set; }              // Management (any hold) or HOD (own hold): lift it
     public bool CanCompleteFollowUp { get; set; }
 
     public bool IsFollowUpOverdue => OpenFollowUp?.IsOverdue == true;

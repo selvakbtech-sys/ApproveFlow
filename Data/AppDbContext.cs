@@ -1,4 +1,4 @@
-using ApproveFlow.MVC.Models.Domain;
+﻿using ApproveFlow.MVC.Models.Domain;
 using Microsoft.EntityFrameworkCore;
 
 namespace ApproveFlow.MVC.Data;
@@ -44,6 +44,7 @@ public class AppDbContext : DbContext
     public DbSet<DwoReferenceLink> DwoReferenceLinks => Set<DwoReferenceLink>();
     public DbSet<DwoFollowUp> DwoFollowUps => Set<DwoFollowUp>();
     public DbSet<DwoHistory> DwoHistories => Set<DwoHistory>();
+    public DbSet<DwoRemark> DwoRemarks => Set<DwoRemark>();
 
     protected override void OnModelCreating(ModelBuilder mb)
     {
@@ -242,6 +243,12 @@ public class AppDbContext : DbContext
             e.HasOne(x => x.Point).WithMany(p => p.History).HasForeignKey(x => x.PointId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.Set).WithMany(s => s.History).HasForeignKey(x => x.SetId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne(x => x.ActorUser).WithMany().HasForeignKey(x => x.ActorUserId).OnDelete(DeleteBehavior.Restrict);
+        });
+        mb.Entity<DwoRemark>(e => {
+            e.ToTable("DwoRemarks");
+            e.HasIndex(x => x.PointId);
+            e.HasOne(x => x.Point).WithMany(p => p.Remarks).HasForeignKey(x => x.PointId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
         });
     }
 

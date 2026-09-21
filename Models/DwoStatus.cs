@@ -79,6 +79,35 @@ public static class DwoAttachmentKind
     public const string FollowUpCompletion  = "FollowUpCompletion";  // proof uploaded when a follow-up is completed
 }
 
+// Who wrote a remark / performed an audited action. Derived from the actor's DWO powers
+// and their relation to the point, never from a role name.
+public static class DwoRoleKind
+{
+    public const string Requester  = "Requester";
+    public const string Hod        = "HOD";
+    public const string Management = "Management";
+
+    public static readonly string[] All = { Requester, Hod, Management };
+}
+
+// Fixed action tags on a remark row (see DwoRemark). Kept short so the thread reads as a
+// conversation: "HOD · Clarification · 18 Sep".
+public static class DwoRemarkAction
+{
+    public const string Draft         = "Draft";
+    public const string Submitted     = "Submitted";
+    public const string Edit          = "Edit";
+    public const string Response      = "Response";        // requester answering a clarification
+    public const string Clarification = "Clarification";
+    public const string Hold          = "Hold";
+    public const string Resume        = "Resume";
+    public const string Reject        = "Reject";
+    public const string Approve       = "Approve";         // HOD: added to a Set for Management
+    public const string Close         = "Close";
+    public const string FollowUp      = "Follow-up";
+    public const string Reassign      = "Reassign";
+}
+
 // Discussion categories and priorities. Fixed lists per the approved prototype — there is
 // no master screen for them, so this is the single place to change them.
 public static class DwoCategory
@@ -106,18 +135,22 @@ public static class DwoPriority
 // The permission screens the DWO module registers in Roles & Permissions. Membership of a
 // DWO "role" is derived from these rather than from a role name, so renaming a role never
 // breaks the workflow:
-//   Register|View     → DWO Dashboard, My Discussions, Discussion Register
-//   Register|Approve  → HOD powers (review, send back, reject, build a Set)
+//   Discussion Points|View            → DWO Dashboard, Discussion Points, My Discussions, Reports
+//   Discussion Points|Create/Edit/Delete → raise / edit / withdraw own points
+//   Discussion Points|Approve         → HOD powers (review, send back, reject, build a Set)
+//   DWO Sets|View/Edit                → Sets list / Set modal / draft editing
 // Management powers (close, hold, follow-up, reassign, appointments) are not a permission
 // row: a user is Management when they are Admin or sit at the highest approval level of an
 // active Workflow Definition (DwoService.ManagementFromWorkflowsAsync).
 public static class DwoScreens
 {
-    public const string Register   = "DWO Register";
-    // Requestor-side screens: My Discussions + raise/edit/submit/withdraw a point.
-    public const string Points     = "Discussion Point";
+    public const string Register   = "Discussion Points";
+    // Requestor-side rights (raise/edit/withdraw a point) live on the same matrix row as the
+    // register since 2026-09-19; the separate "Discussion Point" row was retired.
+    public const string Points     = Register;
     // Sets list / Set modal / summary document.
-    public const string Sets       = "Sets";
-    public const string Reports    = "DWO Reports";
+    public const string Sets       = "DWO Sets";
+    // The Reports page has no menu entry or matrix row of its own; any register viewer may open it.
+    public const string Reports    = Register;
     public const string Companies  = "Companies";
 }
