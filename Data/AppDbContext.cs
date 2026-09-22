@@ -1,4 +1,4 @@
-using ApproveFlow.MVC.Models.Domain;
+﻿using ApproveFlow.MVC.Models.Domain;
 using Microsoft.EntityFrameworkCore;
 
 namespace ApproveFlow.MVC.Data;
@@ -33,6 +33,18 @@ public class AppDbContext : DbContext
     public DbSet<UserRequestTypeMapping> UserRequestTypeMappings => Set<UserRequestTypeMapping>();
     public DbSet<WorkflowNotificationRole> WorkflowNotificationRoles => Set<WorkflowNotificationRole>();
     public DbSet<RequestViewToken> RequestViewTokens => Set<RequestViewToken>();
+
+    // ── DWO (Discussion Work Order) module ────────────────────
+    // Entirely additive: no existing table is touched, and nothing in the Request /
+    // Approval / WhatsApp flow reads any of these.
+    public DbSet<Company> Companies => Set<Company>();
+    public DbSet<DwoSet> DwoSets => Set<DwoSet>();
+    public DbSet<DwoPoint> DwoPoints => Set<DwoPoint>();
+    public DbSet<DwoAttachment> DwoAttachments => Set<DwoAttachment>();
+    public DbSet<DwoReferenceLink> DwoReferenceLinks => Set<DwoReferenceLink>();
+    public DbSet<DwoFollowUp> DwoFollowUps => Set<DwoFollowUp>();
+    public DbSet<DwoHistory> DwoHistories => Set<DwoHistory>();
+    public DbSet<DwoRemark> DwoRemarks => Set<DwoRemark>();
 
     protected override void OnModelCreating(ModelBuilder mb)
     {
@@ -168,6 +180,75 @@ public class AppDbContext : DbContext
             e.HasIndex(x => new { x.Action, x.Status, x.ExpiresOn });
             e.HasIndex(x => x.WhatsAppMessageId);
             e.HasIndex(x => x.ParentMessageId);
+        });
+
+        // ── DWO module ────────────────────────────────────────
+        // Every relationship into an existing master is Restrict, so a Location or
+        // Department that is in use by a discussion point cannot be deleted out from
+        // under it — the same rule the Request tables already follow.
+        mb.Entity<Company>(e => { e.ToTable("Companies"); e.HasIndex(x => x.Code).IsUnique(); });
+        mb.Entity<DwoSet>(e => {
+            e.ToTable("DwoSets");
+            // Filtered: the number is stamped from the identity value in a second save, so
+            // a row is briefly blank between the two.
+            e.HasIndex(x => x.SetNumber).IsUnique().HasFilter("[SetNumber] <> ''");
+            e.HasIndex(x => x.DepartmentId);
+            e.HasOne(x => x.Department).WithMany().HasForeignKey(x => x.DepartmentId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.SubmittedByUser).WithMany().HasForeignKey(x => x.SubmittedByUserId).OnDelete(DeleteBehavior.Restrict);
+        });
+        mb.Entity<DwoPoint>(e => {
+            e.ToTable("DwoPoints");
+            e.HasIndex(x => x.PointNumber).IsUnique().HasFilter("[PointNumber] <> ''");
+            // The register and every dashboard KPI seek on these three.
+            e.HasIndex(x => new { x.DepartmentId, x.Status });
+            e.HasIndex(x => new { x.RaisedByUserId, x.Status });
+            e.HasIndex(x => x.SetId);
+            e.HasOne(x => x.Company).WithMany().HasForeignKey(x => x.CompanyId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.Location).WithMany().HasForeignKey(x => x.LocationId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.Department).WithMany().HasForeignKey(x => x.DepartmentId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.RaisedByUser).WithMany().HasForeignKey(x => x.RaisedByUserId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.ReviewedByUser).WithMany().HasForeignKey(x => x.ReviewedByUserId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.Set).WithMany(s => s.Points).HasForeignKey(x => x.SetId).OnDelete(DeleteBehavior.SetNull);
+            // Self-reference for a reassigned point back to the one it came from.
+            e.HasOne(x => x.OriginPoint).WithMany().HasForeignKey(x => x.OriginPointId).OnDelete(DeleteBehavior.NoAction);
+        });
+        mb.Entity<DwoAttachment>(e => {
+            e.ToTable("DwoAttachments");
+            e.HasIndex(x => x.PointId);
+            e.HasIndex(x => x.SetId);
+            e.HasOne(x => x.Point).WithMany(p => p.Attachments).HasForeignKey(x => x.PointId).OnDelete(DeleteBehavior.Cascade);
+            // NoAction on the Set side: a point already cascades from its own parent, and
+            // SQL Server rejects two cascade paths reaching the same table.
+            e.HasOne(x => x.Set).WithMany(s => s.Attachments).HasForeignKey(x => x.SetId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne(x => x.UploadedByUser).WithMany().HasForeignKey(x => x.UploadedByUserId).OnDelete(DeleteBehavior.Restrict);
+        });
+        mb.Entity<DwoReferenceLink>(e => {
+            e.ToTable("DwoReferenceLinks");
+            e.HasIndex(x => x.PointId);
+            e.HasOne(x => x.Point).WithMany(p => p.ReferenceLinks).HasForeignKey(x => x.PointId).OnDelete(DeleteBehavior.Cascade);
+        });
+        mb.Entity<DwoFollowUp>(e => {
+            e.ToTable("DwoFollowUps");
+            e.HasIndex(x => x.PointId);
+            // "Follow-up due today" and the overdue sweep both filter on these.
+            e.HasIndex(x => new { x.OwnerUserId, x.DueDate });
+            e.HasOne(x => x.Point).WithMany(p => p.FollowUps).HasForeignKey(x => x.PointId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.OwnerUser).WithMany().HasForeignKey(x => x.OwnerUserId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.CompletedByUser).WithMany().HasForeignKey(x => x.CompletedByUserId).OnDelete(DeleteBehavior.Restrict);
+        });
+        mb.Entity<DwoHistory>(e => {
+            e.ToTable("DwoHistory");
+            e.HasIndex(x => x.PointId);
+            e.HasIndex(x => x.SetId);
+            e.HasOne(x => x.Point).WithMany(p => p.History).HasForeignKey(x => x.PointId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Set).WithMany(s => s.History).HasForeignKey(x => x.SetId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne(x => x.ActorUser).WithMany().HasForeignKey(x => x.ActorUserId).OnDelete(DeleteBehavior.Restrict);
+        });
+        mb.Entity<DwoRemark>(e => {
+            e.ToTable("DwoRemarks");
+            e.HasIndex(x => x.PointId);
+            e.HasOne(x => x.Point).WithMany(p => p.Remarks).HasForeignKey(x => x.PointId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
         });
     }
 

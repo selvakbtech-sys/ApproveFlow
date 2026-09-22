@@ -1,0 +1,416 @@
+﻿@model DwoPointFormVM
+@{
+    bool isEdit = Model.PointId > 0;
+    // "Add a point for discussion" on an open Set: department fixed to the Set's, one button,
+    // and the point lands in Management Discussion on that Set.
+    bool intoSet = !isEdit && Model.SetId > 0;
+    // HOD correcting a point pending with them: nothing about the workflow changes, the
+    // edit is audited field-by-field and the remark goes on the HOD thread.
+    bool hodEdit = isEdit && Model.HodEdit;
+    ViewData["Title"] = intoSet ? "Add Point to Set" : hodEdit ? "Edit Discussion (HOD)" : isEdit ? "Edit Discussion" : "New Discussion Point";
+    ViewData["NavPage"] = intoSet ? "dwosets" : isEdit ? "dworegister" : "dwomine";
+    // Management raises a point straight into Management Discussion — there is no HOD above
+    // it — so it gets a single "Create Discussion" button instead of Draft/Submit.
+    bool mgmtCreate = Model.Actor.IsManagement;
+    bool resubmit = isEdit && !hodEdit && Model.Status == DwoStatus.ChangeRequested;
+    var backUrl = ViewBag.ReturnUrl as string;
+    // HOD mode: the decision panel replaces the ordinary save buttons AND the remark card —
+    // one post saves the edits and applies the decision (see DwoService.SavePointAsync).
+    bool hodDecide = hodEdit && Model.Status == DwoStatus.Submitted;
+}
+
+<div class="pg-hdr">
+  <div>
+    <div class="pg-title">@ViewData["Title"]</div>
+    <div class="pg-sub">
+      @if (intoSet)
+      {
+        <text>Adds directly into Set <span class="mono">@Model.SetNumber</span> (@(Model.Departments.FirstOrDefault()?.DeptName)) · status Management Discussion</text>
+      }
+      else if (hodEdit)
+      {
+        <text>@Model.PointNumber · @Model.Status — HOD correction; the status does not change and every field change is logged</text>
+      }
+      else if (isEdit)
+      {
+        <text>@Model.PointNumber · @Model.Status</text>
+        @if (resubmit) { <text> — saving will resubmit it to the HOD</text> }
+      }
+      else
+      {
+        <text>Fill in the form and save as draft, then submit to your HOD</text>
+      }
+    </div>
+  </div>
+  @if (!string.IsNullOrEmpty(backUrl))
+  {
+    <a href="@backUrl" class="btn btn-sec">← Back</a>
+  }
+  else
+  {
+    <a asp-action="@(hodEdit ? "Register" : "MyDiscussions")" class="btn btn-sec">← Back</a>
+  }
+</div>
+
+@* data-submit-guard disables the buttons on the first click and shows the staged progress
+   overlay, exactly as the New Request form does. Idempotency is opted out because
+   DwoPointFormVM has no IdempotencyKey column behind it — the guard's client-side block is
+   the protection here, not a server-side de-duplication. *@
+<form asp-action="Save" method="post" enctype="multipart/form-data"
+      data-submit-guard data-guard-idempotent="false" data-guard-title="Saving discussion">
+  @Html.AntiForgeryToken()
+  <input type="hidden" asp-for="PointId" />
+  @if (hodEdit) { <input type="hidden" asp-for="HodEdit" /> }
+  @if (intoSet) { <input type="hidden" asp-for="SetId" /> }
+  @if (!string.IsNullOrEmpty(backUrl)) { <input type="hidden" name="returnUrl" value="@backUrl" /> }
+
+  <div class="m-collapse" style="display:grid;grid-template-columns:1fr 320px;gap:18px;align-items:start">
+    <div style="display:flex;flex-direction:column;gap:14px">
+
+      @* ── Section 1 — Basic details ── *@
+      <div class="card">
+        <div class="card-hdr">
+          <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>
+          Discussion Details
+        </div>
+        <div class="card-body">
+          <div asp-validation-summary="ModelOnly" class="alert alert-err"></div>
+          <div class="form-grid fg2" style="margin-bottom:14px">
+            <div class="form-group">
+              <label class="lbl">Task ID</label>
+              <input asp-for="TaskId" class="inp" maxlength="60" placeholder="Optional external reference" />
+            </div>
+            <div class="form-group">
+              <label class="lbl">Priority <span class="req">*</span></label>
+              <select asp-for="Priority" class="inp">
+                @foreach (var pr in DwoPriority.All)
+                {
+                  <option value="@pr" selected="@(Model.Priority == pr)">@pr</option>
+                }
+              </select>
+            </div>
+            <div class="form-group full">
+              <label class="lbl">Discussion Title <span class="req">*</span></label>
+              <input asp-for="Title" class="inp" maxlength="250" placeholder="One line describing the point" />
+              <span asp-validation-for="Title" class="field-validation-error"></span>
+            </div>
+            <div class="form-group full">
+              <label class="lbl">Description / Justification <span class="req">*</span></label>
+              <textarea asp-for="Description" class="inp" rows="4" placeholder="The background and what you need decided"></textarea>
+              <span asp-validation-for="Description" class="field-validation-error"></span>
+            </div>
+            <div class="form-group">
+              <label class="lbl">Category</label>
+              <select asp-for="Category" class="inp">
+                @foreach (var c in Model.Categories)
+                {
+                  <option value="@c" selected="@(Model.Category == c)">@c</option>
+                }
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="lbl">Department <span class="req">*</span></label>
+              @* On a Set the list holds only the Set's department, so the choice is fixed. *@
+              <select asp-for="DepartmentId" class="inp">
+                <option value="">— Select —</option>
+                @foreach (var d in Model.Departments)
+                {
+                  <option value="@d.DepartmentId" selected="@(Model.DepartmentId == d.DepartmentId)">@d.DeptName</option>
+                }
+              </select>
+              <span asp-validation-for="DepartmentId" class="field-validation-error"></span>
+            </div>
+            <div class="form-group">
+              <label class="lbl">Company <span class="req">*</span></label>
+              <select asp-for="CompanyId" class="inp">
+                <option value="">— Select —</option>
+                @foreach (var c in Model.Companies)
+                {
+                  <option value="@c.CompanyId" selected="@(Model.CompanyId == c.CompanyId)">@c.CompanyName</option>
+                }
+              </select>
+              <span asp-validation-for="CompanyId" class="field-validation-error"></span>
+            </div>
+            <div class="form-group">
+              <label class="lbl">Site <span class="req">*</span></label>
+              <select asp-for="LocationId" class="inp">
+                <option value="">— Select —</option>
+                @foreach (var l in Model.Locations)
+                {
+                  <option value="@l.LocationId" selected="@(Model.LocationId == l.LocationId)">@l.LocationName</option>
+                }
+              </select>
+              <span asp-validation-for="LocationId" class="field-validation-error"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      @* ── Section 2 — Reference links ── *@
+      <div class="card">
+        <div class="card-hdr">
+          <svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
+          Reference Links
+          <span style="margin-left:auto;font-size:11px;color:var(--txt3)">Optional — one URL per row</span>
+        </div>
+        <div class="card-body">
+          <div id="dwoLinks">
+            @foreach (var url in Model.ReferenceLinks.Where(u => !string.IsNullOrWhiteSpace(u)))
+            {
+              <div class="dwo-linkrow">
+                <input type="url" name="ReferenceLinks" class="inp" value="@url" />
+                <button type="button" class="btn btn-sec btn-sm" onclick="this.parentNode.remove()">Remove</button>
+              </div>
+            }
+            <div class="dwo-linkrow">
+              <input type="url" name="ReferenceLinks" class="inp" placeholder="https://…" />
+              <button type="button" class="btn btn-sec btn-sm" onclick="this.parentNode.remove()">Remove</button>
+            </div>
+          </div>
+          <button type="button" class="btn btn-sec btn-sm" onclick="dwoAddLinkRow()">+ Add link</button>
+        </div>
+      </div>
+
+      @* ── Section 3 — Remarks. Appended to the point's record-wise remark thread
+           (Requester / HOD / Management); earlier remarks are never overwritten. ── *@
+      @if (!intoSet && !hodDecide)
+      {
+        <div class="card">
+          <div class="card-hdr">
+            <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+            @(hodEdit ? "HOD Remark" : resubmit ? "Response to HOD" : "Remarks")
+            <span style="margin-left:auto;font-size:11px;color:var(--txt3)">@(resubmit ? "Required" : "Optional")</span>
+          </div>
+          <div class="card-body">
+            <div class="form-group">
+              <label class="lbl">
+                @(hodEdit ? "Why is this being changed?" : resubmit ? "Your response to the clarification" : "Note for the HOD")
+                @if (resubmit) { <span class="req">*</span> }
+              </label>
+              <textarea asp-for="Remark" class="inp" rows="3" maxlength="2000" required="@(resubmit ? "required" : null)"
+                        placeholder="@(hodEdit ? "Recorded on the HOD remark thread" : resubmit ? "What you changed in response to the HOD's request" : "Recorded on your remark thread")"></textarea>
+            </div>
+          </div>
+        </div>
+      }
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:14px">
+      @* ── Section 4 — Attachments ── *@
+      <div class="card">
+        <div class="card-hdr">
+          <svg viewBox="0 0 24 24"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+          Attachments
+          <span style="margin-left:auto;font-size:11px;color:var(--txt3)">Max 20 MB each</span>
+        </div>
+        <div class="card-body">
+          @* ── Existing attachments (edit mode) ── *@
+          @if (Model.Attachments.Any())
+          {
+            <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px">
+              @foreach (var a in Model.Attachments)
+              {
+                <div id="attrow-@a.AttachmentId"
+                     style="display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px solid var(--bdr);border-radius:6px;font-size:12px">
+                  <svg viewBox="0 0 24 24" style="width:14px;height:14px;flex-shrink:0;color:var(--pri)">
+                    <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/>
+                  </svg>
+                  <a asp-action="Download" asp-route-id="@a.AttachmentId" target="_blank"
+                     style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">@a.FileName</a>
+                  <span style="color:var(--txt3);white-space:nowrap">@a.FormattedSize</span>
+                  <input type="hidden" name="RemoveAttachmentIds" class="remove-att-flag" value="@a.AttachmentId" disabled />
+                  <button type="button" onclick="markAttDelete(@a.AttachmentId, this)"
+                          class="btn btn-ghost btn-sm" style="color:var(--ng);padding:2px 6px" title="Remove">
+                    <svg viewBox="0 0 24 24" style="width:13px;height:13px"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                  </button>
+                </div>
+              }
+            </div>
+          }
+
+          @* ── New file drop zone — same interaction as the New Request form ── *@
+          <div id="dropZone"
+               style="border:2px dashed var(--bdr);border-radius:8px;padding:20px;text-align:center;cursor:pointer;transition:border-color .2s"
+               onclick="document.getElementById('fileInput').click()"
+               ondragover="event.preventDefault();this.style.borderColor='var(--pri)'"
+               ondragleave="this.style.borderColor='var(--bdr)'"
+               ondrop="handleDrop(event)">
+            <svg viewBox="0 0 24 24" style="width:28px;height:28px;color:var(--txt3);margin-bottom:6px">
+              <polyline points="16,16 12,12 8,16"/><line x1="12" y1="12" x2="12" y2="21"/>
+              <path d="M20.39 18.39A5 5 0 0018 9h-1.26A8 8 0 103 16.3"/>
+            </svg>
+            <div style="font-size:13px;font-weight:600;color:var(--txt2)">Drop files here or click to browse</div>
+            <div style="font-size:11px;color:var(--txt3);margin-top:3px">Multiple files supported</div>
+            <input type="file" id="fileInput" name="NewFiles" multiple style="display:none" onchange="handleFiles(this.files)" />
+          </div>
+          <div id="newFileList" style="margin-top:10px;display:flex;flex-direction:column;gap:5px"></div>
+          <div class="hint" style="margin-top:8px">Files can be removed until the discussion leaves Draft.</div>
+        </div>
+      </div>
+
+      @if (hodDecide)
+      {
+        @* ── HOD decision panel (same design as the approval panel on Request Details).
+             Every button submits THIS form: the field edits are saved, logged field-by-field,
+             and then the decision is applied with the comment as the HOD remark. Comment is
+             mandatory except for Approve. ── *@
+        <div class="card" style="border:2px solid var(--wa)">
+          <div class="card-hdr" style="background:var(--wa-bg);border-bottom-color:var(--wa-bdr)">
+            <svg viewBox="0 0 24 24" style="stroke:var(--wa)"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" stroke-width="2"/><line x1="12" y1="9" x2="12" y2="13" stroke-width="2"/><line x1="12" y1="17" x2="12.01" y2="17" stroke-width="2"/></svg>
+            <span style="color:var(--wa)">Your Action Required — HOD <span style="font-weight:400;font-size:12px"> · @Model.PointNumber</span></span>
+          </div>
+          <div class="card-body">
+            <div class="form-group" style="margin-bottom:12px">
+              <label class="lbl">Comment</label>
+              <textarea asp-for="Remark" id="dwoHodNote" class="inp" rows="3" maxlength="2000" placeholder="Required for clarification / hold / rejection…"></textarea>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <button type="submit" name="saveAction" value="approve" class="btn btn-ok" style="justify-content:center">
+                <svg viewBox="0 0 24 24"><polyline points="20,6 9,17 4,12" stroke-width="2.5"/></svg>Approve
+              </button>
+              <button type="submit" name="saveAction" value="send_back" class="btn btn-wa" style="justify-content:center"
+                onclick="return dwoRequireNote('Clarification remarks are required.')">
+                <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>Request Clarification
+              </button>
+              <button type="submit" name="saveAction" value="hold" class="btn btn-sec" style="justify-content:center"
+                onclick="return dwoRequireNote('A hold reason is required.')">
+                <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="10" y1="15" x2="10" y2="9"/><line x1="14" y1="15" x2="14" y2="9"/></svg>Hold
+              </button>
+              <button type="submit" name="saveAction" value="reject" class="btn btn-ng" style="justify-content:center"
+                onclick="return dwoRequireNote('Rejection remarks are required.') &amp;&amp; confirm('Reject this discussion? The raiser will be notified.')">
+                <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" stroke-width="2.5"/><line x1="6" y1="6" x2="18" y2="18" stroke-width="2.5"/></svg>Reject
+              </button>
+              <button type="submit" name="saveAction" value="save" class="btn btn-ghost" style="justify-content:center">Save changes only</button>
+              <a href="@(string.IsNullOrEmpty(backUrl) ? Url.Action("Register") : backUrl)" class="btn btn-ghost" style="justify-content:center">Cancel</a>
+            </div>
+            <div class="hint" style="margin-top:8px">Approve saves your edits, records the remark and opens <em>Add to Set &amp; Request Appointment</em>. Attachments are handled in the Attachments card above.</div>
+          </div>
+        </div>
+      }
+      else
+      {
+      <div class="card">
+        <div class="card-body" style="display:flex;flex-direction:column;gap:8px">
+          @if (intoSet)
+          {
+            <button type="submit" name="saveAction" value="submit" class="btn btn-pri" style="justify-content:center">
+              <svg viewBox="0 0 24 24" style="width:15px;height:15px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Add to Set
+            </button>
+          }
+          else if (mgmtCreate)
+          {
+            @* Management can park a point as Draft too; Submit on the details page (or
+               Create here) then moves it straight to Management Discussion. *@
+            <button type="submit" name="saveAction" value="draft" class="btn btn-sec" style="justify-content:center">
+              <svg viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17,21 17,13 7,13 7,21"/></svg>
+              Save as Draft
+            </button>
+            <button type="submit" name="saveAction" value="submit" class="btn btn-pri" style="justify-content:center">
+              <svg viewBox="0 0 24 24" style="width:15px;height:15px"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22,2 15,22 11,13 2,9"/></svg>
+              Create Discussion
+            </button>
+          }
+          else if (hodEdit)
+          {
+            <button type="submit" name="saveAction" value="save" class="btn btn-pri" style="justify-content:center">
+              <svg viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17,21 17,13 7,13 7,21"/></svg>
+              Save Changes
+            </button>
+          }
+          else if (resubmit)
+          {
+            <button type="submit" name="saveAction" value="draft" class="btn btn-pri" style="justify-content:center">
+              <svg viewBox="0 0 24 24" style="width:15px;height:15px"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22,2 15,22 11,13 2,9"/></svg>
+              Save &amp; Resubmit
+            </button>
+          }
+          else
+          {
+            <button type="submit" name="saveAction" value="draft" class="btn btn-sec" style="justify-content:center">
+              <svg viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17,21 17,13 7,13 7,21"/></svg>
+              Save as Draft
+            </button>
+            <button type="submit" name="saveAction" value="submit" class="btn btn-pri" style="justify-content:center">
+              <svg viewBox="0 0 24 24" style="width:15px;height:15px"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22,2 15,22 11,13 2,9"/></svg>
+              Save &amp; Submit to HOD
+            </button>
+          }
+          <a href="@(string.IsNullOrEmpty(backUrl) ? Url.Action(intoSet ? "Sets" : hodEdit ? "Register" : "MyDiscussions") : backUrl)"
+             class="btn btn-ghost" style="justify-content:center">Cancel</a>
+        </div>
+      </div>
+      }
+    </div>
+  </div>
+</form>
+
+@section Scripts {
+  <script>
+    // HOD panel: Approve = comment optional; Clarification, Hold and Reject = mandatory.
+    function dwoRequireNote(msg) {
+      var ta = document.getElementById('dwoHodNote');
+      if (!ta || ta.value.trim() === '') {
+        alert(msg);
+        if (ta) ta.focus();
+        return false;
+      }
+      return true;
+    }
+
+    // ── Attachment handling. Same behaviour as the New Request form: files queue up in a
+    //    DataTransfer so the drop zone and the file input stay in step. ──
+    let selectedFiles = new DataTransfer();
+
+    function handleFiles(files) {
+      for (const f of files) selectedFiles.items.add(f);
+      renderFileList();
+    }
+
+    function handleDrop(e) {
+      e.preventDefault();
+      document.getElementById('dropZone').style.borderColor = 'var(--bdr)';
+      handleFiles(e.dataTransfer.files);
+    }
+
+    function renderFileList() {
+      document.getElementById('fileInput').files = selectedFiles.files;
+      const list = document.getElementById('newFileList');
+      list.innerHTML = '';
+      Array.from(selectedFiles.files).forEach((f, i) => {
+        const size = f.size > 1048576 ? (f.size / 1048576).toFixed(1) + ' MB' : Math.round(f.size / 1024) + ' KB';
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--bg);border-radius:6px;font-size:12px';
+        row.innerHTML =
+          '<svg viewBox="0 0 24 24" style="width:13px;height:13px;color:var(--pri);flex-shrink:0">' +
+          '<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>' +
+          '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>' +
+          '<span style="color:var(--txt3);white-space:nowrap">' + size + '</span>' +
+          '<button type="button" onclick="removeQueuedFile(' + i + ')" ' +
+          'style="background:none;border:none;cursor:pointer;color:var(--ng);padding:0 4px;font-size:15px" title="Remove">&times;</button>';
+        // Set the file name as text, never as HTML — the name comes from the user's disk.
+        row.querySelector('span').textContent = f.name;
+        list.appendChild(row);
+      });
+    }
+
+    function removeQueuedFile(index) {
+      const dt = new DataTransfer();
+      Array.from(selectedFiles.files).forEach((f, i) => { if (i !== index) dt.items.add(f); });
+      selectedFiles = dt;
+      renderFileList();
+    }
+
+    // Toggles an existing attachment for deletion on save, without hiding it, so the user
+    // can see (and undo) what they are about to remove.
+    function markAttDelete(id, btn) {
+      const row = document.getElementById('attrow-' + id);
+      const flag = row.querySelector('.remove-att-flag');
+      const isDel = flag.disabled;
+      flag.disabled = !isDel;
+      row.style.opacity = isDel ? '1' : '0.4';
+      row.style.textDecoration = isDel ? 'none' : 'line-through';
+      btn.title = isDel ? 'Remove' : 'Undo remove';
+    }
+  </script>
+}

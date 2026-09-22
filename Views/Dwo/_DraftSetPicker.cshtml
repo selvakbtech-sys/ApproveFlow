@@ -1,0 +1,135 @@
+@model DwoDraftSetPickerVM
+@{
+    // "Add to Draft Set": the HOD's ticked Submitted points join one existing Draft Set.
+    // Only Drafts are listed (the service filters on status and on the caller's edit right);
+    // Submitted / Management Discussion / Completed Sets never appear. Search, the Company
+    // and Site filters and the pager all re-fetch this partial (dwoReloadDraftPicker) with
+    // the point ids riding along as hidden inputs. Same large panel as the Set screen.
+    int from = Model.TotalCount == 0 ? 0 : (Model.Page - 1) * Model.PageSize + 1;
+    int to   = Math.Min(Model.Page * Model.PageSize, Model.TotalCount);
+}
+
+<div class="modal-hdr">
+  <div>
+    <div class="modal-title">Add to Draft Set</div>
+    <div class="modal-sub">
+      @Model.PointIds.Count discussion(s) selected
+      @if (!string.IsNullOrEmpty(Model.DeptName)) { <text>· @Model.DeptName</text> }
+      · pick one Draft Set to add them to
+    </div>
+  </div>
+  <button type="button" class="modal-x" onclick="dwoCloseModal()">&times;</button>
+</div>
+
+<div class="modal-body">
+  @if (Model.Problem != null)
+  {
+    <div class="alert alert-wa" style="margin:0">@Model.Problem</div>
+  }
+  else
+  {
+    <form id="dwoDraftPickerFilter" onsubmit="dwoReloadDraftPicker(1);return false;">
+      @foreach (var id in Model.PointIds) { <input type="hidden" name="PointIds" value="@id"/> }
+      <div class="filter-bar" style="gap:8px;margin-bottom:12px">
+        <div class="f-group" style="flex:1 1 220px">
+          <label class="f-lbl">Search</label>
+          <input type="text" name="Search" class="f-ctrl" style="min-width:0;width:100%;background-image:none;padding-right:10px" value="@Model.Search"
+                 placeholder="Set no, title or created by"/>
+        </div>
+        <div class="f-group" style="flex:0 1 200px">
+          <label class="f-lbl">Company</label>
+          <select name="FilterCompanyId" class="f-ctrl" style="width:100%" onchange="dwoReloadDraftPicker(1)">
+            <option value="">All</option>
+            @foreach (var c in Model.Companies)
+            { <option value="@c.CompanyId" selected="@(Model.FilterCompanyId == c.CompanyId)">@c.CompanyName</option> }
+          </select>
+        </div>
+        <div class="f-group" style="flex:0 1 200px">
+          <label class="f-lbl">Site</label>
+          <select name="FilterLocationId" class="f-ctrl" style="width:100%" onchange="dwoReloadDraftPicker(1)">
+            <option value="">All</option>
+            @foreach (var l in Model.Locations)
+            { <option value="@l.LocationId" selected="@(Model.FilterLocationId == l.LocationId)">@l.LocationName</option> }
+          </select>
+        </div>
+        <div class="f-group" style="flex:0 0 auto;display:flex;align-items:flex-end;gap:6px">
+          <button type="submit" class="btn btn-pri btn-sm">Search</button>
+          <button type="button" class="btn btn-sec btn-sm"
+                  onclick="dwoLoadModal('@Url.Action("DraftSetPicker", new { ids = string.Join(",", Model.PointIds) })', true)">Clear</button>
+        </div>
+      </div>
+    </form>
+
+    <form asp-action="AddToDraftSet" method="post" id="dwoDraftPickerForm">
+      @Html.AntiForgeryToken()
+      <input type="hidden" name="returnUrl" value=""/>
+      @foreach (var id in Model.PointIds) { <input type="hidden" name="pointIds" value="@id"/> }
+
+      <div class="tbl-wrap" style="max-height:360px;overflow-y:auto">
+        <table class="tbl">
+          <thead>
+            <tr>
+              <th style="width:36px"></th>
+              <th>Set No</th>
+              <th>Set Title</th>
+              <th>Company</th>
+              <th>Site</th>
+              <th>Created By</th>
+              <th>Last Updated</th>
+              <th>Discussions</th>
+            </tr>
+          </thead>
+          <tbody>
+            @if (!Model.Items.Any())
+            {
+              <tr>
+                <td colspan="8" class="tbl-empty">
+                  No Draft Sets to add to. Use <strong>Build Set → Save as Draft</strong> to start one.
+                </td>
+              </tr>
+            }
+            @foreach (var s in Model.Items)
+            {
+              <tr style="cursor:pointer" onclick="var r=this.querySelector('input[type=radio]');r.checked=true;dwoDraftPicked()">
+                <td onclick="event.stopPropagation()">
+                  <input type="radio" name="setId" value="@s.SetId" onchange="dwoDraftPicked()"/>
+                </td>
+                <td><span class="mono" style="font-size:11px">@s.SetNumber</span> <span class="badge badge-gray" style="margin-left:4px">Draft</span></td>
+                <td style="font-weight:600">@(string.IsNullOrEmpty(s.Title) ? "—" : s.Title)</td>
+                <td style="font-size:12px">@(string.IsNullOrEmpty(s.Companies) ? "—" : s.Companies)</td>
+                <td style="font-size:12px">@(string.IsNullOrEmpty(s.Sites) ? "—" : s.Sites)</td>
+                <td style="font-size:12px">@s.CreatedByName</td>
+                <td style="font-size:11px;color:var(--txt3);white-space:nowrap">@s.UpdatedAt.ToString("dd MMM yyyy, hh:mm tt")</td>
+                <td>@s.PointCount</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+
+      @if (Model.TotalCount > 0)
+      {
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--txt2)">
+          <span>Showing @from–@to of @Model.TotalCount Draft Set@(Model.TotalCount == 1 ? "" : "s")</span>
+          <div style="display:flex;gap:6px;align-items:center">
+            <button type="button" class="btn btn-sec btn-sm" disabled="@(Model.Page <= 1)"
+                    onclick="dwoReloadDraftPicker(@(Model.Page - 1))">‹ Prev</button>
+            <span>Page @Model.Page of @Model.TotalPages</span>
+            <button type="button" class="btn btn-sec btn-sm" disabled="@(Model.Page >= Model.TotalPages)"
+                    onclick="dwoReloadDraftPicker(@(Model.Page + 1))">Next ›</button>
+          </div>
+        </div>
+      }
+    </form>
+  }
+</div>
+
+<div class="modal-actions">
+  <button type="button" class="btn btn-sec" onclick="dwoCloseModal()">Cancel</button>
+  @if (Model.Problem == null)
+  {
+    <button type="submit" form="dwoDraftPickerForm" class="btn btn-acc" id="dwoDraftAddBtn" disabled>
+      Add @Model.PointIds.Count discussion(s) to selected Set
+    </button>
+  }
+</div>

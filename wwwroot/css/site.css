@@ -1,5 +1,5 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
-:root{--pri:#0f172a;--pri-h:#1e293b;--acc:#f59e0b;--acc-h:#d97706;--bg:#f8fafc;--card:#fff;--bdr:#e2e8f0;--bdr-s:#cbd5e1;--txt:#0f172a;--txt2:#475569;--txt3:#94a3b8;--ok:#16a34a;--ok-bg:#f0fdf4;--ok-bdr:#bbf7d0;--ng:#dc2626;--ng-bg:#fef2f2;--ng-bdr:#fecaca;--wa:#d97706;--wa-bg:#fffbeb;--wa-bdr:#fde68a;--in:#2563eb;--in-bg:#eff6ff;--in-bdr:#bfdbfe;--sw:240px;--th:56px;--r:8px;--rl:12px;--sh:0 1px 3px rgba(0,0,0,.1);--shm:0 4px 6px rgba(0,0,0,.07);--tr:150ms ease;--font:'DM Sans',system-ui,sans-serif;--mono:'JetBrains Mono',monospace}
+:root{--pri:#071B46;--pri-h:#0E2A63;--acc:#f59e0b;--acc-h:#d97706;--bg:#F5F7FA;--card:#fff;--bdr:#e2e8f0;--bdr-s:#cbd5e1;--txt:#071B46;--txt2:#6B7280;--txt3:#94a3b8;--ok:#16a34a;--ok-bg:#f0fdf4;--ok-bdr:#bbf7d0;--ng:#dc2626;--ng-bg:#fef2f2;--ng-bdr:#fecaca;--wa:#d97706;--wa-bg:#fffbeb;--wa-bdr:#fde68a;--in:#2563eb;--in-bg:#eff6ff;--in-bdr:#bfdbfe;--sw:240px;--th:56px;--r:8px;--rl:12px;--sh:0 1px 3px rgba(0,0,0,.1);--shm:0 4px 6px rgba(0,0,0,.07);--tr:150ms ease;--font:'DM Sans',system-ui,sans-serif;--mono:'JetBrains Mono',monospace;--sb-sec:#fff;--sb-child:#D9E1F2;--tbl-hover:#F8FAFC}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html{font-size:14px}
 body{font-family:var(--font);background:var(--bg);color:var(--txt);line-height:1.6;min-height:100vh}
@@ -12,14 +12,14 @@ a{color:var(--in);text-decoration:none}a:hover{text-decoration:underline}
 .sb-logo-title{font-size:14px;font-weight:700;color:#fff}
 .sb-logo-sub{font-size:10px;color:rgba(255,255,255,.4)}
 .sb-nav{flex:1;padding:6px 0}
-.sb-sec{font-size:9px;font-weight:700;letter-spacing:1px;color:rgba(255,255,255,.3);text-transform:uppercase;padding:12px 18px 4px}
-.nav-link{display:flex;align-items:center;gap:10px;padding:9px 14px;margin:1px 8px;border-radius:var(--r);color:rgba(255,255,255,.65);font-size:13px;font-weight:500;cursor:pointer;text-decoration:none;transition:background var(--tr),color var(--tr)}
+.sb-sec{font-size:15px;font-weight:800;letter-spacing:1px;color:var(--sb-sec);text-transform:uppercase;padding:12px 18px 4px}
+.nav-link{display:flex;align-items:center;gap:10px;padding:9px 14px;margin:1px 8px;border-radius:var(--r);color:rgba(255,255,255,.85);font-size:13px;font-weight:600;line-height:1.35;cursor:pointer;text-decoration:none;transition:background var(--tr),color var(--tr)}
 .nav-link svg{width:16px;height:16px;stroke:currentColor;fill:none;flex-shrink:0}
-.nav-link:hover{background:rgba(255,255,255,.08);color:#fff;text-decoration:none}
-.nav-link.active{background:var(--acc);color:var(--pri);font-weight:600}
-.nav-link.active svg{stroke:var(--pri)}
+.nav-link:hover{background:rgba(245,158,11,.15);color:#fff;text-decoration:none}
+.nav-link.active{background:transparent;color:#fff;font-weight:800}
+.nav-link.active svg{stroke:currentColor}
 .nav-badge{margin-left:auto;background:var(--ng);color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px}
-.nav-tag{margin-left:auto;font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(239,68,68,.2);color:#fca5a5}
+.nav-tag{margin-left:auto;flex-shrink:0;font-size:8.5px;padding:1px 4px;border-radius:3px;background:rgba(239,68,68,.2);color:#fca5a5}
 .sb-user{padding:12px 14px;border-top:1px solid rgba(255,255,255,.08);display:flex;align-items:center;gap:10px}
 .sb-avatar{width:32px;height:32px;border-radius:50%;background:var(--acc);color:var(--pri);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0}
 .sb-uname{font-size:12px;font-weight:600;color:#fff}
@@ -114,12 +114,12 @@ textarea.inp{resize:vertical;min-height:80px}
 .ms-rm{background:none;border:none;cursor:pointer;color:var(--in);font-size:14px;line-height:1;padding:0}
 .tbl-wrap{overflow-x:auto}
 .tbl{width:100%;border-collapse:collapse;font-size:13px}
-.tbl thead tr{background:var(--bg);border-bottom:2px solid var(--bdr)}
-.tbl th{padding:9px 14px;text-align:left;font-size:11px;font-weight:600;color:var(--txt2);text-transform:uppercase;letter-spacing:.4px;white-space:nowrap}
+.tbl thead tr{background:var(--pri);border-bottom:2px solid var(--pri)}
+.tbl th{padding:9px 14px;text-align:left;font-size:11px;font-weight:600;color:#fff;text-transform:uppercase;letter-spacing:.4px;white-space:nowrap}
 .tbl th.r,.tbl td.r{text-align:right;white-space:nowrap}
 .tbl td{padding:11px 14px;border-bottom:1px solid var(--bg);vertical-align:middle}
 .tbl tbody tr:last-child td{border-bottom:none}
-.tbl tbody tr:hover td{background:var(--bg)}
+.tbl tbody tr:hover td{background:var(--tbl-hover)}
 .tbl-empty{text-align:center;padding:40px;color:var(--txt3)}
 /* ── Reusable data grid (data-grid.js) ── */
 .dg-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:12px 16px;border-bottom:1px solid var(--bdr);background:var(--card)}
@@ -128,8 +128,8 @@ textarea.inp{resize:vertical;min-height:80px}
 .dg-size{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--txt3);white-space:nowrap}
 .dg-size-sel{padding:6px 24px 6px 10px;border:1px solid var(--bdr-s);border-radius:var(--r);background:var(--card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpolyline points='6,9 12,15 18,9'/%3E%3C/svg%3E") no-repeat right 8px center;font-family:var(--font);font-size:12px;color:var(--txt);appearance:none;cursor:pointer}
 .dg-sortable{cursor:pointer;user-select:none}
-.dg-sortable:hover{color:var(--txt)}
-.dg-arrow{display:inline-block;margin-left:5px;font-size:9px;color:var(--acc-h)}
+.dg-sortable:hover{color:var(--acc)}
+.dg-arrow{display:inline-block;margin-left:5px;font-size:9px;color:var(--acc)}
 .dg-footer{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:11px 16px;border-top:1px solid var(--bdr);background:var(--bg);font-size:12px;color:var(--txt3)}
 .dg-pager{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
 .dg-page-btn{min-width:30px;height:30px;padding:0 8px;border:1px solid var(--bdr-s);border-radius:var(--r);background:var(--card);color:var(--txt2);font-family:var(--font);font-size:12px;cursor:pointer;transition:background var(--tr),border-color var(--tr)}
@@ -185,7 +185,7 @@ textarea.inp{resize:vertical;min-height:80px}
 .step-role{font-size:11px;color:var(--txt3)}
 .step-cmt{font-size:11px;color:var(--txt2);font-style:italic;margin-top:2px}
 .pbar{height:5px;background:var(--bg);border-radius:3px;overflow:hidden;margin-top:3px}
-.pbar-fill{height:100%;border-radius:3px;background:var(--in);transition:width .4s}
+.pbar-fill{height:100%;border-radius:3px;background:var(--pri);transition:width .4s}
 .pager{display:flex;align-items:center;gap:4px}
 .pb{display:flex;align-items:center;justify-content:center;min-width:32px;height:32px;padding:0 8px;border:1px solid var(--bdr);border-radius:var(--r);background:var(--card);color:var(--txt2);font-size:12px;text-decoration:none;cursor:pointer}
 .pb:hover{background:var(--bg);text-decoration:none}
@@ -347,4 +347,131 @@ body{overflow-x:hidden}
 
   /* Grid/flex children need min-width:0 or their content refuses to shrink. */
   .card,.card-body,.tbl-wrap{min-width:0}
+}
+
+/* ── Submit guard overlay (submit-guard.js) ───────────────────────────────── */
+.sg-overlay{position:fixed;inset:0;z-index:9999;display:none;align-items:center;justify-content:center;background:rgba(15,23,42,.55);backdrop-filter:blur(2px)}
+.sg-overlay.show{display:flex}
+.sg-panel{background:var(--card);border:1px solid var(--bdr);border-radius:var(--rl);box-shadow:var(--shm);padding:22px 24px;width:min(420px,calc(100vw - 40px));text-align:center}
+.sg-title{font-size:15px;font-weight:700;color:var(--txt);margin-bottom:14px}
+.sg-bar{height:6px;background:var(--bdr);border-radius:3px;overflow:hidden}
+.sg-fill{height:100%;width:0;background:var(--acc);border-radius:3px;transition:width 400ms ease}
+.sg-msg{font-size:12px;color:var(--txt2);margin-top:10px;min-height:18px}
+.sg-slow{font-size:12px;font-weight:600;color:var(--wa);background:var(--wa-bg);border:1px solid var(--wa-bdr);border-radius:var(--r);padding:8px 10px;margin-top:12px;line-height:1.45}
+
+/* ── DWO module ───────────────────────────────────────────────
+   Additive only. Nothing above this line is modified; every class here is prefixed
+   .dwo-* or belongs to the shared modal shell, which no existing page uses. */
+.modal-bg{position:fixed;inset:0;background:rgba(15,23,42,.55);display:none;align-items:flex-start;justify-content:center;z-index:120;padding:32px 16px;overflow-y:auto}
+.modal-bg.open{display:flex}
+.modal{background:var(--card);width:100%;max-width:680px;border-radius:var(--rl);box-shadow:0 20px 45px rgba(0,0,0,.22);border-top:3px solid var(--acc);margin:auto}
+.modal.lg{max-width:940px}
+.modal-hdr{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:16px 20px 12px;border-bottom:1px solid var(--bdr)}
+.modal-title{font-size:16px;font-weight:700;line-height:1.35}
+.modal-sub{font-size:12px;color:var(--txt3);margin-top:2px}
+.modal-x{background:none;border:none;font-size:22px;line-height:1;color:var(--txt3);cursor:pointer;padding:0 2px}
+.modal-x:hover{color:var(--txt)}
+.modal-body{padding:16px 20px}
+.modal-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;padding:12px 20px 16px;border-top:1px solid var(--bdr)}
+.modal-loading{padding:48px;text-align:center;color:var(--txt3);font-size:13px}
+
+/* ── Multi-select filter dropdown (DWO grids): a .f-ctrl-styled button that opens a
+   checkbox panel. The checkboxes carry the form field name, so a plain GET submit posts
+   every ticked value as a repeated query parameter. ── */
+.msf{position:relative}
+.msf-btn{display:flex;align-items:center;justify-content:space-between;gap:6px;width:100%;text-align:left;cursor:pointer}
+.msf-btn .msf-n{display:none;min-width:18px;padding:0 5px;border-radius:9px;background:var(--pri);color:#fff;font-size:10px;font-weight:700;line-height:18px;text-align:center}
+.msf-btn.has .msf-n{display:inline-block}
+.msf-panel{position:absolute;z-index:30;top:calc(100% + 4px);left:0;min-width:200px;max-height:260px;overflow:auto;background:var(--card);border:1px solid var(--bdr);border-radius:var(--r);box-shadow:0 8px 24px rgba(15,23,42,.12);padding:6px}
+.msf-panel label{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:var(--r);font-size:12px;cursor:pointer;white-space:nowrap}
+.msf-panel label:hover{background:var(--bg)}
+.msf-actions{display:flex;justify-content:flex-end;gap:6px;padding:6px 4px 2px;border-top:1px solid var(--bdr);margin-top:4px}
+
+.dwo-chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+.dwo-chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:500;padding:6px 12px;border-radius:20px;border:1px solid var(--bdr);background:var(--card);color:var(--txt2);cursor:pointer;transition:var(--tr)}
+.dwo-chip:hover{background:var(--bg);text-decoration:none}
+.dwo-chip.active{background:var(--pri);border-color:var(--pri);color:#fff}
+.dwo-chip .n{font-weight:700}
+.dwo-chip.active .n{color:#fff}
+
+.dwo-kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:16px}
+@media(max-width:1100px){.dwo-kpis{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:640px){.dwo-kpis{grid-template-columns:repeat(2,1fr)}}
+
+.dwo-cols{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
+@media(max-width:980px){.dwo-cols{grid-template-columns:1fr}}
+.dwo-charts{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;align-items:start}
+@media(max-width:980px){.dwo-charts{grid-template-columns:1fr}}
+
+.dwo-mini{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--bdr);font-size:12.5px}
+.dwo-mini:last-child{border-bottom:none}
+.dwo-mini a{font-weight:600;color:var(--txt)}
+.dwo-mini-meta{color:var(--txt3);font-size:11px;white-space:nowrap}
+.dwo-empty{color:var(--txt3);font-size:12px;text-align:center;padding:22px 8px}
+
+.dwo-linkrow{display:flex;gap:8px;margin-bottom:8px}
+.dwo-linkrow .inp{flex:1}
+.dwo-filebadge{display:inline-flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--bdr);border-radius:var(--r);padding:5px 10px;font-size:12px;margin:0 6px 6px 0}
+.dwo-selbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;background:var(--wa-bg);border:1px solid var(--wa-bdr);border-radius:var(--r);padding:10px 14px;margin-bottom:12px;font-size:12.5px}
+
+/* Printing a DWO modal: drop the chrome and the page behind it so the output is just the
+   open discussion. Scoped to .dwo-modal-open, which only the DWO modal shell ever sets. */
+@media print{
+  body.dwo-modal-open .sidebar,
+  body.dwo-modal-open .main{display:none!important}
+  body.dwo-modal-open .modal-bg.open{position:static;display:block;padding:0;background:none;overflow:visible}
+  body.dwo-modal-open .modal{max-width:none;box-shadow:none;border-top:none;margin:0}
+  body.dwo-modal-open .modal-actions,
+  body.dwo-modal-open .modal-x,
+  body.dwo-modal-open .tabs{display:none!important}
+  /* Print every tab, not just the visible one. */
+  body.dwo-modal-open [data-dwo-tab]{display:block!important}
+  body.dwo-modal-open [data-dwo-pane]{display:none!important}
+}
+
+/* ── Collapsible sidebar groups ───────────────────────────────
+   Each nav section is a native <details>, so it collapses with no JavaScript. .sb-sec
+   keeps its existing typography and colour — these rules only turn it into a summary row
+   with a chevron, and add the open/closed animation. */
+.sb-group{margin-top:8px}
+.sb-nav > .sb-group:first-of-type{margin-top:0}
+.sb-group > summary.sb-sec{display:flex;align-items:center;justify-content:space-between;gap:8px;
+  cursor:pointer;user-select:none;list-style:none;border-radius:var(--r);margin:0 8px;
+  padding:10px 10px 8px;transition:background var(--tr),color var(--tr)}
+.sb-group > summary.sb-sec::-webkit-details-marker{display:none}
+.sb-group > summary.sb-sec:hover{background:rgba(255,255,255,.06);color:rgba(255,255,255,.55)}
+.sb-group > summary.sb-sec:focus-visible{outline:2px solid rgba(255,255,255,.45);outline-offset:-2px}
+.sb-group .sb-chev{width:13px;height:13px;stroke:currentColor;fill:none;flex-shrink:0;
+  transform:rotate(-90deg);transition:transform var(--tr)}
+.sb-group[open] .sb-chev{transform:rotate(0deg)}
+/* A collapsed group holding the active page keeps a hint that something is in there. */
+
+/* ── Sidebar: nested parent menu (Requests → New Request / Register / Aging) ───
+   A <details> inside a group. Its summary is styled as a normal parent menu item so the
+   hierarchy reads at a glance, and its children step down to 16px/600. */
+.sb-sub{margin:0}
+.sb-sub > summary.nav-link{list-style:none}
+.sb-sub > summary.nav-link::-webkit-details-marker{display:none}
+.sb-sub > summary.nav-link .sb-chev{margin-left:auto;width:13px;height:13px;
+  transform:rotate(-90deg);transition:transform var(--tr)}
+.sb-sub[open] > summary.nav-link .sb-chev{transform:rotate(0deg)}
+/* Child menu items: indented under the parent, lighter weight and colour. */
+.nav-child{font-size:13px;font-weight:500;color:var(--sb-child);padding-left:38px}
+.nav-child svg{width:14px;height:14px}
+.nav-child.active{color:#fff;font-weight:800}
+
+/* ── Printing a page ──────────────────────────────────────────
+   Drops the app chrome so a printed screen is just its content. Applies to any page
+   (the Discussion Details Print button is the first user); the modal rules above still
+   take over when a popup is open. */
+@media print{
+  body:not(.dwo-modal-open) .sidebar,
+  body:not(.dwo-modal-open) .topbar,
+  body:not(.dwo-modal-open) .pg-actions,
+  body:not(.dwo-modal-open) .filter-bar,
+  body:not(.dwo-modal-open) .dwo-chips,
+  body:not(.dwo-modal-open) [data-dwo-pane]{display:none!important}
+  body:not(.dwo-modal-open) .main{margin-left:0!important}
+  body:not(.dwo-modal-open) .page-body{padding:0!important}
+  .card{break-inside:avoid}
 }

@@ -510,11 +510,19 @@ public class WhatsAppService : IWhatsAppService
         var priority = FormatPriority(r.Priority);
         var raisedBy = $"{r.Requestor.FullName} ({r.Department.DeptName}) {FormatDateTime(r.SubmittedAt ?? r.CreatedAt)}";
 
-        // Latest action = the most recent action-log entry (this alert only fires on approve).
+        // Latest action = the most recent action-log entry. Observer-role alerts only fire on
+        // approve; "Notification To" recipients also receive this card for Reject and
+        // Clarification, so the verb follows the logged action (approve text is unchanged).
         var lastLog = r.ActionLogs?.OrderByDescending(l => l.CreatedAt).FirstOrDefault();
         var actor = lastLog?.ActorUser?.FullName ?? "Approver";
         var actionDate = FormatDateTime(lastLog?.CreatedAt ?? DateTimeOffset.UtcNow);
-        var latestAction = $"Approved by {actor} | {actionDate}";
+        var verb = lastLog?.Action switch
+        {
+            "rejected" => "Rejected by",
+            "clarification" => "Clarification requested by",
+            _ => "Approved by"
+        };
+        var latestAction = $"{verb} {actor} | {actionDate}";
         var remarks = string.IsNullOrWhiteSpace(lastLog?.Comment) ? "No remarks" : lastLog!.Comment;
 
         await SendTemplateAsync(phone, "notification_alert", new[]

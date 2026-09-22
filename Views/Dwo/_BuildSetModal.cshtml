@@ -1,0 +1,96 @@
+@model DwoActor
+@{
+    // The HOD's route to Management: bundle the ticked Submitted points with a supporting
+    // pack and a requested appointment date. Every point moves to Management Discussion
+    // together, under one DWO number. "Save as Draft" keeps the bundle on the HOD side
+    // instead — the pack and the date can be added later from the Set screen — and the
+    // ticked points can also join a Draft Set of the same department that already exists.
+    var points = ViewBag.Points as List<DwoPointRowVM> ?? new List<DwoPointRowVM>();
+    var drafts = ViewBag.DraftSets as List<DwoSetRowVM> ?? new List<DwoSetRowVM>();
+    var todayStr = DateOnly.FromDateTime(IstClock.Now.DateTime).ToString("yyyy-MM-dd");
+}
+
+<form asp-action="SubmitSet" method="post" enctype="multipart/form-data" id="dwoBuildSetForm">
+  @Html.AntiForgeryToken()
+  <input type="hidden" name="returnUrl" value=""/>
+  @* Set by the two submit buttons before the post (the modal's submit guard disables the
+     buttons, so their own name/value cannot be relied on). *@
+  <input type="hidden" name="saveAction" id="dwoSetSaveAction" value="submit"/>
+
+  <div class="modal-hdr">
+    <div>
+      <div class="modal-title">Build Set</div>
+      <div class="modal-sub">@points.Count discussion(s) · by @Model.UserName</div>
+    </div>
+    <button type="button" class="modal-x" onclick="dwoCloseModal()">&times;</button>
+  </div>
+
+  <div class="modal-body">
+    <div class="tbl-wrap" style="max-height:220px;overflow-y:auto;margin-bottom:14px">
+      <table class="tbl">
+        <thead><tr><th>DWO No</th><th>Title</th><th>Task ID</th><th>Priority</th></tr></thead>
+        <tbody>
+          @foreach (var p in points)
+          {
+            <tr>
+              <td><span class="mono" style="font-size:11px">@p.PointNumber</span></td>
+              <td style="font-weight:600">@p.Title</td>
+              <td style="font-size:12px;color:var(--txt2)">@(string.IsNullOrEmpty(p.TaskId) ? "—" : p.TaskId)</td>
+              <td><span class="badge @DwoPriority.Badge(p.Priority)">@p.Priority</span></td>
+            </tr>
+            <input type="hidden" name="PointIds" value="@p.PointId"/>
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <div class="form-grid fg2">
+      <div class="form-group full">
+        <label class="lbl">Set title</label>
+        <input type="text" name="Title" class="inp" maxlength="200" placeholder="Optional working title for this Set"/>
+      </div>
+      @if (drafts.Any() && Model.CanEditSets)
+      {
+        <div class="form-group full">
+          <label class="lbl">Add to</label>
+          <select name="DraftSetId" class="inp">
+            <option value="0">A new Set</option>
+            @foreach (var d in drafts)
+            {
+              <option value="@d.SetId">Draft @d.SetNumber · @d.PointCount discussion(s) · saved @d.SubmittedAt.ToString("dd MMM yyyy")</option>
+            }
+          </select>
+          <div class="hint">Join an existing Draft Set of this department, or start a new one.</div>
+        </div>
+      }
+      <div class="form-group full">
+        <label class="lbl">Supporting documents <span class="req">*</span></label>
+        <input type="file" name="SupportingFiles" class="inp" multiple/>
+        <div class="hint">At least one file is required to submit — the pack management reads before the appointment. Optional for a Draft.</div>
+      </div>
+      <div class="form-group full">
+        <label class="lbl">Summary document</label>
+        <input type="file" name="SummaryFile" class="inp"/>
+        <div class="hint">Optional single file summarising the whole Set.</div>
+      </div>
+      <div class="form-group">
+        @* Also enforced server-side; the browser minimum is only a convenience. *@
+        <label class="lbl">Requested appointment date <span class="req">*</span></label>
+        <input type="date" name="RequestedAppointmentDate" class="inp" min="@todayStr"/>
+      </div>
+      <div class="form-group full">
+        <label class="lbl">Notes for management</label>
+        <textarea name="AppointmentNotes" class="inp" rows="2" placeholder="Anything management should know before the appointment"></textarea>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-actions">
+    <button type="button" class="btn btn-sec" onclick="dwoCloseModal()">Cancel</button>
+    @if (Model.CanEditSets)
+    {
+      <button type="submit" class="btn btn-sec" onclick="document.getElementById('dwoSetSaveAction').value='draft'">Save as Draft</button>
+    }
+    <button type="submit" class="btn btn-acc" onclick="document.getElementById('dwoSetSaveAction').value='submit'">Submit Set to Management</button>
+  </div>
+</form>

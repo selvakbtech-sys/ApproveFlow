@@ -1,0 +1,8 @@
+@model DwoHodActionPanelVM
+@* The form element behind _HodActionPanel. Rendered once per page, OUTSIDE any other
+   form; the panel's fields and buttons reference it by id (form="dwoHodActionForm"). *@
+<form id="dwoHodActionForm" asp-controller="Dwo" asp-action="Review" method="post" enctype="multipart/form-data" style="display:none">
+  @Html.AntiForgeryToken()
+  <input type="hidden" name="id" value="@Model.PointId"/>
+  <input type="hidden" name="returnUrl" value="@Model.ReturnUrl"/>
+</form>

@@ -1,4 +1,4 @@
-namespace ApproveFlow.MVC.Controllers;
+﻿namespace ApproveFlow.MVC.Controllers;
 
 public class RequestsController : BaseCtrl
 {
@@ -54,11 +54,10 @@ public class RequestsController : BaseCtrl
     {
         if (DenyIfNoPerm("Requests") is { } r1) return r1;
         ViewBag.UserRole = UserRole;
-        // Show the Delete button on exactly the rights the Delete action enforces
-        // (DenyIfNoPerm("Requests", Perm.Delete)). It used to add an "Admin" short-circuit and
-        // read the DB separately; with the matrix now binding for every role that would offer
-        // an Admin a button their own Delete request is refused.
-        ViewBag.CanDelete = HasPerm("Requests", Perm.Delete);
+        ViewBag.CanDelete = UserRole == "Admin" ||
+            await _db.Users.Where(u => u.UserId == UserId)
+                .Select(u => u.Role.Permissions.Any(p => p.ScreenName == "Requests" && p.CanDelete))
+                .FirstOrDefaultAsync();
         int? scopeUser = ScopeUserId(filter.FilterMine);
         return View(await _svc.GetListAsync(filter, page, NormalizePageSize(pageSize), scopeUser, UserId));
     }
@@ -115,11 +114,14 @@ public class RequestsController : BaseCtrl
         // Null for the desktop flow, so every existing link on this page renders unchanged.
         ViewBag.Source = SourceTag(source);
         ViewBag.UserRole = UserRole;
-        // Show the Delete button on exactly the rights the Delete action enforces
-        // (DenyIfNoPerm("Requests", Perm.Delete)). It used to add an "Admin" short-circuit and
-        // read the DB separately; with the matrix now binding for every role that would offer
-        // an Admin a button their own Delete request is refused.
-        ViewBag.CanDelete = HasPerm("Requests", Perm.Delete);
+        ViewBag.CanDelete = UserRole == "Admin" ||
+            await _db.Users.Where(u => u.UserId == UserId)
+                .Select(u => u.Role.Permissions.Any(p => p.ScreenName == "Requests" && p.CanDelete))
+                .FirstOrDefaultAsync();
+        // "Notification To" picker (approval panel only): id + name of active users.
+        ViewBag.NotificationUsers = vm.CanAct
+            ? await _svc.GetNotificationUserOptionsAsync(UserId)
+            : new List<(int UserId, string FullName)>();
         return View(vm);
     }
 
@@ -312,7 +314,7 @@ public class RequestsController : BaseCtrl
     }
 
     [HttpPost, ValidateAntiForgeryToken]
-    public async Task<IActionResult> Action(int id, string action, string? comment, IFormFile? approvalFile, string? source = null)
+    public async Task<IActionResult> Action(int id, string action, string? comment, IFormFile? approvalFile, string? source = null, List<int>? notificationUserIds = null)
     {
         // Approve / Reject / Clarification are approval actions.
         if (DenyIfNoPerm("Requests", Perm.Approve) is { } rp) return rp;
@@ -333,7 +335,8 @@ public class RequestsController : BaseCtrl
             }
         }
         var maxFileMb = int.Parse(_cfg["AppSettings:MaxFileUploadMB"] ?? "20");
-        var (ok, err) = await _svc.ProcessActionAsync(id, UserId, action, comment, approvalFile, GetStoragePath(), maxFileMb);
+        // notificationUserIds = optional "Notification To" recipients; validated in the service.
+        var (ok, err) = await _svc.ProcessActionAsync(id, UserId, action, comment, approvalFile, GetStoragePath(), maxFileMb, notificationUserIds);
         if (ok) Ok($"Action '{action}' recorded."); else Err(err!);
         // The action failed → the request still needs attention, so stay on it. Succeeded →
         // mobile returns to the pending list (the item has left it); desktop stays put as before.
@@ -593,45 +596,59 @@ public class RequestsController : BaseCtrl
         if (!allItems.Any())
             return Json(new { error = "No records found for the selected date range." });
 
-        var sb = new System.Text.StringBuilder();
-        sb.Append('﻿');
+        // Approver remarks (every level's comment, in step order) — one lookup for the sheet.
+        var approverRemarks = await _svc.GetApproverRemarksAsync(allItems.Select(r => r.RequestId));
 
-        // Multi-line free text (Description / Additional Notes) is flattened to a single
-        // line and its quotes doubled, so one request always stays on one CSV row.
-        static string CsvText(string? s) =>
-            string.IsNullOrEmpty(s) ? "" :
-            s.Replace("\"", "\"\"").Replace("\r\n", " ").Replace('\r', ' ').Replace('\n', ' ');
-
-        sb.AppendLine("Request #,Title,Description,Additional Notes,Requestor,Type,Priority,Amount,Status,Department,Location,Created Date,Submitted Date,Revoked By,Revoked Date,Revoke Remark");
-
-        foreach (var r in allItems)
+        // A real .xlsx (see XlsxWriter): styled frozen header, fixed widths, numbers and dates
+        // typed so Excel shows them properly, long text wrapped.
+        var columns = new List<XlsxColumn>
         {
-            sb.AppendLine(
-                $"\"{r.DisplayRequestNumber}\"," +
-                $"\"{r.Title?.Replace("\"", "\"\"")}\"," +
-                $"\"{CsvText(r.Description)}\"," +
-                $"\"{CsvText(r.Notes)}\"," +
-                $"\"{r.RequestorName}\"," +
-                $"\"{r.RequestTypeName}\"," +
-                $"\"{r.Priority}\"," +
-                $"\"{(r.Amount.HasValue ? r.Amount.Value.ToString("N2") : "")}\"," +
-                $"\"{(r.Status == "Open" ? "Pending Approval" : r.Status)}\"," +
-                $"\"{r.DeptName}\"," +
-                $"\"{r.LocationName}\"," +
-                $"\"{r.CreatedAt:dd-MMM-yyyy}\"," +
-                $"\"{(r.UpdatedAt != default ? r.UpdatedAt.ToString("dd-MMM-yyyy") : "")}\"," +
-                $"\"{r.RevokedByName}\"," +
-                $"\"{(r.RevokedDate.HasValue ? r.RevokedDate.Value.ToString("dd-MMM-yyyy") : "")}\"," +
-                $"\"{r.RevokedRemark?.Replace("\"", "\"\"")}\"");
-        }
+            new("Request #",        16),
+            new("Title",            32, Wrap: true),
+            new("Description",      45, Wrap: true),
+            new("Additional Notes", 30, Wrap: true),
+            new("Requestor",        18),
+            new("Type",             18),
+            new("Priority",         10),
+            new("Amount",           14, XlsxKind.Number),
+            new("Status",           18),
+            new("Department",       18),
+            new("Location",         12),
+            new("Created Date",     13, XlsxKind.Date),
+            new("Submitted Date",   14, XlsxKind.Date),
+            new("Approver Remarks", 60, Wrap: true),
+            new("Revoked By",       16),
+            new("Revoked Date",     13, XlsxKind.Date),
+            new("Revoke Remark",    30, Wrap: true),
+        };
+        var rows = allItems.Select(r => new object?[]
+        {
+            r.DisplayRequestNumber,
+            r.Title,
+            r.Description,
+            r.Notes,
+            r.RequestorName,
+            r.RequestTypeName,
+            r.Priority,
+            r.Amount,
+            r.Status == "Open" ? "Pending Approval" : r.Status,
+            r.DeptName,
+            r.LocationName,
+            r.CreatedAt,
+            r.UpdatedAt != default ? r.UpdatedAt : null,
+            approverRemarks.GetValueOrDefault(r.RequestId),
+            r.RevokedByName,
+            r.RevokedDate,
+            r.RevokedRemark,
+        });
+        var bytes = XlsxWriter.Build("Requests", columns, rows);
 
-        var bytes = System.Text.Encoding.UTF8.GetBytes(sb.ToString());
         // Keep the original "from_to" filename when a date range is in effect; otherwise fall
-        // back to a date-stamped name so the download is never called "Requests__to_.csv".
+        // back to a date-stamped name so the download is never called "Requests__to_.xlsx".
         var fileName =
             (!string.IsNullOrWhiteSpace(filter.FilterDateFrom) && !string.IsNullOrWhiteSpace(filter.FilterDateTo))
-                ? $"Requests_{filter.FilterDateFrom}_to_{filter.FilterDateTo}.csv"
-                : $"Requests_{IstClock.Now:yyyy-MM-dd}.csv";
-        return File(bytes, "text/csv", fileName);
+                ? $"Requests_{filter.FilterDateFrom}_to_{filter.FilterDateTo}.xlsx"
+                : $"Requests_{IstClock.Now:yyyy-MM-dd}.xlsx";
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
     }
 }

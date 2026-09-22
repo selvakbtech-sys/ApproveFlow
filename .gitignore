@@ -18,3 +18,4 @@ wwwroot/videos/
 *.publishsettings
 # Claude Code local settings (machine-specific; may contain credentials)
 .claude/settings.local.json
+.claude/scheduled_tasks.lock

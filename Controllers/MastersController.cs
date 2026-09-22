@@ -11,6 +11,7 @@ public class MastersController : BaseCtrl
         "locations"    => "Locations",
         "departments"  => "Departments",
         "requesttypes" => "Request Types",
+        "companies"    => DwoScreens.Companies,
         _              => null
     };
 
@@ -32,6 +33,7 @@ public class MastersController : BaseCtrl
             "locations" => View("LocationList", await _db.Locations.OrderBy(l => l.Code).ToListAsync()),
             "departments" => View("DepartmentList", await _db.Departments.OrderBy(d => d.Code).ToListAsync()),
             "requesttypes" => View("RequestTypeList", await _db.RequestTypes.OrderBy(t => t.Code).ToListAsync()),
+            "companies" => View("CompanyList", await _db.Companies.OrderBy(c => c.Code).ToListAsync()),
             _ => NotFound()
         };
     }
@@ -70,6 +72,8 @@ public class MastersController : BaseCtrl
                 case "departments":
                     newDept = new Department { Code = vm.Code.ToUpper(), DeptName = vm.Name, Description = vm.Description, IsActive = vm.IsActive };
                     _db.Departments.Add(newDept); break;
+                case "companies":
+                    _db.Companies.Add(new Company { Code = vm.Code.ToUpper(), CompanyName = vm.Name, Description = vm.Description, IsActive = vm.IsActive }); break;
                 default:
                     _db.RequestTypes.Add(new RequestType { Code = vm.Code.ToUpper(), TypeName = vm.Name, Description = vm.Description, IsActive = vm.IsActive }); break;
             }
@@ -83,6 +87,9 @@ public class MastersController : BaseCtrl
                     break;
                 case "departments":
                     var d = await _db.Departments.FindAsync(vm.Id); if (d != null) { d.Code = vm.Code.ToUpper(); d.DeptName = vm.Name; d.Description = vm.Description; d.IsActive = vm.IsActive; }
+                    break;
+                case "companies":
+                    var co = await _db.Companies.FindAsync(vm.Id); if (co != null) { co.Code = vm.Code.ToUpper(); co.CompanyName = vm.Name; co.Description = vm.Description; co.IsActive = vm.IsActive; }
                     break;
                 default:
                     var t = await _db.RequestTypes.FindAsync(vm.Id); if (t != null) { t.Code = vm.Code.ToUpper(); t.TypeName = vm.Name; t.Description = vm.Description; t.IsActive = vm.IsActive; }
@@ -187,6 +194,13 @@ public class MastersController : BaseCtrl
                     if (t == null) { Err("Not found."); break; }
                     _db.RequestTypes.Remove(t); await _db.SaveChangesAsync(); Ok("Deleted.");
                     break;
+                case "companies":
+                    if (await _db.DwoPoints.AnyAsync(p => p.CompanyId == id))
+                    { Err("Cannot delete: this company is in use. Deactivate it instead."); break; }
+                    var co = await _db.Companies.FindAsync(id);
+                    if (co == null) { Err("Not found."); break; }
+                    _db.Companies.Remove(co); await _db.SaveChangesAsync(); Ok("Deleted.");
+                    break;
                 default:
                     return NotFound();
             }
@@ -205,6 +219,8 @@ public class MastersController : BaseCtrl
                 var l = await _db.Locations.FindAsync(id); if (l != null) l.IsActive = !l.IsActive; break;
             case "departments":
                 var d = await _db.Departments.FindAsync(id); if (d != null) d.IsActive = !d.IsActive; break;
+            case "companies":
+                var co = await _db.Companies.FindAsync(id); if (co != null) co.IsActive = !co.IsActive; break;
             default:
                 var t = await _db.RequestTypes.FindAsync(id); if (t != null) t.IsActive = !t.IsActive; break;
         }
@@ -220,6 +236,8 @@ public class MastersController : BaseCtrl
             .Select(d => new MasterFormVM { Id = d.DepartmentId, Code = d.Code, Name = d.DeptName, Description = d.Description, IsActive = d.IsActive, EntityType = type }).FirstOrDefaultAsync(),
         "requesttypes" => await _db.RequestTypes.Where(t => t.RequestTypeId == id)
             .Select(t => new MasterFormVM { Id = t.RequestTypeId, Code = t.Code, Name = t.TypeName, Description = t.Description, IsActive = t.IsActive, EntityType = type }).FirstOrDefaultAsync(),
+        "companies" => await _db.Companies.Where(c => c.CompanyId == id)
+            .Select(c => new MasterFormVM { Id = c.CompanyId, Code = c.Code, Name = c.CompanyName, Description = c.Description, IsActive = c.IsActive, EntityType = type }).FirstOrDefaultAsync(),
         _ => null
     };
 }

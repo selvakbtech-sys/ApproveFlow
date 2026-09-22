@@ -1,0 +1,309 @@
+﻿@model DwoRegisterVM
+@{
+    // One grid serves three pages — Discussion Register, My Discussions and Management
+    // Discussion. Mode decides the heading, the chip set, the action URL and whether the
+    // HOD Set-builder column appears, so the three can never drift apart.
+    bool isMine = Model.Mode == DwoGridMode.Mine;
+    string action = isMine ? "MyDiscussions" : "Register";
+    ViewData["Title"] = isMine ? "My Discussions" : "Discussion Points";
+    ViewData["NavPage"] = isMine ? "dwomine" : "dworegister";
+
+    var chipStatuses = DwoStatus.All;
+    // The tick column builds a Set: an HOD from their own department's Submitted rows,
+    // Management from any department's (SubmitSetAsync enforces both). Never on My Discussions.
+    bool showPick = (Model.Actor.IsHod || Model.Actor.IsManagement) && !isMine;
+    // Modal posts carry a returnUrl (filled in by dwo-modal.js from the live location), so
+    // every action lands back here with its filters, chip and page number intact. The
+    // full-page Create/Edit screens take the same URL explicitly.
+    var retUrl = $"{Context.Request.Path}{Context.Request.QueryString}";
+
+    Microsoft.AspNetCore.Routing.RouteValueDictionary ExportRoute()
+    {
+        var rv = Model.RouteValues();
+        rv["mode"] = Model.Mode;
+        return rv;
+    }
+}
+
+@* Multi-select filter: a dropdown of checkboxes that all share the field name, so the GET
+   form submits each ticked value as a repeated query parameter (bound to a List<>).
+   Behaviour (open/close, count badge, Clear/Done) is in dwo-filters.js. *@
+@functions {
+    private Microsoft.AspNetCore.Html.IHtmlContent MsFilter(
+        string name, IEnumerable<(string Value, string Label)> options, IEnumerable<string> selected)
+    {
+        var sel = new HashSet<string>(selected);
+        var sb = new System.Text.StringBuilder();
+        var enc = System.Text.Encodings.Web.HtmlEncoder.Default;
+        sb.Append($"<div class=\"msf\" data-msf>");
+        sb.Append($"<button type=\"button\" class=\"f-ctrl msf-btn{(sel.Count > 0 ? " has" : "")}\" style=\"width:100%\"><span>{(sel.Count > 0 ? sel.Count + " selected" : "All")}</span><span class=\"msf-n\">{sel.Count}</span></button>");
+        sb.Append("<div class=\"msf-panel\" hidden>");
+        foreach (var (value, label) in options)
+        {
+            sb.Append($"<label><input type=\"checkbox\" name=\"{enc.Encode(name)}\" value=\"{enc.Encode(value)}\"{(sel.Contains(value) ? " checked" : "")}> {enc.Encode(label)}</label>");
+        }
+        sb.Append("<div class=\"msf-actions\"><button type=\"button\" class=\"btn btn-sec btn-sm\" data-msf-clear>Clear</button><button type=\"button\" class=\"btn btn-pri btn-sm\" data-msf-done>Done</button></div>");
+        sb.Append("</div></div>");
+        return new Microsoft.AspNetCore.Html.HtmlString(sb.ToString());
+    }
+}
+
+<div class="pg-hdr">
+  <div>
+    <div class="pg-title">@ViewData["Title"]</div>
+    <div class="pg-sub">
+      @Model.TotalCount discussion@(Model.TotalCount == 1 ? "" : "s")
+      @if (Model.TotalPages > 1) { <text>· Page @Model.PageNumber of @Model.TotalPages</text> }
+      · @Model.Actor.RoleLabel
+    </div>
+  </div>
+  <div class="pg-actions">
+    @* Chips, Export and the pager all build their links from Model.RouteValues(), so they
+       carry exactly the filters the grid was rendered with. *@
+    <a href="@Url.Action("Export", ExportRoute())"
+       class="btn btn-sec btn-sm" style="display:inline-flex;align-items:center;gap:6px">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="12" y1="11" x2="12" y2="17"/><polyline points="9,14 12,17 15,14"/>
+      </svg>
+      Export Excel
+    </a>
+    @if (Model.Actor.CanCreate)
+    {
+      <a asp-action="Create" asp-route-returnUrl="@retUrl" class="btn btn-acc">
+        <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        New Discussion Point
+      </a>
+    }
+  </div>
+</div>
+
+@* ── Status chips. Counts come from the same filtered query as the grid, minus the status
+     filter itself, so a chip's number always matches what clicking it shows. A chip
+     TOGGLES its status in the selection, so several can be lit at once; "All" clears. ── *@
+<div class="dwo-chips">
+  <a href="@Url.Action(action, Model.RouteValues(status: Array.Empty<string>()))"
+     class="dwo-chip @(Model.FilterStatus.Count == 0 ? "active" : "")">
+    All <span class="n">@Model.StatusCounts.Values.Sum()</span>
+  </a>
+  @foreach (var s in chipStatuses)
+  {
+    <a href="@Url.Action(action, Model.RouteValues(status: Model.ToggledStatus(s)))"
+       class="dwo-chip @(Model.FilterStatus.Contains(s) ? "active" : "")">
+      @s <span class="n">@Model.StatusCounts.GetValueOrDefault(s, 0)</span>
+    </a>
+  }
+</div>
+
+<form method="get" asp-action="@action">
+  <input type="hidden" name="pageSize" value="@Model.PageSize"/>
+  @* Status is chosen by the chips AND the dropdown below; the dropdown's checkboxes carry
+     the field, so nothing hidden is needed for it. *@
+  <div class="filter-bar" style="gap:8px">
+    <div class="f-group" style="flex:1 1 160px;min-width:0">
+      <label class="f-lbl">Search</label>
+      <div class="f-srch-w">
+        <svg class="f-srch-ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" name="SearchTerm" value="@Model.SearchTerm" class="f-ctrl f-srch" style="min-width:0;width:100%" placeholder="Title, DWO no, task…"/>
+      </div>
+    </div>
+    <div class="f-group" style="flex:1 1 110px;min-width:0">
+      <label class="f-lbl">Company</label>
+      @MsFilter("FilterCompanyId", Model.Companies.Select(c => (c.CompanyId.ToString(), c.CompanyName)), Model.FilterCompanyId.Select(x => x.ToString()))
+    </div>
+    <div class="f-group" style="flex:1 1 100px;min-width:0">
+      <label class="f-lbl">Site</label>
+      @MsFilter("FilterLocationId", Model.Locations.Select(l => (l.LocationId.ToString(), l.LocationName)), Model.FilterLocationId.Select(x => x.ToString()))
+    </div>
+    <div class="f-group" style="flex:1 1 110px;min-width:0">
+      <label class="f-lbl">Department</label>
+      @MsFilter("FilterDeptId", Model.Departments.Select(d => (d.DepartmentId.ToString(), d.DeptName)), Model.FilterDeptId.Select(x => x.ToString()))
+    </div>
+    <div class="f-group" style="flex:1 1 110px;min-width:0">
+      <label class="f-lbl">Status</label>
+      @MsFilter("FilterStatus", DwoStatus.All.Select(s => (s, s)), Model.FilterStatus)
+    </div>
+    <div class="f-group" style="flex:1 1 100px;min-width:0">
+      <label class="f-lbl">Category</label>
+      <select name="FilterCategory" class="f-ctrl" style="width:100%">
+        <option value="">All</option>
+        @foreach (var c in Model.Categories)
+        { <option value="@c" selected="@(Model.FilterCategory == c)">@c</option> }
+      </select>
+    </div>
+    <div class="f-group" style="flex:1 1 90px;min-width:0">
+      <label class="f-lbl">Priority</label>
+      <select name="FilterPriority" class="f-ctrl" style="width:100%">
+        <option value="">All</option>
+        @foreach (var p in DwoPriority.All)
+        { <option value="@p" selected="@(Model.FilterPriority == p)">@p</option> }
+      </select>
+    </div>
+    <div class="f-group" style="flex:1 1 100px;min-width:0">
+      <label class="f-lbl">Task ID</label>
+      <input type="text" name="FilterTaskId" value="@Model.FilterTaskId" class="f-ctrl" style="width:100%" placeholder="Task ref"/>
+    </div>
+    @if (!isMine)
+    {
+      <div class="f-group" style="flex:1 1 120px;min-width:0">
+        <label class="f-lbl">Raised By</label>
+        <select name="FilterRaisedById" class="f-ctrl" style="width:100%">
+          <option value="">All</option>
+          @foreach (var u in Model.Raisers)
+          { <option value="@u.UserId" selected="@(Model.FilterRaisedById == u.UserId)">@u.FullName</option> }
+        </select>
+      </div>
+    }
+    <div class="f-group" style="flex:0 0 130px">
+      <label class="f-lbl">From</label>
+      <input type="date" name="FromDate" value="@Model.FromDate?.ToString("yyyy-MM-dd")" class="f-ctrl" style="width:100%"/>
+    </div>
+    <div class="f-group" style="flex:0 0 130px">
+      <label class="f-lbl">To</label>
+      <input type="date" name="ToDate" value="@Model.ToDate?.ToString("yyyy-MM-dd")" class="f-ctrl" style="width:100%"/>
+    </div>
+    <div class="f-group" style="flex:0 0 auto;display:flex;align-items:flex-end;gap:6px">
+      <button type="submit" class="btn btn-pri btn-sm">Filter</button>
+      <a asp-action="@action" class="btn btn-sec btn-sm">Clear</a>
+    </div>
+  </div>
+</form>
+
+@if (showPick)
+{
+  @* Set builder. Only Submitted rows in the HOD's own department are tickable, which is
+     also the only set of points SubmitSetAsync will accept. *@
+  <div class="dwo-selbar" id="dwoSetBar">
+    <div>
+      <strong id="dwoSetCount">0</strong> discussion(s) selected for a Set.
+      <span style="color:var(--txt2)">Tick Submitted rows (or discussions reassigned to you), then bundle them with supporting documents and a requested management appointment — or save the bundle as a Draft first.</span>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      @if (Model.Actor.CanEditSets)
+      {
+        <button type="button" class="btn btn-sec btn-sm dwo-setact" disabled onclick="dwoOpenDraftPicker()">
+          Add to Draft Set
+        </button>
+      }
+      <button type="button" class="btn btn-acc btn-sm dwo-setact" id="dwoSetBtn" disabled onclick="dwoOpenBuildSet()">
+        Build Set
+      </button>
+    </div>
+  </div>
+}
+
+<div class="card">
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <thead>
+        <tr>
+          @if (showPick) { <th style="width:34px"></th> }
+          <th>DWO No</th>
+          <th>Task ID</th>
+          <th>Title</th>
+          @if (!isMine) { <th>Department</th> }
+          <th>Company</th>
+          <th>Site</th>
+          <th>Priority</th>
+          <th>Status</th>
+          <th>Raised On</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        @if (!Model.Items.Any())
+        {
+          <tr>
+            <td colspan="@(showPick ? 11 : isMine ? 9 : 10)" class="tbl-empty">
+              No discussions match these filters.
+              @if (Model.Actor.CanCreate)
+              {
+                <a asp-action="Create" asp-route-returnUrl="@retUrl" style="margin-left:6px">Raise the first one →</a>
+              }
+            </td>
+          </tr>
+        }
+        @foreach (var r in Model.Items)
+        {
+          <tr style="cursor:pointer" onclick="location.href='@Url.Action("Detail", new { id = r.PointId, returnUrl = retUrl })'">
+            @if (showPick)
+            {
+              <td onclick="event.stopPropagation()">
+                @if (r.IsSelectableForSet)
+                {
+                  <input type="checkbox" class="dwo-setpick" value="@r.PointId" onchange="dwoSyncSetBar()"/>
+                }
+              </td>
+            }
+            <td>
+              <span class="mono" style="font-size:11px">@r.PointNumber</span>
+              @if (!string.IsNullOrEmpty(r.SetNumber))
+              { <div style="font-size:10px;color:var(--txt3)">@r.SetNumber@(r.SetIsDraft ? " (draft)" : "")</div> }
+            </td>
+            <td style="font-size:12px;color:var(--txt2)">@(string.IsNullOrEmpty(r.TaskId) ? "—" : r.TaskId)</td>
+            <td style="font-weight:600;max-width:280px">@r.Title</td>
+            @if (!isMine) { <td style="font-size:12px">@r.DeptName</td> }
+            <td style="font-size:12px">@r.CompanyName</td>
+            <td style="font-size:12px">@r.LocationName</td>
+            <td><span class="badge @DwoPriority.Badge(r.Priority)">@r.Priority</span></td>
+            <td>
+              <span class="badge @DwoStatus.Badge(r.DisplayStatus)">@r.DisplayStatus</span>
+              @if (r.IsFollowUpOverdue)
+              { <span class="badge badge-red" style="margin-left:4px">Overdue</span> }
+            </td>
+            <td style="font-size:11px;color:var(--txt3);white-space:nowrap">@r.CreatedAt.ToString("dd MMM yyyy")</td>
+            @* Row actions — same 30px icon buttons as the Requests grid. Shown only when the
+               viewer holds the right AND the point is in a state that allows it (see
+               DwoService.MarkRowActions); the server re-checks on every action. *@
+            <td onclick="event.stopPropagation()" style="white-space:nowrap">
+              <div style="display:inline-flex;gap:4px;align-items:center">
+                <a asp-action="Detail" asp-route-id="@r.PointId" asp-route-returnUrl="@retUrl"
+                   class="btn btn-sec btn-sm" title="View"
+                   style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:0">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                </a>
+                @if (r.CanEdit)
+                {
+                  <a asp-action="Edit" asp-route-id="@r.PointId" asp-route-returnUrl="@retUrl"
+                     class="btn btn-sec btn-sm" title="Edit"
+                     style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:0">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                  </a>
+                }
+                @if (r.CanWithdraw)
+                {
+                  <form asp-action="Withdraw" method="post" style="display:inline"
+                        onsubmit="return confirm('Withdraw @r.PointNumber? It goes back to Draft.')">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="id" value="@r.PointId"/>
+                    <input type="hidden" name="returnUrl" value="@retUrl"/>
+                    <button type="submit" title="Withdraw"
+                      style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:0;border:1px solid var(--danger,#ef4444);background:transparent;border-radius:6px;cursor:pointer;color:var(--danger,#ef4444)">
+                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+                    </button>
+                  </form>
+                }
+              </div>
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+
+  @if (Model.TotalPages > 1)
+  {
+    <div class="card-footer">
+      <div class="pager">
+        @for (var p = 1; p <= Model.TotalPages; p++)
+        {
+          <a href="@Url.Action(action, Model.RouteValues(page: p))"
+             class="pb @(p == Model.PageNumber ? "active" : "")">@p</a>
+        }
+      </div>
+    </div>
+  }
+</div>
+
+@section Scripts {
+  <script src="~/js/dwo-filters.js" asp-append-version="true"></script>
+}

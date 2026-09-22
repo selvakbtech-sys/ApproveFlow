@@ -1,5 +1,6 @@
 using ApproveFlow.MVC.Data;
 using ApproveFlow.MVC.Services;
+using ApproveFlow.MVC.Models.Dwo;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
@@ -17,10 +18,11 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         o.LoginPath = "/login";
         o.LogoutPath = "/logout";
         o.AccessDeniedPath = "/login";
-        // Idle-session timeout: the cookie is only valid for 5 minutes since the
+        // Idle-session timeout: the cookie is only valid for 15 minutes since the
         // last request. SlidingExpiration renews it on activity, so an expired
         // (idle) session can no longer reach secured pages and is bounced to Login.
-        o.ExpireTimeSpan = TimeSpan.FromMinutes(5);
+        // Keep in step with IDLE_LIMIT in wwwroot/js/idle-timeout.js.
+        o.ExpireTimeSpan = TimeSpan.FromMinutes(15);
         o.SlidingExpiration = true;
         o.Cookie.HttpOnly = true;
         o.Cookie.SameSite = SameSiteMode.Lax;
@@ -87,16 +89,17 @@ builder.Services.AddControllersWithViews()
 
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
-// Common Dashboard — ApproveFlow section. The DWO section is served by
-// IDwoDashboardService, which the DWO module registers; it is resolved optionally so a
-// deployment without that module still starts and still renders ApproveFlow.
-builder.Services.AddScoped<IApproveFlowDashboardService, ApproveFlowDashboardService>();
 builder.Services.AddScoped<IRequestService, RequestService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<INotifService, NotifService>();
 builder.Services.AddScoped<IUserMappingService, UserMappingService>();
 builder.Services.AddScoped<IApplicationUrlService, ApplicationUrlService>();
 builder.Services.AddScoped<IPendingApprovalSummaryService, PendingApprovalSummaryService>();
+// DWO (Discussion Work Order) module — self-contained; nothing above depends on it.
+builder.Services.AddScoped<IDwoService, DwoService>();
+builder.Services.AddScoped<ICommonDashboardService, CommonDashboardService>();
+// DWO module's provider for the Common Dashboard's DWO section (see Models/Dwo/DwoDashboardContracts.cs).
+builder.Services.AddScoped<IDwoDashboardService, DwoDashboardService>();
 
 // WhatsApp integration
 builder.Services.AddHttpClient("WhatsApp")
@@ -161,38 +164,9 @@ app.Use(async (context, next) =>
     await next();
 });
 
-// ── Permission-matrix sanity check (read-only, best effort) ───────────────────
-// The Roles & Permissions matrix now binds for EVERY role — the "Admin" short-circuit that
-// used to make it decorative is gone — so screen access depends entirely on RolePermission
-// rows existing. If a deployment ships this build without first running
-// Scripts/BackfillAdminRolePermissions.sql, administrators can find themselves unable to
-// reach the very page that would grant the rows back. This logs a loud warning at boot when
-// no active role held by an active user can open AND edit that screen. It only reads: it
-// never writes rows and never blocks startup, and a database that is simply unreachable at
-// boot is not treated as a failure.
-try
-{
-    using var scope = app.Services.CreateScope();
-    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    bool reachable = db.Roles.Any(r =>
-        r.IsActive &&
-        r.Users.Any(u => u.Status.ToLower() == "active") &&
-        r.Permissions.Any(p => p.ScreenName == "Roles & Permissions" && p.CanView && p.CanEdit));
-    if (!reachable)
-        Console.Error.WriteLine(
-            "[Permissions] WARNING — no active role with an active user can open and edit " +
-            "Roles & Permissions. Nobody can change permissions through the UI. Run " +
-            "Scripts/BackfillAdminRolePermissions.sql against this database to restore the " +
-            "Admin role's rows.");
-}
-catch (Exception ex)
-{
-    Console.Error.WriteLine($"[Permissions] Startup permission check skipped: {ex.Message}");
-}
-
 app.MapControllerRoute("default", "{controller=CommonDashboard}/{action=Index}/{id?}");
 
-// Redirect root to the Common Dashboard (the landing page after login)
+// Redirect root to the Common Dashboard (landing page after login)
 app.MapGet("/", () => Results.Redirect("/CommonDashboard"));
 
 app.Run();

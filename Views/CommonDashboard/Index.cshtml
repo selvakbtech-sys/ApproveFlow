@@ -1,26 +1,69 @@
-@model CommonDashboardVM
+﻿@model CommonDashboardVM
 @using ApproveFlow.MVC.Models.Dwo
 @{
+    // Chart rows (Status Overview / Monthly Trend / Breakdown) are hidden on request
+    // (2026-09-19): the Common Dashboard shows only the KPI cards for both modules.
+    // Flip to true to bring the charts back — the markup and figures are untouched.
+    bool showCharts = false;
+
     ViewData["Title"] = "Dashboard";
     ViewData["NavPage"] = "home";
-    bool isAdmin = ViewBag.IsAdmin == true;
-
-    string Sc(string s) => s switch {
-        "Approved"=>"badge-green","Rejected"=>"badge-red","Pending Approval"=>"badge-blue","Open"=>"badge-blue",
-        "Partial Approved"=>"badge-sky","Clarification Needed"=>"badge-amber","Draft"=>"badge-gray",
-        "Closed"=>"badge-green","Pending"=>"badge-amber",_=>"badge-gray" };
-    string Ds(string s) => s == "Open" ? "Pending Approval" : s;
 }
 
 @* ── Common Dashboard ────────────────────────────────────────────────────────────
-   ApproveFlow and DWO each get their own KPI row and their own recent-records grid,
-   sharing only the card design. No count, record or link crosses between them. *@
+   Each module gets its own KPI row and its own chart row, sharing only the card design.
+   No count, series or link crosses between sections. Charts are inline SVG / CSS built
+   from the same scoped figures as the KPI cards — no chart library, so the page renders
+   the same on the intranet server as on dev. All styling reuses site.css classes. *@
+
+@functions {
+    // Donut: one <circle> per slice, laid end to end with stroke-dasharray around a
+    // circumference of 100 (r = 15.915) so each slice's dash is simply its percentage.
+    string Donut(IEnumerable<(string Label, int Count, string Color, string? Url)> slices, int total)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.Append("<svg viewBox=\"0 0 42 42\" class=\"cd-donut\" role=\"img\">");
+        sb.Append("<circle cx=\"21\" cy=\"21\" r=\"15.915\" fill=\"none\" stroke=\"var(--bg)\" stroke-width=\"5\"/>");
+        double offset = 25; // start at 12 o'clock
+        if (total > 0)
+        {
+            foreach (var s in slices)
+            {
+                if (s.Count <= 0) continue;
+                double pct = s.Count * 100.0 / total;
+                sb.Append($"<circle cx=\"21\" cy=\"21\" r=\"15.915\" fill=\"none\" stroke=\"{s.Color}\" stroke-width=\"5\" ");
+                sb.Append($"stroke-dasharray=\"{pct:F2} {100 - pct:F2}\" stroke-dashoffset=\"{offset:F2}\"><title>{System.Net.WebUtility.HtmlEncode(s.Label)}: {s.Count}</title></circle>");
+                offset -= pct;
+            }
+        }
+        sb.Append($"<text x=\"21\" y=\"20.2\" class=\"cd-donut-num\">{total}</text>");
+        sb.Append("<text x=\"21\" y=\"25.4\" class=\"cd-donut-lbl\">total</text>");
+        sb.Append("</svg>");
+        return sb.ToString();
+    }
+}
 
 <style>
-  /* Same card metrics for BOTH sections — the rows differ only in their data source. */
-  .cd-kpi-row { display:grid; grid-template-columns:repeat(6,1fr); gap:12px; margin-bottom:18px; }
-  @@media(max-width:1100px) { .cd-kpi-row { grid-template-columns:repeat(3,1fr); } }
-  @@media(max-width:640px)  { .cd-kpi-row { grid-template-columns:repeat(2,1fr); } }
+  .cd-kpi-row { display:grid; grid-template-columns:repeat(6,1fr); gap:12px; margin-bottom:14px; }
+  .cd-kpi-row-5 { grid-template-columns:repeat(5,1fr); }
+  @@media(max-width:1100px) { .cd-kpi-row, .cd-kpi-row-5 { grid-template-columns:repeat(3,1fr); } }
+  @@media(max-width:640px)  { .cd-kpi-row, .cd-kpi-row-5 { grid-template-columns:repeat(2,1fr); } }
+  .cd-kpi-row-8 { grid-template-columns:repeat(8,1fr); }
+  @@media(max-width:1100px) { .cd-kpi-row-8 { grid-template-columns:repeat(4,1fr); } }
+  @@media(max-width:640px)  { .cd-kpi-row-8 { grid-template-columns:repeat(2,1fr); } }
+  /* Tab bar — same look as the Dashboard's My Approvals / My Requests / My Territory tabs. */
+  .dash-tab-bar { display:flex; gap:0; border-bottom:2px solid var(--bg2,#f1f5f9); margin-bottom:18px; }
+  .dash-tab { padding:9px 20px; font-size:13px; font-weight:600; cursor:pointer; border:none; background:none;
+              border-bottom:2px solid transparent; margin-bottom:-2px; color:var(--txt3);
+              transition:color .15s, border-color .15s; display:flex; align-items:center; gap:6px; }
+  .dash-tab:hover { color:var(--txt1); }
+  .dash-tab.active { color:var(--pri,#2563eb); border-bottom-color:var(--pri,#2563eb); }
+  .dash-tab-badge { display:inline-flex; align-items:center; justify-content:center;
+                    background:#ef4444; color:#fff; border-radius:10px; padding:1px 7px;
+                    font-size:10px; font-weight:700; min-width:18px; }
+  .dash-tab-panel { display:none; }
+  .dash-tab-panel.active { display:block; }
+  .cd-row-lbl { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.6px; color:var(--txt3); margin:0 0 8px; }
 
   .cd-sec { margin-bottom:26px; }
   .cd-sec-hdr { display:flex; align-items:center; gap:9px; margin:0 0 12px; }
@@ -29,14 +72,50 @@
   .cd-sec-sub { font-size:11px; color:var(--txt3); }
   .cd-sec-right { margin-left:auto; }
 
-  /* A card with no destination (DWO module not wired in) must not look clickable. */
-  .metric-card.cd-static { cursor:default; }
-  .metric-card.cd-static:hover { transform:none; box-shadow:none; border-color:var(--bdr); }
-  .metric-card.cd-static:hover::after { transform:scaleX(0); }
-  .cd-nodata { font-size:26px; font-weight:800; line-height:1; color:var(--txt3); margin-bottom:5px; }
-
   .cd-note { border:1px dashed var(--bdr); border-radius:var(--rl,10px); padding:14px 16px;
              font-size:12px; color:var(--txt3); background:var(--card); }
+  /* Stands in for a count the DWO module did not supply — never a fabricated 0. */
+  .cd-nodata { font-size:26px; font-weight:800; line-height:1; color:var(--txt3); margin-bottom:5px; }
+
+  /* Chart row: donut | trend | two distributions. Collapses to one column on phones. */
+  .cd-charts { display:grid; grid-template-columns:1.1fr 1.5fr 1.2fr; gap:12px; }
+  @@media(max-width:1100px) { .cd-charts { grid-template-columns:1fr 1fr; } }
+  @@media(max-width:700px)  { .cd-charts { grid-template-columns:1fr; } }
+  .cd-charts .card-body { padding:14px 16px; }
+
+  /* Donut + legend */
+  .cd-donut-wrap { display:flex; align-items:center; gap:14px; }
+  .cd-donut { width:120px; height:120px; flex-shrink:0; transform:rotate(0); }
+  .cd-donut circle { transition:stroke-width .15s; }
+  .cd-donut circle:hover { stroke-width:6.5; }
+  .cd-donut-num { font-size:8px; font-weight:800; text-anchor:middle; fill:var(--txt1); }
+  .cd-donut-lbl { font-size:3.2px; text-anchor:middle; fill:var(--txt3); text-transform:uppercase; letter-spacing:.3px; }
+  .cd-legend { display:flex; flex-direction:column; gap:5px; font-size:12px; min-width:0; flex:1; }
+  .cd-legend a, .cd-legend span.row { display:flex; align-items:center; gap:7px; color:var(--txt2); text-decoration:none; }
+  .cd-legend a:hover { color:var(--txt1); }
+  .cd-legend i { width:9px; height:9px; border-radius:2px; flex-shrink:0; }
+  .cd-legend b { margin-left:auto; color:var(--txt1); font-weight:700; }
+
+  /* Grouped bars: two series per month, drawn to a fixed 120px plot height. */
+  .cd-bars { display:flex; align-items:flex-end; gap:10px; height:140px; padding-top:14px; }
+  .cd-bar-col { flex:1; display:flex; flex-direction:column; align-items:center; gap:4px; min-width:0; height:100%; }
+  .cd-bar-pair { display:flex; align-items:flex-end; gap:3px; flex:1; width:100%; justify-content:center; }
+  .cd-bar { width:38%; max-width:22px; border-radius:4px 4px 0 0; position:relative; min-height:2px; transition:opacity .15s; }
+  .cd-bar:hover { opacity:.8; }
+  .cd-bar em { position:absolute; top:-15px; left:50%; transform:translateX(-50%); font-size:10px; font-style:normal; color:var(--txt2); font-weight:600; }
+  .cd-bar-x { font-size:10.5px; color:var(--txt3); white-space:nowrap; }
+  .cd-series { display:flex; gap:14px; font-size:11px; color:var(--txt3); margin-top:6px; }
+  .cd-series i { display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:5px; vertical-align:-1px; }
+
+  /* Horizontal bars */
+  .cd-hbars { display:flex; flex-direction:column; gap:8px; }
+  .cd-hbar { font-size:12px; }
+  .cd-hbar .t { display:flex; justify-content:space-between; gap:8px; color:var(--txt2); }
+  .cd-hbar .t b { color:var(--txt1); }
+  .cd-hbar .t span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .cd-split { display:grid; grid-template-columns:1fr; gap:14px; }
+  .cd-sub-hdr { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.4px; color:var(--txt3); margin-bottom:8px; }
+  .cd-empty { font-size:12px; color:var(--txt3); padding:18px 0; text-align:center; }
 </style>
 
 <div class="pg-hdr">
@@ -46,10 +125,16 @@
   </div>
 </div>
 
-@* ══════════ SECTION 1 — ApproveFlow (ApproveFlow data only) ══════════ *@
+@* ══════════ ApproveFlow section (ApproveFlow data only) ══════════ *@
 @if (Model.ApproveFlow is { } af)
 {
-  <section class="cd-sec" style="--cd:#2563eb">
+  var afTotal = af.Kpis.Sum(k => k.Count);
+  var afSlices = af.Kpis.Select(k => (k.Label, k.Count, k.Accent, (string?)Url.Action("Index", "Requests", new { FilterStatus = k.FilterStatus })));
+  var afMax = Math.Max(1, af.Trend.Select(t => Math.Max(t.Primary, t.Secondary)).DefaultIfEmpty(0).Max());
+  var afTypeMax = Math.Max(1, af.ByType.Select(s => s.Count).DefaultIfEmpty(0).Max());
+  var afPrioTotal = af.ByPriority.Sum(s => s.Count);
+
+  <section class="cd-sec" id="cd-af" style="--cd:#2563eb">
     <div class="cd-sec-hdr">
       <span class="cd-sec-bar"></span>
       <div>
@@ -57,66 +142,258 @@
         <div class="cd-sec-sub">@(af.IsGlobalScope ? "All approval requests" : "Your approval requests")</div>
       </div>
       <div class="cd-sec-right">
-        <a asp-controller="Requests" asp-action="Index" asp-route-dtab="home" class="btn btn-ghost btn-sm">Open ApproveFlow →</a>
+        <a asp-controller="Requests" asp-action="Index" class="btn btn-ghost btn-sm">Open ApproveFlow →</a>
       </div>
     </div>
 
-    <div class="cd-kpi-row">
-      @foreach (var k in af.Kpis)
+    @* ── My Approvals / My Requests / My Territory ──────────────────────────────
+       The same three KPI tab rows as the Dashboard (Views/Dashboard/_ApprovalsTab,
+       _RequestsTab, _TerritoryTab), with the same cards, colours and links. Every count is
+       produced by the same IDashboardService call that feeds the Dashboard tab of the same
+       name, and every card opens the grid with the SAME status token the count was made
+       with, so card, Dashboard and grid always agree. Territory is hidden for View Only. *@
+    <div class="dash-tab-bar">
+      <button type="button" class="dash-tab" id="cd-tab-btn-approvals" onclick="cdSwitchTab('approvals')">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="#d97706" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22,4 12,14.01 9,11.01"/>
+        </svg>
+        My Approvals
+        @if (af.MyApprovals is { PendingMyAction: > 0 } pa) { <span class="dash-tab-badge">@pa.PendingMyAction</span> }
+      </button>
+      <button type="button" class="dash-tab" id="cd-tab-btn-requests" onclick="cdSwitchTab('requests')">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="#071B46" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/>
+          <line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10,9 9,9 8,9"/>
+        </svg>
+        My Requests
+      </button>
+      @if (af.MyTerritory is not null)
       {
-        @* FilterStatus is the SAME value the count was made with, so the grid total matches. *@
-        <a asp-controller="Requests" asp-action="Index"
-           asp-route-FilterStatus="@k.FilterStatus" asp-route-dtab="home"
-           class="metric-card" style="--mc:@k.Accent">
-          <div class="metric-num">@k.Count</div>
-          <div class="metric-lbl">@k.Label</div>
-        </a>
+        <button type="button" class="dash-tab" id="cd-tab-btn-territory" onclick="cdSwitchTab('territory')">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="#16a34a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/>
+          </svg>
+          My Territory
+        </button>
       }
     </div>
 
-    <div class="card">
-      <div class="card-hdr">
-        <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-        ApproveFlow Recent Requests
-        <div class="card-hdr-right">
-          <a asp-controller="Requests" asp-action="Index" asp-route-dtab="home" class="btn btn-ghost btn-sm">View all →</a>
+    @* My Approvals — requests assigned to me as approver (Dashboard _ApprovalsTab cards). *@
+    <div class="dash-tab-panel" id="cd-tab-approvals">
+      @if (af.MyApprovals is { } ma)
+      {
+        <div class="cd-kpi-row cd-kpi-row-5">
+          <a asp-controller="Requests" asp-action="Approval" class="metric-card" style="--mc:#0f172a">
+            <div class="metric-num">@ma.AssignedTotal</div>
+            <div class="metric-lbl">Total Request</div>
+            <div class="metric-hint">All assigned</div>
+          </a>
+          <a asp-controller="Requests" asp-action="Approval" asp-route-status="@ApprovalStatusFilter.Pending" class="metric-card" style="--mc:#d97706">
+            <div class="metric-num">@ma.PendingMyAction</div>
+            <div class="metric-lbl">Pending Request</div>
+            <div class="metric-hint">Awaiting action</div>
+          </a>
+          <a asp-controller="Requests" asp-action="Approval" asp-route-status="@ApprovalStatusFilter.Approved" class="metric-card" style="--mc:#16a34a">
+            <div class="metric-num">@ma.ApprovedByMe</div>
+            <div class="metric-lbl">Approved</div>
+            <div class="metric-hint">&nbsp;</div>
+          </a>
+          <a asp-controller="Requests" asp-action="Approval" asp-route-status="@ApprovalStatusFilter.Rejected" class="metric-card" style="--mc:#dc2626">
+            <div class="metric-num">@ma.RejectedByMe</div>
+            <div class="metric-lbl">Rejected</div>
+            <div class="metric-hint">&nbsp;</div>
+          </a>
+          <a asp-controller="Requests" asp-action="Approval" asp-route-status="@ApprovalStatusFilter.Clarification" class="metric-card" style="--mc:#7c3aed">
+            <div class="metric-num">@ma.ClarificationByMe</div>
+            <div class="metric-lbl">Clarification</div>
+            <div class="metric-hint">&nbsp;</div>
+          </a>
+        </div>
+      }
+    </div>
+
+    @* My Requests — the logged-in user's own requests (Dashboard _RequestsTab cards). *@
+    <div class="dash-tab-panel" id="cd-tab-requests">
+      @if (af.MyRequests is { } mr)
+      {
+        <div class="cd-kpi-row cd-kpi-row-8">
+          <a asp-controller="Requests" asp-action="Index" asp-route-FilterMine="true" class="metric-card" style="--mc:#0f172a">
+            <div class="metric-num">@mr.MyTotal</div>
+            <div class="metric-lbl">Total Request</div>
+            <div class="metric-hint">All time</div>
+          </a>
+          <a asp-controller="Requests" asp-action="Index" asp-route-FilterMine="true" asp-route-FilterStatus="Pending Approval" class="metric-card" style="--mc:#d97706">
+            <div class="metric-num">@mr.MyPending</div>
+            <div class="metric-lbl">Pending Request</div>
+            <div class="metric-hint">Pending Approval</div>
+          </a>
+          <a asp-controller="Requests" asp-action="Index" asp-route-FilterMine="true" asp-route-FilterStatus="Partial Approved" class="metric-card" style="--mc:#0369a1">
+            <div class="metric-num">@mr.MyPartialApproved</div>
+            <div class="metric-lbl">Partial Approved</div>
+            <div class="metric-hint">&nbsp;</div>
+          </a>
+          <a asp-controller="Requests" asp-action="Index" asp-route-FilterMine="true" asp-route-FilterStatus="Approved" class="metric-card" style="--mc:#16a34a">
+            <div class="metric-num">@mr.MyApproved</div>
+            <div class="metric-lbl">Approved</div>
+            <div class="metric-hint">&nbsp;</div>
+          </a>
+          <a asp-controller="Requests" asp-action="Index" asp-route-FilterMine="true" asp-route-FilterStatus="Rejected" class="metric-card" style="--mc:#dc2626">
+            <div class="metric-num">@mr.MyRejected</div>
+            <div class="metric-lbl">Rejected</div>
+            <div class="metric-hint">&nbsp;</div>
+          </a>
+          <a asp-controller="Requests" asp-action="Index" asp-route-FilterMine="true" asp-route-FilterStatus="Clarification Needed" class="metric-card" style="--mc:#7c3aed">
+            <div class="metric-num">@mr.MyClarification</div>
+            <div class="metric-lbl">Clarification</div>
+            <div class="metric-hint">&nbsp;</div>
+          </a>
+          <a asp-controller="Requests" asp-action="Index" asp-route-FilterMine="true" asp-route-FilterStatus="Draft" class="metric-card" style="--mc:#475569">
+            <div class="metric-num">@mr.MyDraft</div>
+            <div class="metric-lbl">Draft</div>
+            <div class="metric-hint">&nbsp;</div>
+          </a>
+          <a asp-controller="Requests" asp-action="Index" asp-route-FilterMine="true" asp-route-FilterStatus="Revoked" class="metric-card" style="--mc:#6b7280">
+            <div class="metric-num">@mr.MyRevoked</div>
+            <div class="metric-lbl">Revoked</div>
+            <div class="metric-hint">&nbsp;</div>
+          </a>
+        </div>
+      }
+    </div>
+
+    @* My Territory — the user's department & location scope (Dashboard _TerritoryTab cards). *@
+    @if (af.MyTerritory is { } mt)
+    {
+      <div class="dash-tab-panel" id="cd-tab-territory">
+        <div class="cd-kpi-row">
+          <a asp-controller="Requests" asp-action="Territory" class="metric-card" style="--mc:#7c3aed">
+            <div class="metric-num">@mt.TotalInTerritory</div>
+            <div class="metric-lbl">Total Request</div>
+            <div class="metric-hint">Dept &amp; Location</div>
+          </a>
+          <a asp-controller="Requests" asp-action="Territory" asp-route-FilterStatus="Pending Approval" class="metric-card" style="--mc:#d97706">
+            <div class="metric-num">@mt.Pending</div>
+            <div class="metric-lbl">Pending Request</div>
+            <div class="metric-hint">&nbsp;</div>
+          </a>
+          <a asp-controller="Requests" asp-action="Territory" asp-route-FilterStatus="Partial Approved" class="metric-card" style="--mc:#0369a1">
+            <div class="metric-num">@(mt.ByStatus.GetValueOrDefault("Partial Approved"))</div>
+            <div class="metric-lbl">Partial Approved</div>
+            <div class="metric-hint">&nbsp;</div>
+          </a>
+          <a asp-controller="Requests" asp-action="Territory" asp-route-FilterStatus="Approved" class="metric-card" style="--mc:#16a34a">
+            <div class="metric-num">@mt.Approved</div>
+            <div class="metric-lbl">Approved</div>
+            <div class="metric-hint">&nbsp;</div>
+          </a>
+          <a asp-controller="Requests" asp-action="Territory" asp-route-FilterStatus="Rejected" class="metric-card" style="--mc:#dc2626">
+            <div class="metric-num">@mt.Rejected</div>
+            <div class="metric-lbl">Rejected</div>
+            <div class="metric-hint">&nbsp;</div>
+          </a>
+          <a asp-controller="Requests" asp-action="Territory" asp-route-FilterStatus="Clarification Needed" class="metric-card" style="--mc:#7c3aed">
+            <div class="metric-num">@mt.Clarification</div>
+            <div class="metric-lbl">Clarification</div>
+            <div class="metric-hint">&nbsp;</div>
+          </a>
         </div>
       </div>
-      @if (af.RecentRequests.Any())
-      {
-        <div class="tbl-wrap">
-          <table class="tbl">
-            <thead>
-              <tr><th>Request No</th><th>Category</th><th>Requested By</th><th>Status</th><th>Date</th></tr>
-            </thead>
-            <tbody>
-              @foreach (var r in af.RecentRequests)
+    }
+
+    @if (showCharts)
+    {
+    <div class="cd-charts">
+      <div class="card">
+        <div class="card-hdr">Status Overview</div>
+        <div class="card-body">
+          @if (afTotal == 0) { <div class="cd-empty">No requests yet</div> }
+          else
+          {
+            <div class="cd-donut-wrap">
+              @Html.Raw(Donut(afSlices, afTotal))
+              <div class="cd-legend">
+                @foreach (var k in af.Kpis)
+                {
+                  <a asp-controller="Requests" asp-action="Index" asp-route-FilterStatus="@k.FilterStatus">
+                    <i style="background:@k.Accent"></i>@k.Label <b>@k.Count</b>
+                  </a>
+                }
+              </div>
+            </div>
+          }
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-hdr">Monthly Trend <span style="font-weight:400;color:var(--txt3);margin-left:6px">last 6 months</span></div>
+        <div class="card-body">
+          <div class="cd-bars">
+            @foreach (var t in af.Trend)
+            {
+              <div class="cd-bar-col">
+                <div class="cd-bar-pair">
+                  <div class="cd-bar" style="height:@((t.Primary * 100.0 / afMax).ToString("F0"))%;background:#2563eb" title="Raised: @t.Primary"><em>@t.Primary</em></div>
+                  <div class="cd-bar" style="height:@((t.Secondary * 100.0 / afMax).ToString("F0"))%;background:#16a34a" title="Approved: @t.Secondary"><em>@t.Secondary</em></div>
+                </div>
+                <div class="cd-bar-x">@t.Label</div>
+              </div>
+            }
+          </div>
+          <div class="cd-series"><span><i style="background:#2563eb"></i>Raised</span><span><i style="background:#16a34a"></i>Approved</span></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-hdr">Breakdown</div>
+        <div class="card-body cd-split">
+          <div>
+            <div class="cd-sub-hdr">By request type</div>
+            @if (!af.ByType.Any()) { <div class="cd-empty">No requests yet</div> }
+            <div class="cd-hbars">
+              @foreach (var s in af.ByType)
               {
-                <tr>
-                  <td style="font-family:monospace;font-size:11px;font-weight:600">
-                    <a asp-controller="Requests" asp-action="Detail" asp-route-id="@r.RequestId" style="color:inherit">@r.DisplayRequestNumber</a>
-                  </td>
-                  <td style="font-size:12px">@r.Category</td>
-                  <td style="font-size:12px;color:var(--txt2)">@r.RequestedBy</td>
-                  <td><span class="badge @Sc(r.Status)">@Ds(r.Status)</span></td>
-                  <td style="font-size:12px;color:var(--txt3);white-space:nowrap">@r.Date.ToString("dd MMM yyyy")</td>
-                </tr>
+                <div class="cd-hbar">
+                  <div class="t"><span>@s.Label</span><b>@s.Count</b></div>
+                  <div class="pbar"><div class="pbar-fill" style="width:@((s.Count * 100.0 / afTypeMax).ToString("F0"))%;background:@s.Color"></div></div>
+                </div>
               }
-            </tbody>
-          </table>
+            </div>
+          </div>
+          <div>
+            <div class="cd-sub-hdr">Awaiting decision · by priority</div>
+            @if (afPrioTotal == 0) { <div class="cd-empty">Nothing awaiting a decision</div> }
+            else
+            {
+              <div class="cd-hbars">
+                @foreach (var s in af.ByPriority)
+                {
+                  <div class="cd-hbar">
+                    <div class="t"><span>@s.Label</span><b>@s.Count</b></div>
+                    <div class="pbar"><div class="pbar-fill" style="width:@((s.Count * 100.0 / afPrioTotal).ToString("F0"))%;background:@s.Color"></div></div>
+                  </div>
+                }
+              </div>
+            }
+          </div>
         </div>
-      }
-      else
-      {
-        <div class="tbl-empty">No requests yet</div>
-      }
+      </div>
     </div>
+    }
   </section>
 }
 
-@* ══════════ SECTION 2 — DWO (DWO data only) ══════════ *@
+@* ══════════ DWO section (DWO data only) ══════════
+   Every figure and link below comes from the DWO module. Nothing here is derived from
+   ApproveFlow data, and no total is combined with the row above. *@
 @if (Model.CanViewDwo)
 {
+  var dwo = Model.Dwo;
+  var dwoTotal = dwo?.ByStatus.Sum(s => s.Count) ?? 0;
+  var dwoSlices = (dwo?.ByStatus ?? new()).Select(s => (s.Label, s.Count, s.Color, s.Url));
+  var dwoMax = Math.Max(1, (dwo?.Trend ?? new()).Select(t => Math.Max(t.Primary, t.Secondary)).DefaultIfEmpty(0).Max());
+  var dwoDeptMax = Math.Max(1, (dwo?.ByDepartment ?? new()).Select(s => s.Count).DefaultIfEmpty(0).Max());
+  var dwoPrioTotal = dwo?.ByPriority.Sum(s => s.Count) ?? 0;
+
   <section class="cd-sec" style="--cd:#0891b2">
     <div class="cd-sec-hdr">
       <span class="cd-sec-bar"></span>
@@ -124,87 +401,124 @@
         <div class="cd-sec-title">DWO</div>
         <div class="cd-sec-sub">Discussion work orders</div>
       </div>
-      @{ var dwoRootUrl = Model.Dwo?.DiscussionsUrl; }
-      @if (!string.IsNullOrEmpty(dwoRootUrl))
-      {
-        <div class="cd-sec-right"><a href="@dwoRootUrl" class="btn btn-ghost btn-sm">Open DWO →</a></div>
-      }
+      <div class="cd-sec-right">
+        <a href="~/DWO/Register" class="btn btn-ghost btn-sm">Open DWO →</a>
+      </div>
     </div>
 
     <div class="cd-kpi-row">
-      @foreach (var (key, label, accent) in DwoKpiKeys.Ordered)
+      @foreach (var (key, label, accent, fallbackUrl) in DwoKpiKeys.Ordered)
       {
-        var card = Model.Dwo?.Kpis.FirstOrDefault(c => c.Key == key);
-        @* A card the DWO module did not supply shows "—", never a fabricated 0. *@
-        @if (card != null && !string.IsNullOrEmpty(card.Url))
-        {
-          <a href="@card.Url" class="metric-card" style="--mc:@accent">
-            <div class="metric-num">@card.Count</div>
-            <div class="metric-lbl">@(card.Label ?? label)</div>
-            @if (!string.IsNullOrEmpty(card.Hint)) { <div class="metric-hint">@card.Hint</div> }
-          </a>
-        }
-        else
-        {
-          <div class="metric-card cd-static" style="--mc:@accent">
-            @if (card is null) { <div class="cd-nodata">—</div> }
-            else               { <div class="metric-num">@card.Count</div> }
-            <div class="metric-lbl">@(card?.Label ?? label)</div>
-          </div>
-        }
+        var card = dwo?.Kpis.FirstOrDefault(c => c.Key == key);
+        @* The module may override the link; otherwise the card opens the DWO module's own
+           route. The card navigates either way, so the section is useful before a provider
+           is wired in. *@
+        var url = string.IsNullOrEmpty(card?.Url) ? fallbackUrl : card!.Url;
+        <a href="@url" class="metric-card" style="--mc:@accent">
+          @* A count the module did not supply shows "—". A 0 would read as "none", which
+             this application cannot state on the DWO module's behalf. *@
+          @if (card is null) { <div class="cd-nodata">—</div> }
+          else               { <div class="metric-num">@card.Count</div> }
+          <div class="metric-lbl">@(card?.Label ?? label)</div>
+        </a>
       }
     </div>
 
-    @if (Model.Dwo is { } dwo)
+    @if (dwo is null)
     {
-      <div class="card">
-        <div class="card-hdr">
-          <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
-          DWO Recent Discussions
-          @if (!string.IsNullOrEmpty(dwo.DiscussionsUrl))
-          {
-            <div class="card-hdr-right"><a href="@dwo.DiscussionsUrl" class="btn btn-ghost btn-sm">View all →</a></div>
-          }
+      @if (Model.DwoProviderRegistered)
+      {
+        <div class="cd-note">No DWO figures for your access level.</div>
+      }
+      else
+      {
+        @* No DWO dashboard provider in this deployment. Said plainly, so an empty section
+           is never mistaken for "the DWO module has no discussions". *@
+        <div class="cd-note">
+          DWO figures are not available on this dashboard yet — the DWO module has not
+          registered a dashboard provider. The links above open the DWO screens as usual.
         </div>
-        @if (dwo.RecentDiscussions.Any())
-        {
-          <div class="tbl-wrap">
-            <table class="tbl">
-              <thead>
-                <tr><th>Discussion No</th><th>Project</th><th>Department</th><th>Status</th><th>Due Date</th></tr>
-              </thead>
-              <tbody>
-                @foreach (var d in dwo.RecentDiscussions)
-                {
-                  <tr>
-                    <td style="font-family:monospace;font-size:11px;font-weight:600">
-                      @if (!string.IsNullOrEmpty(d.Url)) { <a href="@d.Url" style="color:inherit">@d.DiscussionNo</a> }
-                      else { @d.DiscussionNo }
-                    </td>
-                    <td style="font-size:12px">@d.Project</td>
-                    <td style="font-size:12px;color:var(--txt2)">@d.Department</td>
-                    <td><span class="badge @Sc(d.Status)">@d.Status</span></td>
-                    <td style="font-size:12px;color:var(--txt3);white-space:nowrap">@(d.DueDate?.ToString("dd MMM yyyy") ?? "-")</td>
-                  </tr>
-                }
-              </tbody>
-            </table>
-          </div>
-        }
-        else
-        {
-          <div class="tbl-empty">No discussions yet</div>
-        }
-      </div>
+      }
     }
     else
     {
-      @* No DWO provider in this deployment. Counts are deliberately left blank rather than
-         shown as 0, which would misreport the DWO module's data. *@
-      <div class="cd-note">
-        The DWO module is not connected to this deployment, so its figures cannot be read.
-        They appear as soon as a DWO provider is registered.
+      @if (showCharts)
+      {
+      <div class="cd-charts">
+        <div class="card">
+          <div class="card-hdr">Status Overview</div>
+          <div class="card-body">
+            @if (dwoTotal == 0) { <div class="cd-empty">No discussions yet</div> }
+            else
+            {
+              <div class="cd-donut-wrap">
+                @Html.Raw(Donut(dwoSlices, dwoTotal))
+                <div class="cd-legend">
+                  @foreach (var s in dwo.ByStatus)
+                  {
+                    <a href="@s.Url"><i style="background:@s.Color"></i>@s.Label <b>@s.Count</b></a>
+                  }
+                </div>
+              </div>
+            }
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-hdr">Monthly Trend <span style="font-weight:400;color:var(--txt3);margin-left:6px">last 6 months</span></div>
+          <div class="card-body">
+            <div class="cd-bars">
+              @foreach (var t in dwo.Trend)
+              {
+                <div class="cd-bar-col">
+                  <div class="cd-bar-pair">
+                    <div class="cd-bar" style="height:@((t.Primary * 100.0 / dwoMax).ToString("F0"))%;background:#0891b2" title="Raised: @t.Primary"><em>@t.Primary</em></div>
+                    <div class="cd-bar" style="height:@((t.Secondary * 100.0 / dwoMax).ToString("F0"))%;background:#16a34a" title="Closed: @t.Secondary"><em>@t.Secondary</em></div>
+                  </div>
+                  <div class="cd-bar-x">@t.Label</div>
+                </div>
+              }
+            </div>
+            <div class="cd-series"><span><i style="background:#0891b2"></i>Raised</span><span><i style="background:#16a34a"></i>Closed</span></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-hdr">Breakdown</div>
+          <div class="card-body cd-split">
+            <div>
+              <div class="cd-sub-hdr">By department</div>
+              @if (!dwo.ByDepartment.Any()) { <div class="cd-empty">No discussions yet</div> }
+              <div class="cd-hbars">
+                @foreach (var s in dwo.ByDepartment)
+                {
+                  <div class="cd-hbar">
+                    <div class="t"><span>@s.Label</span><b>@s.Count</b></div>
+                    <div class="pbar"><div class="pbar-fill" style="width:@((s.Count * 100.0 / dwoDeptMax).ToString("F0"))%;background:@s.Color"></div></div>
+                  </div>
+                }
+              </div>
+            </div>
+            <div>
+              <div class="cd-sub-hdr">Open discussions · by priority</div>
+              @if (dwoPrioTotal == 0) { <div class="cd-empty">Nothing open</div> }
+              else
+              {
+                <div class="cd-hbars">
+                  @foreach (var s in dwo.ByPriority)
+                  {
+                    <div class="cd-hbar">
+                      <div class="t"><span>@s.Label</span><b>@s.Count</b></div>
+                      <div class="pbar"><div class="pbar-fill" style="width:@((s.Count * 100.0 / dwoPrioTotal).ToString("F0"))%;background:@s.Color"></div></div>
+                    </div>
+                  }
+                </div>
+              }
+            </div>
+          </div>
+        </div>
       </div>
+      }
     }
   </section>
 }
@@ -213,3 +527,27 @@
 {
   <div class="cd-note">You do not have access to any module yet. Please contact your administrator.</div>
 }
+
+@* ── ApproveFlow KPI tab switching ──
+   All three rows are server-rendered; this only shows one at a time. The chosen tab is
+   remembered for the session so a refresh lands on the same row. Default: My Approvals,
+   matching the Dashboard's landing tab. *@
+<script>
+(function () {
+  window.cdSwitchTab = function (tab) {
+    document.querySelectorAll('#cd-af .dash-tab').forEach(function (b) { b.classList.remove('active'); });
+    document.querySelectorAll('#cd-af .dash-tab-panel').forEach(function (p) { p.classList.remove('active'); });
+    var btn = document.getElementById('cd-tab-btn-' + tab);
+    var panel = document.getElementById('cd-tab-' + tab);
+    if (btn) btn.classList.add('active');
+    if (panel) panel.classList.add('active');
+    try { sessionStorage.setItem('af-cd-tab', tab); } catch (e) { /* storage blocked */ }
+  };
+  var start = 'approvals';
+  try {
+    var saved = sessionStorage.getItem('af-cd-tab');
+    if (saved && document.getElementById('cd-tab-btn-' + saved)) start = saved;
+  } catch (e) { /* storage blocked — keep the default */ }
+  if (document.getElementById('cd-tab-btn-' + start)) cdSwitchTab(start);
+})();
+</script>

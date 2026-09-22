@@ -1,4 +1,4 @@
-@model DashboardVM
+﻿@model DashboardVM
 @{
     ViewData["Title"] = "Dashboard";
     ViewData["NavPage"] = "dashboard";
@@ -21,7 +21,8 @@
     if (isAdmin) allowedTabs.Add("admin");
     var tabParam = Context.Request.Query["tab"].ToString();
     bool tabFromUrl = allowedTabs.Contains(tabParam);
-    string defaultTab = tabFromUrl ? tabParam : "requests";
+    // My Approvals is the first tab and the landing tab (2026-09-19).
+    string defaultTab = tabFromUrl ? tabParam : "approvals";
 }
 
 <style>
@@ -82,28 +83,28 @@
    unaffected and still use Model.MyPendingApprovals. *@
 @if (Model.ClarificationItems.Any())
 {
-  <div class="alert" style="background:#f3e8ff;color:#7c3aed;border:1px solid #c4b5fd;border-radius:8px;padding:10px 14px;display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:13px">
+  <div class="alert" style="background:var(--wa-bg);color:var(--wa);border:1px solid var(--wa-bdr);border-radius:8px;padding:10px 14px;display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:13px">
     <svg viewBox="0 0 24 24" style="width:16px;height:16px;flex-shrink:0"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
     <strong>@Model.ClarificationItemsTotal</strong> request@(Model.ClarificationItemsTotal > 1 ? "s need" : " needs") clarification.
-    <a href="#" onclick="switchTab('requests','myRecentRequestsCard');return false;" style="margin-left:8px;font-weight:600;color:#7c3aed">View below ↓</a>
+    <a href="#" onclick="switchTab('requests','myRecentRequestsCard');return false;" style="margin-left:8px;font-weight:600;color:var(--wa)">View below ↓</a>
   </div>
 }
 
 @* ── Tab Bar ── *@
 <div class="dash-tab-bar">
-  <button class="dash-tab" id="tab-btn-requests" onclick="switchTab('requests')">
-    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/>
-      <line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10,9 9,9 8,9"/>
-    </svg>
-    My Requests
-  </button>
   <button class="dash-tab" id="tab-btn-approvals" onclick="switchTab('approvals')">
     <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="#d97706" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22,4 12,14.01 9,11.01"/>
     </svg>
     My Approvals
     @if (Model.MyPendingApprovals > 0) { <span class="dash-tab-badge">@Model.MyPendingApprovals</span> }
+  </button>
+  <button class="dash-tab" id="tab-btn-requests" onclick="switchTab('requests')">
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="#071B46" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/>
+      <line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10,9 9,9 8,9"/>
+    </svg>
+    My Requests
   </button>
   @if (!isViewOnly)
   {
@@ -117,7 +118,7 @@
   @if (isAdmin)
   {
     <button class="dash-tab" id="tab-btn-admin" onclick="switchTab('admin')" style="margin-left:auto">
-      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="#7c3aed" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="#071B46" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
         <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
       </svg>
@@ -152,7 +153,7 @@
   @if (isApprover)
   {
   <div class="metric-row" style="grid-template-columns:repeat(5,1fr)">
-    <a asp-controller="Requests" asp-action="Approval" asp-route-dtab="admin" class="metric-card" style="--mc:#0f172a">
+    <a asp-controller="Requests" asp-action="Approval" asp-route-dtab="admin" class="metric-card" style="--mc:#071B46">
       <div class="metric-num">@Model.AssignedToMeTotal</div>
       <div class="metric-lbl">Total Assigned to Me</div>
       <div class="metric-hint">All assigned</div>
@@ -172,7 +173,7 @@
       <div class="metric-lbl">Rejected by Me</div>
       <div class="metric-hint">&nbsp;</div>
     </a>
-    <a asp-controller="Requests" asp-action="Approval" asp-route-dtab="admin" asp-route-status="Clarification" class="metric-card" style="--mc:#7c3aed">
+    <a asp-controller="Requests" asp-action="Approval" asp-route-dtab="admin" asp-route-status="Clarification" class="metric-card" style="--mc:#d97706">
       <div class="metric-num">@Model.ClarificationByMe</div>
       <div class="metric-lbl">Clarification</div>
       <div class="metric-hint">&nbsp;</div>
@@ -182,7 +183,7 @@
   else if (isAdmin)
   {
   <div class="metric-row">
-    <a asp-controller="Requests" asp-action="Index" asp-route-dtab="admin" class="metric-card" style="--mc:#0f172a">
+    <a asp-controller="Requests" asp-action="Index" asp-route-dtab="admin" class="metric-card" style="--mc:#071B46">
       <div class="metric-num">@Model.Total</div>
       <div class="metric-lbl">Total Requests</div>
       <div class="metric-hint">All time</div>
@@ -202,12 +203,12 @@
       <div class="metric-lbl">Rejected</div>
       <div class="metric-hint">&nbsp;</div>
     </a>
-    <a asp-controller="Requests" asp-action="Index" asp-route-dtab="admin" asp-route-FilterStatus="Draft" class="metric-card" style="--mc:#475569">
+    <a asp-controller="Requests" asp-action="Index" asp-route-dtab="admin" asp-route-FilterStatus="Draft" class="metric-card" style="--mc:#6B7280">
       <div class="metric-num">@Model.Draft</div>
       <div class="metric-lbl">Draft</div>
       <div class="metric-hint">&nbsp;</div>
     </a>
-    <a asp-controller="Requests" asp-action="Index" asp-route-dtab="admin" asp-route-FilterStatus="Clarification Needed" class="metric-card" style="--mc:#7c3aed">
+    <a asp-controller="Requests" asp-action="Index" asp-route-dtab="admin" asp-route-FilterStatus="Clarification Needed" class="metric-card" style="--mc:#d97706">
       <div class="metric-num">@Model.ClarificationNeeded</div>
       <div class="metric-lbl">Clarification</div>
       <div class="metric-hint">&nbsp;</div>
@@ -217,7 +218,7 @@
   else
   {
   <div class="metric-row" style="grid-template-columns:repeat(5,1fr)">
-    <a asp-controller="Requests" asp-action="Index" asp-route-dtab="admin" class="metric-card" style="--mc:#0f172a">
+    <a asp-controller="Requests" asp-action="Index" asp-route-dtab="admin" class="metric-card" style="--mc:#071B46">
       <div class="metric-num">@Model.MyTotal</div>
       <div class="metric-lbl">My Total Requests</div>
       <div class="metric-hint">&nbsp;</div>
@@ -237,7 +238,7 @@
       <div class="metric-lbl">My Rejected Requests</div>
       <div class="metric-hint">&nbsp;</div>
     </a>
-    <a asp-controller="Requests" asp-action="Index" asp-route-dtab="admin" asp-route-FilterStatus="Clarification Needed" class="metric-card" style="--mc:#7c3aed">
+    <a asp-controller="Requests" asp-action="Index" asp-route-dtab="admin" asp-route-FilterStatus="Clarification Needed" class="metric-card" style="--mc:#d97706">
       <div class="metric-num">@Model.MyClarification</div>
       <div class="metric-lbl">My Clarification</div>
       <div class="metric-hint">&nbsp;</div>
@@ -365,10 +366,10 @@
   @if (Model.ClarificationItems.Any())
   {
     <div class="card" style="margin-bottom:16px" id="clarification">
-      <div class="card-hdr" style="color:#7c3aed">
+      <div class="card-hdr" style="color:var(--wa)">
         <svg viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
         Needs Clarification@(isAdmin ? "" : " (Mine)")
-        <span class="badge" style="background:#f3e8ff;color:#7c3aed;margin-left:auto">@Model.ClarificationItemsTotal</span>
+        <span class="badge" style="background:var(--wa-bg);color:var(--wa);margin-left:auto">@Model.ClarificationItemsTotal</span>
       </div>
       <div class="tbl-wrap">
         <table class="tbl">
@@ -387,6 +388,74 @@
             }
           </tbody>
         </table>
+      </div>
+    </div>
+  }
+
+  @* ── DWO summary (Phase 2 — ApproveFlow 2.0) ──────────────
+     Purely additive: rendered only when the user can see the DWO module, and every
+     figure comes from IDwoService so it matches the DWO dashboard exactly. Nothing
+     above or below this block was changed. *@
+  @if (ViewBag.DwoSummary is DwoDashboardSummaryVM dwo)
+  {
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-hdr">
+        <svg viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+        DWO — Discussion Work Order
+        <div class="card-hdr-right">
+          <a asp-controller="Dwo" asp-action="Dashboard" class="btn btn-ghost btn-sm">Open DWO dashboard →</a>
+        </div>
+      </div>
+      <div class="card-body">
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:12px">
+          <a asp-controller="Dwo" asp-action="Register" class="metric-card" style="--mc:#071B46">
+            <div class="metric-num">@dwo.OpenDiscussions</div>
+            <div class="metric-lbl">DWO Discussions</div>
+            <div class="metric-hint">Open, all stages</div>
+          </a>
+          <a asp-controller="Dwo" asp-action="Register" asp-route-FilterStatus="@DwoStatus.FollowUp" class="metric-card" style="--mc:#dc2626">
+            <div class="metric-num">@dwo.OverdueFollowUps</div>
+            <div class="metric-lbl">Overdue Follow-up</div>
+            <div class="metric-hint">Past the due date</div>
+          </a>
+          <a asp-controller="Dwo" asp-action="Register" asp-route-FilterStatus="@DwoStatus.Closed" class="metric-card" style="--mc:#16a34a">
+            <div class="metric-num">@dwo.ByStatus.GetValueOrDefault(DwoStatus.Closed, 0)</div>
+            <div class="metric-lbl">Closed Discussions</div>
+            <div class="metric-hint">Decided</div>
+          </a>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+          <div>
+            <div class="lbl" style="margin-bottom:6px">Follow-up Due Today</div>
+            @if (!dwo.FollowUpDueToday.Any()) { <div class="dwo-empty">Nothing due today.</div> }
+            @foreach (var r in dwo.FollowUpDueToday)
+            {
+              <div class="dwo-mini">
+                <a href="@Url.Action("Detail", "Dwo", new { id = r.PointId })">@r.Title</a>
+                <span class="dwo-mini-meta">@r.FollowUpOwnerName</span>
+              </div>
+            }
+          </div>
+          <div>
+            <div class="lbl" style="margin-bottom:6px">DWO Status Distribution</div>
+            @{ var dwoMax = dwo.ByStatus.Values.DefaultIfEmpty(0).Max(); }
+            @if (dwoMax == 0) { <div class="dwo-empty">No discussions yet.</div> }
+            @foreach (var st in DwoStatus.All)
+            {
+              var n = dwo.ByStatus.GetValueOrDefault(st, 0);
+              if (n == 0) { continue; }
+              var pct = dwoMax > 0 ? n * 100.0 / dwoMax : 0;
+              <div style="margin-bottom:8px">
+                <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
+                  <span style="color:var(--txt2)">@st</span>
+                  <span style="font-weight:600">@n</span>
+                </div>
+                <div class="pbar"><div class="pbar-fill" style="width:@pct.ToString("F0")%"></div></div>
+              </div>
+            }
+          </div>
+        </div>
       </div>
     </div>
   }
@@ -423,14 +492,14 @@
       </div>
       <div class="card-body">
         @{
-          var priColors = new Dictionary<string,string>{ {"Critical","#dc2626"},{"High","#d97706"},{"Medium","#2563eb"},{"Low","#475569"} };
+          var priColors = new Dictionary<string,string>{ {"Critical","#dc2626"},{"High","#F59E0B"},{"Medium","#071B46"},{"Low","#6B7280"} };
           int priTotal = Model.ByPriority.Values.Sum();
         }
         @foreach (var kv in new[]{"Critical","High","Medium","Low"})
         {
           var cnt = Model.ByPriority.GetValueOrDefault(kv, 0);
           var pct = priTotal > 0 ? cnt * 100.0 / priTotal : 0;
-          var col = priColors.GetValueOrDefault(kv, "#475569");
+          var col = priColors.GetValueOrDefault(kv, "#6B7280");
           <div style="margin-bottom:10px">
             <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
               <span style="color:var(--txt2)">@kv</span>
@@ -620,7 +689,7 @@
     .sum-num-pending  { font-weight:700; color:#d97706; }
     .sum-num-approved { font-weight:700; color:#16a34a; }
     .sum-num-rejected { font-weight:700; color:#dc2626; }
-    .sum-num-clarif   { font-weight:700; color:#7c3aed; }
+    .sum-num-clarif   { font-weight:700; color:var(--wa); }
     .sum-empty        { padding:28px; text-align:center; color:var(--txt3); font-size:12px; }
   </style>
 
@@ -783,7 +852,7 @@
   var startTab = defaultTab;
 
   // Fallback for the BROWSER back button only: a /Dashboard history entry created before
-  // the tab was recorded carries no ?tab=, so going back to it would drop to My Requests.
+  // the tab was recorded carries no ?tab=, so going back to it would drop to the default tab.
   // When the navigation type is back/forward AND the URL named no tab, restore the tab last
   // opened in this session. Direct URL access and the nav menu keep the default behaviour.
   var tabCameFromUrl = @(tabFromUrl ? "true" : "false");

@@ -1,4 +1,4 @@
-@using System.Security.Claims
+﻿@using System.Security.Claims
 @inject ApproveFlow.MVC.Services.INotifService NotifSvc
 @{
     var uid      = int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var x) ? x : 0;
@@ -9,10 +9,9 @@
     var ptitle   = ViewData["Title"]?.ToString() ?? "ApproveFlow";
     var navPage  = ViewData["NavPage"]?.ToString() ?? "";
     bool IsActive(string k) => navPage == k;
-    // Every role — Admin included — sees only the screens its role has CanView ticked for.
-    // The "Admin" short-circuit that used to sit here made the permission matrix decorative
-    // for that role; it now governs the menu like any other. Mirrors BaseCtrl.HasPerm.
+    // Admin sees everything; other roles see only screens where CanView claim exists
     bool CanView(string screen) =>
+        urole == "Admin" ||
         User.Claims.Any(c => c.Type == "perm" && c.Value == screen);
 }
 <!DOCTYPE html>
@@ -33,69 +32,90 @@
     <div><div class="sb-logo-title">BNR FLOW</div>@* <div class="sb-logo-sub">BNR Workflow Suite</div> *@</div>
   </div>
   <nav class="sb-nav">
-    @* ── Dashboard — the common landing page, above both modules ── *@
+    @* Common Dashboard — the landing page after login. Sits above the module groups because
+       it belongs to no single module; the controller gates each section itself. *@
     <a asp-controller="CommonDashboard" asp-action="Index" class="nav-link @(IsActive("home")?"active":"")">
+      <svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9,22 9,12 15,12 15,22" stroke-width="1.8"/></svg>
+      Home
+    </a>
+    @* Each group is a native <details>. It collapses with no JavaScript at all; sidebar.js
+       only remembers the open/closed state per group and force-opens whichever group holds
+       the active link. data-sb-group is the localStorage key — keep it stable. *@
+    <details class="sb-group" data-sb-group="approveflow" open>
+      <summary class="sb-sec">ApproveFlow <svg class="sb-chev" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6,9 12,15 18,9" stroke-width="2.5"/></svg></summary>
+      <div class="sb-group-body">
+    @if (CanView("Dashboard")) {
+    <a asp-controller="Dashboard" asp-action="Index" class="nav-link @(IsActive("dashboard")?"active":"")">
       <svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9,22 9,12 15,12 15,22" stroke-width="1.8"/></svg>
       Dashboard
     </a>
+    }
+    @* Requests is a parent menu now. It is a heading, not a link — its three children are
+       the destinations, and the "Requests" item is the list the old top-level "Requests" opened. *@
+    @if (CanView("Requests") || CanView("New Request")) {
+    <details class="sb-sub" data-sb-group="approveflow-requests" open>
+      <summary class="nav-link">
+        <svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8" stroke-width="1.8"/><line x1="16" y1="13" x2="8" y2="13" stroke-width="1.8"/><line x1="16" y1="17" x2="8" y2="17" stroke-width="1.8"/></svg>
+        Requests
+        <svg class="sb-chev" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6,9 12,15 18,9" stroke-width="2.5"/></svg>
+      </summary>
+      <div class="sb-group-body">
+        @if (CanView("New Request")) {
+        <a asp-controller="Requests" asp-action="Create" class="nav-link nav-child @(IsActive("newrequest")?"active":"")">
+          <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19" stroke-width="2"/><line x1="5" y1="12" x2="19" y2="12" stroke-width="2"/></svg>
+          New Request
+        </a>
+        }
+        @if (CanView("Requests")) {
+        <a asp-controller="Requests" asp-action="Index" class="nav-link nav-child @(IsActive("requests")?"active":"")">
+          <svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+          Requests
+        </a>
+        <a asp-controller="Requests" asp-action="Aging" class="nav-link nav-child @(IsActive("aging")?"active":"")">
+          <svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10" stroke-width="2"/><line x1="12" y1="20" x2="12" y2="4" stroke-width="2"/><line x1="6" y1="20" x2="6" y2="14" stroke-width="2"/></svg>
+          Aging Report
+        </a>
+        }
+      </div>
+    </details>
+    }
+      </div>
+    </details>
 
-    <div class="sb-sec" style="margin-top:8px">ApproveFlow</div>
-    @if (CanView("Dashboard")) {
-    <a asp-controller="Dashboard" asp-action="Index" class="nav-link @(IsActive("dashboard")?"active":"")">
-      <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" stroke-width="1.8"/><rect x="14" y="3" width="7" height="7" stroke-width="1.8"/><rect x="14" y="14" width="7" height="7" stroke-width="1.8"/><rect x="3" y="14" width="7" height="7" stroke-width="1.8"/></svg>
-      ApproveFlow Dashboard
-    </a>
-    }
-    @if (CanView("Requests")) {
-    <a asp-controller="Requests" asp-action="Index" class="nav-link @(IsActive("requests")?"active":"")">
-      <svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8" stroke-width="1.8"/><line x1="16" y1="13" x2="8" y2="13" stroke-width="1.8"/><line x1="16" y1="17" x2="8" y2="17" stroke-width="1.8"/></svg>
-      Requests
-    </a>
-    }
-    @if (CanView("New Request")) {
-    <a asp-controller="Requests" asp-action="Create" class="nav-link @(IsActive("newrequest")?"active":"")">
-      <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19" stroke-width="2"/><line x1="5" y1="12" x2="19" y2="12" stroke-width="2"/></svg>
-      New Request
-    </a>
-    }
-    @if (CanView("Requests")) {
-    <a asp-controller="Requests" asp-action="Aging" class="nav-link @(IsActive("aging")?"active":"")">
-      <svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10" stroke-width="2"/><line x1="12" y1="20" x2="12" y2="4" stroke-width="2"/><line x1="6" y1="20" x2="6" y2="14" stroke-width="2"/></svg>
-      Aging Report
-    </a>
-    }
-
-    @* ── DWO — an independent module, permissioned separately from ApproveFlow. Each link is
-         gated on its own screen (the names the Roles & Permissions matrix stores), and the
-         group heading appears only when the role holds at least one of them, so a role with
-         no DWO rights — or a deployment without the module — shows nothing here.
-
-         Routes are the DWO module's own, under the /DWO root, and all three are confirmed
-         against it: /DWO/Register, /DWO/Management and /DWO/Reports. Dashboard KPI links are
-         NOT built here: each DWO card carries the URL the module itself supplied. ── *@
-    @if (DwoScreens.All.Any(CanView)) {
-    <div class="sb-sec" style="margin-top:8px">DWO</div>
+    @* ── DWO (Discussion Work Order) ──────────────────────────
+       New module. Rendered as its own section using the same .sb-sec / .nav-link
+       components as every other group, so the existing navigation is untouched. Each
+       link is gated by the DWO permission screens (see DwoScreens). *@
+    @if (CanView(DwoScreens.Sets) || CanView(DwoScreens.Register))
+    {
+    <details class="sb-group" data-sb-group="dwo" open>
+      <summary class="sb-sec">DWO <svg class="sb-chev" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6,9 12,15 18,9" stroke-width="2.5"/></svg></summary>
+      <div class="sb-group-body">
     @if (CanView(DwoScreens.Register)) {
-    <a href="~/DWO/Register" class="nav-link @(IsActive("dwo")?"active":"")">
-      <svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
-      Discussion Register
+    <a asp-controller="Dwo" asp-action="Dashboard" class="nav-link @(IsActive("dwodashboard")?"active":"")">
+      <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" stroke-width="1.8" rx="1"/><rect x="14" y="3" width="7" height="7" stroke-width="1.8" rx="1"/><rect x="14" y="14" width="7" height="7" stroke-width="1.8" rx="1"/><rect x="3" y="14" width="7" height="7" stroke-width="1.8" rx="1"/></svg>
+      DWO Dashboard
     </a>
     }
-    @if (CanView(DwoScreens.ManagementDiscussion)) {
-    <a href="~/DWO/Management" class="nav-link @(IsActive("dwomgmt")?"active":"")">
-      <svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4" stroke-width="1.8"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
-      Management Discussion
+    @if (CanView(DwoScreens.Register)) {
+    <a asp-controller="Dwo" asp-action="Register" class="nav-link @(IsActive("dworegister")?"active":"")">
+      <svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+      Discussion Points
     </a>
     }
-    @if (CanView(DwoScreens.Reports)) {
-    <a href="~/DWO/Reports" class="nav-link @(IsActive("dworeports")?"active":"")">
-      <svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10" stroke-width="2"/><line x1="12" y1="20" x2="12" y2="4" stroke-width="2"/><line x1="6" y1="20" x2="6" y2="14" stroke-width="2"/></svg>
-      DWO Reports
+    @if (CanView(DwoScreens.Sets)) {
+    <a asp-controller="Dwo" asp-action="Sets" class="nav-link @(IsActive("dwosets")?"active":"")">
+      <svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 2l9 5-9 5-9-5 9-5z"/><polyline points="3,12 12,17 21,12" stroke-width="1.8"/><polyline points="3,17 12,22 21,17" stroke-width="1.8"/></svg>
+      DWO Sets
     </a>
     }
+      </div>
+    </details>
     }
 
-    <div class="sb-sec" style="margin-top:8px">Masters</div>
+    <details class="sb-group" data-sb-group="masters" open>
+      <summary class="sb-sec">Masters <svg class="sb-chev" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6,9 12,15 18,9" stroke-width="2.5"/></svg></summary>
+      <div class="sb-group-body">
     @if (CanView("User Management")) {
     <a asp-controller="Users" asp-action="Index" class="nav-link @(IsActive("users")?"active":"")">
       <svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4" stroke-width="1.8"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
@@ -120,6 +140,12 @@
       Departments
     </a>
     }
+    @if (CanView(DwoScreens.Companies)) {
+    <a asp-controller="Masters" asp-action="Index" asp-route-type="companies" class="nav-link @(IsActive("companies")?"active":"")">
+      <svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M3 21h18M5 21V7l7-4 7 4v14"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 21v-6h6v6"/></svg>
+      Companies
+    </a>
+    }
     @if (CanView("Request Types")) {
     <a asp-controller="Masters" asp-action="Index" asp-route-type="requesttypes" class="nav-link @(IsActive("reqtypes")?"active":"")">
       <svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
@@ -141,7 +167,12 @@
     </a>
     }
 
-    <div class="sb-sec" style="margin-top:8px">Account</div>
+      </div>
+    </details>
+
+    <details class="sb-group" data-sb-group="account" open>
+      <summary class="sb-sec">Account <svg class="sb-chev" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6,9 12,15 18,9" stroke-width="2.5"/></svg></summary>
+      <div class="sb-group-body">
     <a asp-controller="Auth" asp-action="ChangePassword" class="nav-link @(IsActive("changepw")?"active":"")">
       <svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" stroke-width="1.8"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7 11V7a5 5 0 0110 0v4"/></svg>
       Change Password
@@ -150,6 +181,8 @@
       <svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg>
       Sign Out
     </a>
+      </div>
+    </details>
   </nav>
   <div class="sb-user">
     <div class="sb-avatar">@uavatar</div>
@@ -201,8 +234,14 @@
 </div>
 
 <script src="~/js/site.js" asp-append-version="true"></script>
+@* Remembers which sidebar groups are collapsed. The groups themselves are native
+   <details>, so they still open and close without this. *@
+<script src="~/js/sidebar.js" asp-append-version="true"></script>
 <script src="~/js/idle-timeout.js" asp-append-version="true"></script>
 <script src="~/js/data-grid.js" asp-append-version="true"></script>
+@* DWO popup shell. Loaded globally so any page can open a DWO modal; it renders nothing
+   and binds nothing until a DWO page calls dwoLoadModal(). *@
+<script src="~/js/dwo-modal.js" asp-append-version="true"></script>
 @await RenderSectionAsync("Scripts", required: false)
 <script>
   // Auto-dismiss success alert

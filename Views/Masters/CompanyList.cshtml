@@ -1,0 +1,81 @@
+@model List<Company>
+@{
+    ViewData["Title"] = "Companies";
+    ViewData["NavPage"] = "companies";
+}
+
+<div class="pg-hdr">
+  <div><div class="pg-title">Companies</div><div class="pg-sub">@Model.Count companies configured</div></div>
+  <div class="pg-actions">
+    <a asp-action="Create" asp-route-type="companies" class="btn btn-acc">
+      <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      Add Company
+    </a>
+  </div>
+</div>
+
+<div class="card">
+  <div class="tbl-wrap">
+    <table class="tbl" data-grid>
+      <thead>
+        <tr>
+          <th>Code</th>
+          <th>Company Name</th>
+          <th>Description</th>
+          <th>Status</th>
+          <th>Created</th>
+          <th class="r">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        @if (!Model.Any())
+        {
+          <tr>
+            <td colspan="6" class="tbl-empty">
+              No companies yet.
+              <a asp-action="Create" asp-route-type="companies" style="margin-left:6px">Add the first one →</a>
+            </td>
+          </tr>
+        }
+        @foreach (Company item in Model)
+        {
+          <tr style="opacity:@(item.IsActive ? "1" : ".6")">
+            <td>
+              <span class="mono" style="background:var(--bg);padding:2px 8px;border-radius:4px">
+                @item.Code
+              </span>
+            </td>
+            <td style="font-weight:600">@item.CompanyName</td>
+            <td style="font-size:12px;color:var(--txt3);max-width:200px">@(item.Description ?? "—")</td>
+            <td>
+              <span class="badge @(item.IsActive ? "badge-green" : "badge-gray")">
+                @(item.IsActive ? "Active" : "Inactive")
+              </span>
+            </td>
+            <td style="font-size:11px;color:var(--txt3)">@item.CreatedAt.ToString("dd MMM yyyy")</td>
+            <td class="r">
+              <div style="display:inline-flex;gap:5px">
+                <a asp-action="Edit" asp-route-type="companies" asp-route-id="@item.CompanyId" class="btn btn-sec btn-sm">Edit</a>
+                <form asp-action="Toggle" asp-route-type="companies" asp-route-id="@item.CompanyId" method="post" style="display:inline">
+                  @Html.AntiForgeryToken()
+                  <button type="submit" class="btn btn-sm"
+                    style="@(item.IsActive ? "background:#fffbeb;color:#d97706;border-color:#fde68a" : "background:#f0fdf4;color:#16a34a;border-color:#bbf7d0")"
+                    onclick="return confirm('@(item.IsActive ? "Deactivate" : "Activate") @item.CompanyName?')">
+                    @(item.IsActive ? "Deactivate" : "Activate")
+                  </button>
+                </form>
+                <form asp-action="Delete" asp-route-type="companies" asp-route-id="@item.CompanyId" method="post" style="display:inline">
+                  @Html.AntiForgeryToken()
+                  <button type="submit" class="btn btn-ng btn-sm"
+                    onclick="return confirm('Delete @item.CompanyName? This will fail if it is used in a discussion.')">
+                    <svg viewBox="0 0 24 24"><polyline points="3,6 5,6 21,6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
+                  </button>
+                </form>
+              </div>
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+</div>

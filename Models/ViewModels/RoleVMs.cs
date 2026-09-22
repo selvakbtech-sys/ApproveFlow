@@ -1,4 +1,4 @@
-namespace ApproveFlow.MVC.Models.ViewModels;
+﻿namespace ApproveFlow.MVC.Models.ViewModels;
 
 public class RoleListVM
 {
@@ -26,19 +26,18 @@ public class RoleFormVM
     public bool IsActive { get; set; } = true;
     public List<PermRowVM> Permissions { get; set; } = new();
 
-    // Every screen the Roles & Permissions matrix renders, in display order. A screen NOT
-    // listed here can never be granted, because the matrix is the only place rows are
-    // written — so any name guarded by DenyIfNoPerm/HasPerm/CanView must appear here.
     public static readonly string[] AllScreens =
     {
-        // ApproveFlow
         "Dashboard", "Requests", "New Request", "User Management", "User Mapping",
         "Roles & Permissions", "Workflow Definition",
         "Locations", "Departments", "Request Types",
-        // DWO — an independent module, permissioned separately from ApproveFlow. Listing the
-        // screens here is what lets a role be granted DWO access at all; the DWO module
-        // enforces them the same way ApproveFlow does.
-        DwoScreens.Register, DwoScreens.ManagementDiscussion, DwoScreens.Reports,
+        // ── DWO module ──
+        // Approve carries the module's role meaning: Approve on "Discussion Points" makes a
+        // user an HOD for their mapped departments; Create/Edit/Delete on the same row gate
+        // raising/editing/withdrawing a point. Management is not a matrix row — it is the
+        // top approval level of the Workflow Definitions. "DWO Sets" gates the Sets screens.
+        // See DwoScreens.
+        DwoScreens.Register, DwoScreens.Sets, DwoScreens.Companies
     };
     public static readonly string[] ReportScreens = { "Dashboard" };
 }
@@ -52,18 +51,4 @@ public class PermRowVM
     public bool CanApprove { get; set; }
     public bool CanDelete { get; set; }
     public bool IsReport => Array.IndexOf(RoleFormVM.ReportScreens, ScreenName) >= 0;
-}
-
-// The DWO module's screen names as the Roles & Permissions matrix stores them. Named here so
-// the matrix, the sidebar and the Common Dashboard's DWO section all gate on the same
-// strings rather than three separately-typed literals that can drift apart.
-public static class DwoScreens
-{
-    public const string Register             = "DWO Register";
-    public const string ManagementDiscussion = "Management Discussion";
-    public const string Reports              = "DWO Reports";
-
-    // Holding ANY of these means the user has some DWO access — what the sidebar group
-    // heading and the dashboard's DWO section key off.
-    public static readonly string[] All = { Register, ManagementDiscussion, Reports };
 }
