@@ -118,6 +118,10 @@ public class RequestsController : BaseCtrl
             await _db.Users.Where(u => u.UserId == UserId)
                 .Select(u => u.Role.Permissions.Any(p => p.ScreenName == "Requests" && p.CanDelete))
                 .FirstOrDefaultAsync();
+        // "Notification To" picker (approval panel only): id + name of active users.
+        ViewBag.NotificationUsers = vm.CanAct
+            ? await _svc.GetNotificationUserOptionsAsync(UserId)
+            : new List<(int UserId, string FullName)>();
         return View(vm);
     }
 
@@ -310,7 +314,7 @@ public class RequestsController : BaseCtrl
     }
 
     [HttpPost, ValidateAntiForgeryToken]
-    public async Task<IActionResult> Action(int id, string action, string? comment, IFormFile? approvalFile, string? source = null)
+    public async Task<IActionResult> Action(int id, string action, string? comment, IFormFile? approvalFile, string? source = null, List<int>? notificationUserIds = null)
     {
         // Approve / Reject / Clarification are approval actions.
         if (DenyIfNoPerm("Requests", Perm.Approve) is { } rp) return rp;
@@ -331,7 +335,8 @@ public class RequestsController : BaseCtrl
             }
         }
         var maxFileMb = int.Parse(_cfg["AppSettings:MaxFileUploadMB"] ?? "20");
-        var (ok, err) = await _svc.ProcessActionAsync(id, UserId, action, comment, approvalFile, GetStoragePath(), maxFileMb);
+        // notificationUserIds = optional "Notification To" recipients; validated in the service.
+        var (ok, err) = await _svc.ProcessActionAsync(id, UserId, action, comment, approvalFile, GetStoragePath(), maxFileMb, notificationUserIds);
         if (ok) Ok($"Action '{action}' recorded."); else Err(err!);
         // The action failed → the request still needs attention, so stay on it. Succeeded →
         // mobile returns to the pending list (the item has left it); desktop stays put as before.

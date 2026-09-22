@@ -10,7 +10,9 @@ public interface IRequestService
     Task<(bool ok, string? err, int id)> CreateAsync(RequestFormVM vm, int userId);
     Task<(bool ok, string? err)> UpdateAsync(RequestFormVM vm, int userId);
     Task<(bool ok, string? err)> SubmitAsync(int requestId, int userId);
-    Task<(bool ok, string? err)> ProcessActionAsync(int requestId, int userId, string action, string? comment, IFormFile? approvalFile = null, string? storagePath = null, int maxFileMb = 20);
+    Task<(bool ok, string? err)> ProcessActionAsync(int requestId, int userId, string action, string? comment, IFormFile? approvalFile = null, string? storagePath = null, int maxFileMb = 20, IReadOnlyCollection<int>? notificationUserIds = null);
+    // Active users (id + name only) offered in the approval panel's optional "Notification To" picker.
+    Task<List<(int UserId, string FullName)>> GetNotificationUserOptionsAsync(int excludeUserId);
     Task<(bool ok, string? err)> SubmitClarificationResponseAsync(int requestId, int userId, string remarks, IFormFile? file = null, string? storagePath = null, int maxFileMb = 20);
     Task<(bool ok, string? err)> RevokeRequestAsync(int requestId, int userId, string remark);
     Task<(bool ok, string? err)> AttachApprovalRemarkAsync(int requestId, int userId, string remark);
@@ -845,7 +847,8 @@ public class RequestService : IRequestService
 
     public async Task<(bool ok, string? err)> ProcessActionAsync(
         int requestId, int userId, string action, string? comment,
-        IFormFile? approvalFile = null, string? storagePath = null, int maxFileMb = 20)
+        IFormFile? approvalFile = null, string? storagePath = null, int maxFileMb = 20,
+        IReadOnlyCollection<int>? notificationUserIds = null)
     {
         // Comment rules (identical for every level): Approve optional, Reject & Clarification mandatory.
         if (action == "rejected" && string.IsNullOrWhiteSpace(comment))
@@ -967,6 +970,45 @@ public class RequestService : IRequestService
             }
         }
 
+        // Notification To (optional, per action): extra FYI recipients hand-picked by the
+        // acting approver in the approval panel. They are pure observers — never approvers,
+        // never part of the workflow. Applies identically to Approve / Reject / Clarification.
+        // Posted ids are resolved server-side against ACTIVE users only, and anyone this
+        // action already notifies (requestor, actor, next approver, observer roles) is
+        // dropped so no user receives the same notification twice. Like the observer-role
+        // alert above, any failure here must never block the core approval transaction.
+        var notifToEventLabel = action switch
+        {
+            "rejected" => "Rejected",
+            "clarification" => "Clarification Requested",
+            _ => notifEventLabel
+        };
+        var notifToUsers = new List<User>();
+        if (notificationUserIds is { Count: > 0 })
+        {
+            try
+            {
+                var alreadyNotified = new HashSet<int>(notifRoleUsers.Select(u => u.UserId)) { r.RequestorId, userId };
+                if (notifExcludeUserId.HasValue) alreadyNotified.Add(notifExcludeUserId.Value);
+                var ids = notificationUserIds.Distinct().Where(i => i > 0 && !alreadyNotified.Contains(i)).ToList();
+                if (ids.Count > 0)
+                    notifToUsers = await _db.Users
+                        .Where(u => ids.Contains(u.UserId) && u.Status == "active")
+                        .ToListAsync();
+                if (notifToUsers.Count > 0)
+                {
+                    notifViewToken ??= await GetOrCreateViewTokenAsync(requestId);
+                    QueueNotificationRoleAlerts(requestId, r.RequestNumber, notifToUsers, notifToEventLabel,
+                        _urlSvc.GetRequestViewLinksText(notifViewToken), comment);
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.LogError(ex, "ProcessAction: Notification To resolution failed RequestId={Id} Action={Action}", requestId, action);
+                notifToUsers = new List<User>();
+            }
+        }
+
         r.Status = newStatus;
         _db.RequestActionLogs.Add(new RequestActionLog
         {
@@ -1028,6 +1070,16 @@ public class RequestService : IRequestService
                 foreach (var u in notifRoleUsers)
                     await _wa.SendNotificationRoleAlertAsync(
                         requestId, u.UserId, notifEventLabel, inOfficeUrl, outOfOfficeUrl, acting.StepLevel);
+            }
+
+            // Notification To recipients get the same notification_alert card (already
+            // de-duplicated against every recipient above, so nobody receives it twice).
+            if (notifToUsers.Count > 0 && notifViewToken != null)
+            {
+                var (inOfficeUrl, outOfOfficeUrl) = _urlSvc.GetRequestViewUrlPair(notifViewToken);
+                foreach (var u in notifToUsers)
+                    await _wa.SendNotificationRoleAlertAsync(
+                        requestId, u.UserId, notifToEventLabel, inOfficeUrl, outOfOfficeUrl, acting.StepLevel);
             }
         }
         catch (Exception ex)
@@ -1496,16 +1548,32 @@ public class RequestService : IRequestService
             .ToListAsync();
     }
 
-    private void QueueNotificationRoleAlerts(int requestId, string requestNumber, List<User> recipients, string eventLabel, string viewLink)
+    // remarks is only supplied by the Notification To path — observer-role alerts pass
+    // nothing, so their message text is exactly what it was before.
+    private void QueueNotificationRoleAlerts(int requestId, string requestNumber, List<User> recipients, string eventLabel, string viewLink, string? remarks = null)
     {
+        var remarkText = string.IsNullOrWhiteSpace(remarks) ? "" : $" Remarks: {remarks.Trim()}.";
         foreach (var u in recipients)
             _db.Notifications.Add(new Notification
             {
                 UserId = u.UserId,
                 RequestId = requestId,
                 NotificationType = "fyi",
-                Message = $"{eventLabel}: Request {requestNumber}. View: {viewLink}"
+                Message = $"{eventLabel}: Request {requestNumber}.{remarkText} View: {viewLink}"
             });
+    }
+
+    // Picker source for the approval panel's "Notification To" field: ACTIVE users only
+    // (same rule as ResolveNotificationRoleUsersAsync), minus the acting approver, and only
+    // the two fields the browser needs — nothing sensitive leaves the server.
+    public async Task<List<(int UserId, string FullName)>> GetNotificationUserOptionsAsync(int excludeUserId)
+    {
+        var rows = await _db.Users.AsNoTracking()
+            .Where(u => u.Status == "active" && u.UserId != excludeUserId)
+            .OrderBy(u => u.FullName)
+            .Select(u => new { u.UserId, u.FullName })
+            .ToListAsync();
+        return rows.Select(u => (u.UserId, u.FullName)).ToList();
     }
 
     // Returns the request's view TOKEN. Callers turn it into whatever shape they need —
